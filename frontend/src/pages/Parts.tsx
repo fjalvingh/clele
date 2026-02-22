@@ -28,6 +28,14 @@ const emptyForm = (): PartRequest => ({
   categoryId: null,
 });
 
+// Split "64 KB" → ["64", "KB"] given units list; falls back to [value, first unit]
+function parseMultiUnit(value: string, units: string[]): [string, string] {
+  for (const u of units) {
+    if (value.endsWith(' ' + u)) return [value.slice(0, -(u.length + 1)), u];
+  }
+  return [value, units[0] ?? ''];
+}
+
 // Render a single spec input based on its type
 function SpecField({
   spec,
@@ -73,10 +81,36 @@ function SpecField({
   }
 
   if (spec.dataType === 'NUMBER') {
+    const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
+    const isMulti = units.length > 1;
+    if (isMulti) {
+      const [numPart, unitPart] = parseMultiUnit(value, units);
+      return (
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700">{spec.name}</label>
+          <div className="mt-1 flex gap-2">
+            <input
+              type="number"
+              step="any"
+              value={numPart}
+              onChange={(e) => onChange(e.target.value ? e.target.value + ' ' + unitPart : '')}
+              className="block flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <select
+              value={unitPart}
+              onChange={(e) => onChange(numPart ? numPart + ' ' + e.target.value : '')}
+              className="rounded-md border border-gray-300 px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              {units.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700">
-          {spec.name}{spec.unit ? ` (${spec.unit})` : ''}
+          {spec.name}{units[0] ? ` (${units[0]})` : ''}
         </label>
         <input
           type="number"

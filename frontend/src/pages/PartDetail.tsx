@@ -36,10 +36,14 @@ function SpecValue({ spec, value }: { spec: SpecDefinition; value: string }) {
       </span>
     );
   }
-  if (spec.dataType === 'NUMBER' && spec.unit) {
+  if (spec.dataType === 'NUMBER') {
+    const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
+    // Multi-unit: value already contains the chosen unit (e.g. "64 KB") — display as-is
+    // Single unit: append the fixed unit suffix
+    const display = units.length > 1 ? value : (units[0] ? `${value} ${units[0]}` : value);
     return (
       <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
-        <span className="font-medium">{spec.name}:</span> {value} {spec.unit}
+        <span className="font-medium">{spec.name}:</span> {display}
       </span>
     );
   }

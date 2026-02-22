@@ -217,10 +217,10 @@ export default function SpecDefinitionsPage() {
 
         {form.dataType === 'NUMBER' && (
           <FormField
-            label="Unit"
+            label="Unit — or comma-separated list for a selector"
             value={form.unit ?? ''}
             onChange={(e) => setForm({ ...form, unit: e.target.value })}
-            placeholder="e.g. V, mA, Ω, pF"
+            placeholder="e.g. V  or  B,KB,MB,GB"
           />
         )}
 

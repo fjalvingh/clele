@@ -492,15 +492,63 @@ export default function QuickAddPage() {
                       </div>
                     );
                   }
+                  if (spec.dataType === 'NUMBER') {
+                    const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
+                    const isMulti = units.length > 1;
+                    const currentVal = specValues[spec.name] ?? '';
+                    if (isMulti) {
+                      let numPart = currentVal, unitPart = units[0] ?? '';
+                      for (const u of units) {
+                        if (currentVal.endsWith(' ' + u)) { numPart = currentVal.slice(0, -(u.length + 1)); unitPart = u; break; }
+                      }
+                      return (
+                        <div key={spec.id} className="mb-4">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="number"
+                              step="any"
+                              value={numPart}
+                              onChange={(e) =>
+                                setSpecValues((prev) => ({ ...prev, [spec.name]: e.target.value ? e.target.value + ' ' + unitPart : '' }))
+                              }
+                              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                            <select
+                              value={unitPart}
+                              onChange={(e) =>
+                                setSpecValues((prev) => ({ ...prev, [spec.name]: numPart ? numPart + ' ' + e.target.value : '' }))
+                              }
+                              className="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              {units.map((u) => <option key={u} value={u}>{u}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={spec.id} className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          {spec.name}{units[0] ? ` (${units[0]})` : ''}
+                        </label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={currentVal}
+                          onChange={(e) =>
+                            setSpecValues((prev) => ({ ...prev, [spec.name]: e.target.value }))
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                    );
+                  }
                   return (
                     <div key={spec.id} className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {spec.name}
-                        {spec.dataType === 'NUMBER' && spec.unit ? ` (${spec.unit})` : ''}
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
                       <input
-                        type={spec.dataType === 'NUMBER' ? 'number' : 'text'}
-                        step={spec.dataType === 'NUMBER' ? 'any' : undefined}
+                        type="text"
                         value={specValues[spec.name] ?? ''}
                         onChange={(e) =>
                           setSpecValues((prev) => ({ ...prev, [spec.name]: e.target.value }))
