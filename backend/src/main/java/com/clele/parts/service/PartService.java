@@ -5,7 +5,9 @@ import com.clele.parts.dto.PartRequest;
 import com.clele.parts.model.Category;
 import com.clele.parts.model.Part;
 import com.clele.parts.repository.CategoryRepository;
+import com.clele.parts.repository.PartImageRepository;
 import com.clele.parts.repository.PartRepository;
+import com.clele.parts.repository.StockEntryRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -24,6 +26,8 @@ public class PartService {
 
     private final PartRepository partRepository;
     private final CategoryRepository categoryRepository;
+    private final StockEntryRepository stockEntryRepository;
+    private final PartImageRepository partImageRepository;
 
     public List<PartDTO> search(String search, Long categoryId) {
         String term = (search != null && !search.isBlank()) ? search.toLowerCase() : null;
@@ -66,9 +70,12 @@ public class PartService {
 
     @Transactional
     public void delete(Long id) {
-        Part part = partRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Part not found: " + id));
-        partRepository.delete(part);
+        if (!partRepository.existsById(id)) {
+            throw new EntityNotFoundException("Part not found: " + id);
+        }
+        stockEntryRepository.deleteByPartId(id);
+        partImageRepository.deleteByPartId(id);
+        partRepository.deleteById(id);
     }
 
     public long countAll() {

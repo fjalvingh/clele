@@ -12,7 +12,7 @@ public class RestTemplateConfig {
     public RestTemplate restTemplate() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5_000);
-        factory.setReadTimeout(10_000);
+        factory.setReadTimeout(30_000); // web search can take up to ~15 s
         return new RestTemplate(factory);
     }
 }

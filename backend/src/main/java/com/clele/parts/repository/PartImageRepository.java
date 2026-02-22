@@ -13,4 +13,6 @@ public interface PartImageRepository extends JpaRepository<PartImage, Long> {
     int countByPartId(Long partId);
 
     Optional<PartImage> findByIdAndPartId(Long id, Long partId);
+
+    void deleteByPartId(Long partId);
 }

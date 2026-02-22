@@ -41,20 +41,22 @@ public class AiPartSearchService {
             """;
 
     private static final String SYSTEM_PROMPT = """
-            You are an electronic components database assistant. When given a component search query \
-            (part number, description, or type), return a JSON array of up to 10 matching real \
-            electronic components.
+            You are an electronic components database assistant. \
+            Use web search to look up accurate information about the requested component from \
+            Mouser, DigiKey, manufacturer datasheets, or other authoritative sources before responding.
 
             Return ONLY a valid JSON array with no markdown formatting, no code blocks, no explanation. \
             Each object must have these fields:
             - mpn: manufacturer part number (string, required)
             - manufacturer: manufacturer name (string or null)
             - shortDescription: brief one-line description (string or null)
-            - datasheetUrl: datasheet URL only if you are certain it is accurate (string or null)
+            - datasheetUrl: datasheet URL found in search results (string or null)
             - category: component category such as "Transistors" or "Logic ICs" (string or null)
-            - specs: array of "Name: Value" strings for key specifications, e.g. ["Vcc: 5V", "Package: DIP-8"]
+            - specs: array of "Name: Value" strings for verified key specifications, \
+              e.g. ["Package: DIP-16", "Supply Voltage: 3–18V", "Channels: 4"]
 
-            Only include real, well-known components with accurate data. \
+            Be precise: verify the correct package type, pin count, and function from the search results. \
+            Only include real components with accurate, search-verified data. \
             If no components match, return an empty array [].
             """;
 
@@ -77,11 +79,13 @@ public class AiPartSearchService {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("x-api-key", apiKey);
         headers.set("anthropic-version", API_VERSION);
+        headers.set("anthropic-beta", "web-search-2025-03-05");
 
         Map<String, Object> body = Map.of(
                 "model", model,
-                "max_tokens", 2048,
+                "max_tokens", 4096,
                 "system", SYSTEM_PROMPT,
+                "tools", List.of(Map.of("type", "web_search_20250305", "name", "web_search")),
                 "messages", List.of(Map.of("role", "user", "content", query))
         );
 
@@ -112,7 +116,15 @@ public class AiPartSearchService {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Anthropic API error: " + msg);
         }
 
-        String text = root.path("content").get(0).path("text").asText("").strip();
+        // With web search enabled the content array contains tool_use blocks before the
+        // final text block — find the last text-type block.
+        String text = null;
+        for (JsonNode item : root.path("content")) {
+            if ("text".equals(item.path("type").asText(""))) {
+                text = item.path("text").asText("").strip();
+            }
+        }
+        if (text == null || text.isBlank()) return List.of();
 
         // Strip markdown code block if the model wraps the JSON anyway
         if (text.startsWith("```")) {

@@ -17,6 +17,8 @@ public interface StockEntryRepository extends JpaRepository<StockEntry, Long> {
     @Query("SELECT COUNT(DISTINCT s) FROM StockEntry s WHERE s.quantity < s.minimumQuantity")
     long countLowStock();
 
+    void deleteByPartId(Long partId);
+
     boolean existsByPartIdAndLocationId(Long partId, Long locationId);
 
     boolean existsByPartIdAndLocationIdAndIdNot(Long partId, Long locationId, Long id);
