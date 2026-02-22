@@ -2,7 +2,9 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.*;
 import com.clele.parts.model.Category;
+import com.clele.parts.model.SpecDefinition;
 import com.clele.parts.repository.CategoryRepository;
+import com.clele.parts.repository.SpecDefinitionRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,6 +22,7 @@ import java.util.stream.Collectors;
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
+    private final SpecDefinitionRepository specDefinitionRepository;
 
     public List<CategoryDTO> findAll() {
         return categoryRepository.findAll().stream()
@@ -58,6 +61,7 @@ public class CategoryService {
                     .orElseThrow(() -> new EntityNotFoundException("Parent category not found: " + request.getParentId()));
             category.setParent(parent);
         }
+        applySpecIds(category, request.getSpecIds());
         return toDTO(categoryRepository.save(category));
     }
 
@@ -77,6 +81,9 @@ public class CategoryService {
         } else {
             category.setParent(null);
         }
+        if (request.getSpecIds() != null) {
+            applySpecIds(category, request.getSpecIds());
+        }
         return toDTO(categoryRepository.save(category));
     }
 
@@ -95,6 +102,15 @@ public class CategoryService {
         categoryRepository.delete(category);
     }
 
+    private void applySpecIds(Category category, List<Long> specIds) {
+        if (specIds == null) {
+            category.setSpecs(new ArrayList<>());
+            return;
+        }
+        List<SpecDefinition> specs = specDefinitionRepository.findAllById(specIds);
+        category.setSpecs(specs);
+    }
+
     private String buildBreadcrumb(Category category) {
         List<String> parts = new ArrayList<>();
         Category current = category;
@@ -106,6 +122,9 @@ public class CategoryService {
     }
 
     private CategoryDTO toDTO(Category category) {
+        List<Long> specIds = category.getSpecs().stream()
+                .map(SpecDefinition::getId)
+                .collect(Collectors.toList());
         return CategoryDTO.builder()
                 .id(category.getId())
                 .name(category.getName())
@@ -113,6 +132,7 @@ public class CategoryService {
                 .parentId(category.getParent() != null ? category.getParent().getId() : null)
                 .parentName(category.getParent() != null ? category.getParent().getName() : null)
                 .breadcrumb(buildBreadcrumb(category))
+                .specIds(specIds)
                 .build();
     }
 

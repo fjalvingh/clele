@@ -8,11 +8,12 @@ import {
   getPart,
   getPartImages,
   getPartStock,
+  getSpecsForCategory,
   partImageUrl,
   updateStockEntry,
   uploadPartImage,
 } from '../api';
-import type { Location, Part, PartImage, StockEntry, StockEntryRequest } from '../api/types';
+import type { Location, Part, PartImage, SpecDefinition, StockEntry, StockEntryRequest } from '../api/types';
 import Badge from '../components/Badge';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
@@ -26,6 +27,29 @@ const emptyStockForm = (partId: number): StockEntryRequest => ({
   minimumQuantity: 0,
 });
 
+function SpecValue({ spec, value }: { spec: SpecDefinition; value: string }) {
+  if (spec.dataType === 'BOOLEAN') {
+    return (
+      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+        <span className="font-medium">{spec.name}:</span>{' '}
+        {value === 'true' ? '✓' : '✗'}
+      </span>
+    );
+  }
+  if (spec.dataType === 'NUMBER' && spec.unit) {
+    return (
+      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+        <span className="font-medium">{spec.name}:</span> {value} {spec.unit}
+      </span>
+    );
+  }
+  return (
+    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
+      <span className="font-medium">{spec.name}:</span> {value}
+    </span>
+  );
+}
+
 export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -35,6 +59,7 @@ export default function PartDetailPage() {
   const [stock, setStock] = useState<StockEntry[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [images, setImages] = useState<PartImage[]>([]);
+  const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,6 +80,10 @@ export default function PartDetailPage() {
         setStock(s);
         setLocations(l);
         setImages(imgs);
+        // Fetch spec definitions best-effort — don't fail if unavailable
+        getSpecsForCategory(p.categoryId ?? null)
+          .then(setSpecDefs)
+          .catch(() => setSpecDefs([]));
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -178,6 +207,20 @@ export default function PartDetailPage() {
   if (!part) return null;
 
   const primaryImage = images[0] ?? null;
+
+  // Build spec display: use definitions where available, fall back to raw keys for unmatched
+  const specDefsMap = new Map(specDefs.map((d) => [d.name, d]));
+  const partSpecs = part.specs ?? {};
+
+  // Defined specs that have a value
+  const definedSpecEntries = specDefs
+    .filter((d) => partSpecs[d.name] !== undefined && partSpecs[d.name] !== '')
+    .map((d) => ({ spec: d, value: partSpecs[d.name] }));
+
+  // Raw keys not covered by any definition
+  const unmatchedEntries = Object.entries(partSpecs).filter(
+    ([k, v]) => !specDefsMap.has(k) && v !== ''
+  );
 
   return (
     <div className="p-8">
@@ -307,11 +350,14 @@ export default function PartDetailPage() {
             </div>
 
             {/* Specs */}
-            {part.specs && Object.keys(part.specs).length > 0 && (
+            {(definedSpecEntries.length > 0 || unmatchedEntries.length > 0) && (
               <div className="mt-4">
                 <h3 className="mb-2 text-sm font-semibold text-gray-700">Specifications</h3>
                 <div className="flex flex-wrap gap-2">
-                  {Object.entries(part.specs).map(([k, v]) => (
+                  {definedSpecEntries.map(({ spec, value }) => (
+                    <SpecValue key={spec.id} spec={spec} value={value} />
+                  ))}
+                  {unmatchedEntries.map(([k, v]) => (
                     <span
                       key={k}
                       className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700"

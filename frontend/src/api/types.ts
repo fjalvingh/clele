@@ -1,3 +1,20 @@
+export interface SpecDefinition {
+  id: number;
+  name: string;
+  dataType: string; // TEXT | NUMBER | BOOLEAN | SELECT
+  unit?: string;
+  options?: string[];
+  displayOrder: number;
+}
+
+export interface SpecDefinitionRequest {
+  name: string;
+  dataType: string;
+  unit?: string;
+  options?: string[];
+  displayOrder: number;
+}
+
 export interface Category {
   id: number;
   name: string;
@@ -5,6 +22,7 @@ export interface Category {
   parentId?: number;
   parentName?: string;
   breadcrumb: string;
+  specIds?: number[];
 }
 
 export interface CategoryTree {
@@ -19,6 +37,7 @@ export interface CategoryRequest {
   name: string;
   description?: string;
   parentId?: number | null;
+  specIds?: number[];
 }
 
 export interface Part {
@@ -28,7 +47,7 @@ export interface Part {
   description?: string;
   manufacturer?: string;
   datasheetUrl?: string;
-  specs?: Record<string, unknown>;
+  specs?: Record<string, string>;
   categoryId?: number;
   categoryName?: string;
   categoryBreadcrumb?: string;
@@ -42,7 +61,7 @@ export interface PartRequest {
   description?: string;
   manufacturer?: string;
   datasheetUrl?: string;
-  specs?: Record<string, unknown>;
+  specs?: Record<string, string>;
   categoryId?: number | null;
 }
 

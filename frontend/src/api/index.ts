@@ -13,6 +13,8 @@ import type {
   PartSearchResult,
   QuickAddRequest,
   QuickAddResponse,
+  SpecDefinition,
+  SpecDefinitionRequest,
   StockEntry,
   StockEntryRequest,
 } from './types';
@@ -118,6 +120,24 @@ export const partImageUrl = (partId: number, imageId: number) =>
 
 export const addPartImageFromUrl = (partId: number, url: string) =>
   client.post<PartImage>(`/parts/${partId}/images/from-url`, { url }).then((r) => r.data);
+
+// Spec Definitions
+export const getSpecDefinitions = () =>
+  client.get<SpecDefinition[]>('/spec-definitions').then((r) => r.data);
+
+export const createSpecDefinition = (data: SpecDefinitionRequest) =>
+  client.post<SpecDefinition>('/spec-definitions', data).then((r) => r.data);
+
+export const updateSpecDefinition = (id: number, data: SpecDefinitionRequest) =>
+  client.put<SpecDefinition>(`/spec-definitions/${id}`, data).then((r) => r.data);
+
+export const deleteSpecDefinition = (id: number) =>
+  client.delete(`/spec-definitions/${id}`);
+
+export const getSpecsForCategory = (categoryId: number | null) =>
+  categoryId != null
+    ? client.get<SpecDefinition[]>(`/spec-definitions/for-category/${categoryId}`).then((r) => r.data)
+    : client.get<SpecDefinition[]>('/spec-definitions').then((r) => r.data);
 
 // Part search (AI-powered)
 export const searchPartsOnline = (q: string) =>

@@ -2,6 +2,8 @@ package com.clele.parts.dto;
 
 import lombok.*;
 
+import java.util.List;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -13,4 +15,5 @@ public class CategoryDTO {
     private Long parentId;
     private String parentName;
     private String breadcrumb;
+    private List<Long> specIds;
 }

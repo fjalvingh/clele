@@ -7,6 +7,7 @@ import LowStockPage from './pages/LowStock';
 import PartDetailPage from './pages/PartDetail';
 import PartsPage from './pages/Parts';
 import QuickAddPage from './pages/QuickAdd';
+import SpecDefinitionsPage from './pages/SpecDefinitions';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="parts/:id" element={<PartDetailPage />} />
           <Route path="quick-add" element={<QuickAddPage />} />
           <Route path="categories" element={<CategoriesPage />} />
+          <Route path="specs" element={<SpecDefinitionsPage />} />
           <Route path="locations" element={<LocationsPage />} />
           <Route path="low-stock" element={<LowStockPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -3,6 +3,8 @@ package com.clele.parts.dto;
 import jakarta.validation.constraints.NotBlank;
 import lombok.*;
 
+import java.util.List;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -14,4 +16,6 @@ public class CategoryRequest {
     private String description;
 
     private Long parentId;
+
+    private List<Long> specIds;
 }

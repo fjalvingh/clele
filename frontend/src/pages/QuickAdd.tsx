@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { addPartImageFromUrl, getLocations, quickAddPart, searchPartImages, searchPartsOnline } from '../api';
-import type { ImageSuggestion, Location, PartSearchResult, QuickAddRequest } from '../api/types';
+import { addPartImageFromUrl, getLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline } from '../api';
+import type { ImageSuggestion, Location, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ interface ConfirmForm {
   quantity: string;
   minimumQuantity: string;
   unitPrice: string;
-  // raw specs from search result (kept for payload)
+  // raw specs from search result (kept for pre-filling)
   specsRaw: string[];
 }
 
@@ -162,6 +162,10 @@ export default function QuickAddPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Spec fields (no category for quick-add; show all definitions)
+  const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
+  const [specValues, setSpecValues] = useState<Record<string, string>>({});
+
   // Image suggestions
   const [imageSuggestions, setImageSuggestions] = useState<ImageSuggestion[]>([]);
   const [imagesLoading, setImagesLoading] = useState(false);
@@ -169,13 +173,30 @@ export default function QuickAddPage() {
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
   const [imageQuery, setImageQuery] = useState('');
 
-  // Load locations when entering step 3
+  // Load locations + all spec definitions when entering step 3
   useEffect(() => {
     if (step !== 3) return;
     setLocLoading(true);
-    getLocations()
-      .then(setLocations)
+    Promise.all([getLocations(), getSpecDefinitions()])
+      .then(([locs, defs]) => {
+        setLocations(locs);
+        setSpecDefs(defs);
+        // Pre-fill spec values from AI specsRaw (name: value format)
+        const aiSpecs: Record<string, string> = {};
+        for (const s of form.specsRaw) {
+          const idx = s.indexOf(': ');
+          if (idx !== -1) {
+            aiSpecs[s.slice(0, idx)] = s.slice(idx + 2);
+          }
+        }
+        const prefilled: Record<string, string> = {};
+        for (const def of defs) {
+          prefilled[def.name] = aiSpecs[def.name] ?? '';
+        }
+        setSpecValues(prefilled);
+      })
       .finally(() => setLocLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   // ── Step 1 handlers ──────────────────────────────────────────────────────
@@ -216,6 +237,7 @@ export default function QuickAddPage() {
     setFailedImageUrls(new Set());
     setImageSuggestions([]);
     setImageQuery(result.mpn);
+    setSpecValues({});
     setStep(3);
 
     // Kick off image search in the background so results are ready by the time the user submits
@@ -249,12 +271,12 @@ export default function QuickAddPage() {
     setSaving(true);
     setSaveError(null);
 
-    // Convert specs: ["Name: Value", ...] → { Name: Value, ... }
+    // Only include spec values that match a definition and are non-empty
     const specs: Record<string, string> = {};
-    for (const s of form.specsRaw) {
-      const idx = s.indexOf(': ');
-      if (idx !== -1) {
-        specs[s.slice(0, idx)] = s.slice(idx + 2);
+    for (const def of specDefs) {
+      const v = specValues[def.name];
+      if (v !== undefined && v !== '') {
+        specs[def.name] = v;
       }
     }
 
@@ -419,6 +441,78 @@ export default function QuickAddPage() {
               </div>
             </div>
           </div>
+
+          {/* Spec fields */}
+          {!locLoading && specDefs.length > 0 && (
+            <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">Specifications</h2>
+              <p className="text-xs text-gray-400 mb-4">
+                Pre-filled from AI search results where names match. No category assigned yet.
+              </p>
+              <div className="grid grid-cols-2 gap-x-4">
+                {specDefs.map((spec) => {
+                  if (spec.dataType === 'BOOLEAN') {
+                    return (
+                      <div key={spec.id} className="mb-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={specValues[spec.name] === 'true'}
+                            onChange={(e) =>
+                              setSpecValues((prev) => ({
+                                ...prev,
+                                [spec.name]: e.target.checked ? 'true' : 'false',
+                              }))
+                            }
+                            className="rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm font-medium text-gray-700">{spec.name}</span>
+                        </label>
+                      </div>
+                    );
+                  }
+                  if (spec.dataType === 'SELECT' && spec.options && spec.options.length > 0) {
+                    return (
+                      <div key={spec.id} className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          {spec.name}
+                        </label>
+                        <select
+                          value={specValues[spec.name] ?? ''}
+                          onChange={(e) =>
+                            setSpecValues((prev) => ({ ...prev, [spec.name]: e.target.value }))
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                          <option value="">— Select —</option>
+                          {spec.options.map((opt) => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={spec.id} className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {spec.name}
+                        {spec.dataType === 'NUMBER' && spec.unit ? ` (${spec.unit})` : ''}
+                      </label>
+                      <input
+                        type={spec.dataType === 'NUMBER' ? 'number' : 'text'}
+                        step={spec.dataType === 'NUMBER' ? 'any' : undefined}
+                        value={specValues[spec.name] ?? ''}
+                        onChange={(e) =>
+                          setSpecValues((prev) => ({ ...prev, [spec.name]: e.target.value }))
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Stock details */}
           <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">

@@ -5,6 +5,7 @@ const navItems = [
   { to: '/parts', label: 'Parts', icon: '🔧' },
   { to: '/quick-add', label: 'Quick Add', icon: '🔍' },
   { to: '/categories', label: 'Categories', icon: '📁' },
+  { to: '/specs', label: 'Spec Fields', icon: '🏷️' },
   { to: '/locations', label: 'Locations', icon: '📍' },
   { to: '/low-stock', label: 'Low Stock', icon: '⚠️' },
 ];

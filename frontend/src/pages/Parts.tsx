@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { createPart, deletePart, getCategories, getCategoryTree, getParts, updatePart } from '../api';
-import type { Category, CategoryTree, Part, PartRequest } from '../api/types';
+import { createPart, deletePart, getCategories, getCategoryTree, getParts, getSpecsForCategory, updatePart } from '../api';
+import type { Category, CategoryTree, Part, PartRequest, SpecDefinition } from '../api/types';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
@@ -28,6 +28,81 @@ const emptyForm = (): PartRequest => ({
   categoryId: null,
 });
 
+// Render a single spec input based on its type
+function SpecField({
+  spec,
+  value,
+  onChange,
+}: {
+  spec: SpecDefinition;
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  if (spec.dataType === 'BOOLEAN') {
+    return (
+      <div className="mb-4">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={value === 'true'}
+            onChange={(e) => onChange(e.target.checked ? 'true' : 'false')}
+            className="rounded border-gray-300 text-blue-600"
+          />
+          <span className="text-sm font-medium text-gray-700">{spec.name}</span>
+        </label>
+      </div>
+    );
+  }
+
+  if (spec.dataType === 'SELECT' && spec.options && spec.options.length > 0) {
+    return (
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700">{spec.name}</label>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="">— Select —</option>
+          {spec.options.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  if (spec.dataType === 'NUMBER') {
+    return (
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700">
+          {spec.name}{spec.unit ? ` (${spec.unit})` : ''}
+        </label>
+        <input
+          type="number"
+          step="any"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+      </div>
+    );
+  }
+
+  // TEXT (default)
+  return (
+    <div className="mb-4">
+      <label className="block text-sm font-medium text-gray-700">{spec.name}</label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      />
+    </div>
+  );
+}
+
 export default function PartsPage() {
   const [parts, setParts] = useState<Part[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -39,7 +114,8 @@ export default function PartsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);
   const [form, setForm] = useState<PartRequest>(emptyForm());
-  const [specsText, setSpecsText] = useState('{}');
+  const [specValues, setSpecValues] = useState<Record<string, string>>({});
+  const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -61,6 +137,25 @@ export default function PartsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // When modal category changes, reload spec definitions
+  useEffect(() => {
+    if (!modalOpen) return;
+    getSpecsForCategory(form.categoryId ?? null)
+      .then((defs) => {
+        setSpecDefs(defs);
+        // Preserve existing values for matching keys; clear unmatched keys
+        setSpecValues((prev) => {
+          const next: Record<string, string> = {};
+          for (const def of defs) {
+            next[def.name] = prev[def.name] ?? '';
+          }
+          return next;
+        });
+      })
+      .catch(() => setSpecDefs([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.categoryId, modalOpen]);
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     loadParts(search || undefined, filterCategoryId);
@@ -68,15 +163,17 @@ export default function PartsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyForm());
-    setSpecsText('{}');
+    const f = emptyForm();
+    setForm(f);
+    setSpecValues({});
+    setSpecDefs([]);
     setFormError(null);
     setModalOpen(true);
   };
 
   const openEdit = (part: Part) => {
     setEditing(part);
-    setForm({
+    const f: PartRequest = {
       partNumber: part.partNumber,
       name: part.name,
       description: part.description ?? '',
@@ -84,8 +181,14 @@ export default function PartsPage() {
       datasheetUrl: part.datasheetUrl ?? '',
       specs: part.specs ?? {},
       categoryId: part.categoryId ?? null,
-    });
-    setSpecsText(JSON.stringify(part.specs ?? {}, null, 2));
+    };
+    setForm(f);
+    // Populate spec values from existing part specs; spec defs will be fetched by the effect
+    const existing: Record<string, string> = {};
+    for (const [k, v] of Object.entries(part.specs ?? {})) {
+      existing[k] = String(v);
+    }
+    setSpecValues(existing);
     setFormError(null);
     setModalOpen(true);
   };
@@ -93,15 +196,14 @@ export default function PartsPage() {
   const handleSave = async () => {
     setSaving(true);
     setFormError(null);
-    let parsedSpecs: Record<string, unknown> = {};
-    try {
-      parsedSpecs = JSON.parse(specsText || '{}');
-    } catch {
-      setFormError('Specs must be valid JSON');
-      setSaving(false);
-      return;
+    // Only include spec values for keys present in current spec definitions
+    const filteredSpecs: Record<string, string> = {};
+    for (const def of specDefs) {
+      if (specValues[def.name] !== undefined && specValues[def.name] !== '') {
+        filteredSpecs[def.name] = specValues[def.name];
+      }
     }
-    const payload: PartRequest = { ...form, specs: parsedSpecs };
+    const payload: PartRequest = { ...form, specs: filteredSpecs };
     try {
       if (editing) {
         await updatePart(editing.id, payload);
@@ -279,18 +381,27 @@ export default function PartsPage() {
               </option>
             ))}
           </FormField>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700">
-              Specs (JSON)
-            </label>
-            <textarea
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 font-mono text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              rows={4}
-              value={specsText}
-              onChange={(e) => setSpecsText(e.target.value)}
-              placeholder='{"voltage": "5V", "current": "100mA"}'
-            />
-          </div>
+
+          {/* Dynamic spec fields */}
+          {specDefs.length > 0 ? (
+            <div className="mt-2">
+              <p className="mb-2 text-sm font-medium text-gray-700">Specifications</p>
+              {specDefs.map((spec) => (
+                <SpecField
+                  key={spec.id}
+                  spec={spec}
+                  value={specValues[spec.name] ?? ''}
+                  onChange={(val) => setSpecValues((prev) => ({ ...prev, [spec.name]: val }))}
+                />
+              ))}
+            </div>
+          ) : (
+            form.categoryId !== null && (
+              <p className="mb-4 text-xs text-gray-400">
+                No spec fields defined for this category.
+              </p>
+            )
+          )}
         </div>
         {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
         <div className="flex justify-end gap-3 pt-2">
