@@ -2,6 +2,8 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.ImageSuggestionDTO;
 import com.clele.parts.dto.PartSearchResultDTO;
+import com.clele.parts.model.SpecDefinition;
+import com.clele.parts.repository.SpecDefinitionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +24,7 @@ import java.util.Map;
 public class AiPartSearchService {
 
     private final DuckDuckGoImageService duckDuckGoImageService;
+    private final SpecDefinitionRepository specDefinitionRepository;
 
     private static final String API_URL = "https://api.anthropic.com/v1/messages";
     private static final String API_VERSION = "2023-06-01";
@@ -40,7 +43,7 @@ public class AiPartSearchService {
             Return [] if you truly have no suggestions.
             """;
 
-    private static final String SYSTEM_PROMPT = """
+    private static final String SYSTEM_PROMPT_TEMPLATE = """
             You are an electronic components database assistant. \
             Use web search to look up accurate information about the requested component from \
             Mouser, DigiKey, manufacturer datasheets, or other authoritative sources before responding.
@@ -52,8 +55,17 @@ public class AiPartSearchService {
             - shortDescription: brief one-line description (string or null)
             - datasheetUrl: datasheet URL found in search results (string or null)
             - category: component category such as "Transistors" or "Logic ICs" (string or null)
-            - specs: array of "Name: Value" strings for verified key specifications, \
-              e.g. ["Package: DIP-16", "Supply Voltage: 3–18V", "Channels: 4"]
+            - specs: array of "Name: Value" strings for verified key specifications
+
+            IMPORTANT: For spec names you MUST use EXACTLY these predefined names when applicable \
+            (use only the numeric value without repeating the unit that is already in the name):
+            %s
+
+            Only include specs where you have a verified value. \
+            For SELECT-type specs, use one of the allowed option values listed in parentheses. \
+            For NUMBER specs with multiple unit options shown after the name, append the unit to the value \
+            (e.g. "Capacitance: 100 nF", "Resistance: 4.7 kΩ"). \
+            For NUMBER specs with a single unit, just provide the numeric value.
 
             Be precise: verify the correct package type, pin count, and function from the search results. \
             Only include real components with accurate, search-verified data. \
@@ -84,7 +96,7 @@ public class AiPartSearchService {
         Map<String, Object> body = Map.of(
                 "model", model,
                 "max_tokens", 4096,
-                "system", SYSTEM_PROMPT,
+                "system", buildSystemPrompt(),
                 "tools", List.of(Map.of("type", "web_search_20250305", "name", "web_search")),
                 "messages", List.of(Map.of("role", "user", "content", query))
         );
@@ -126,9 +138,18 @@ public class AiPartSearchService {
         }
         if (text == null || text.isBlank()) return List.of();
 
-        // Strip markdown code block if the model wraps the JSON anyway
-        if (text.startsWith("```")) {
+        // Extract JSON array from response — the model may wrap it in markdown fences
+        // and/or prepend explanatory text before the code block.
+        int fenceStart = text.indexOf("```");
+        if (fenceStart >= 0) {
+            text = text.substring(fenceStart);
             text = text.replaceFirst("^```(?:json)?\\s*", "").replaceFirst("```\\s*$", "").strip();
+        } else {
+            // No fence — try to find a bare JSON array
+            int bracketStart = text.indexOf('[');
+            if (bracketStart > 0) {
+                text = text.substring(bracketStart);
+            }
         }
 
         JsonNode array = objectMapper.readTree(text);
@@ -288,6 +309,22 @@ public class AiPartSearchService {
                     .build());
         }
         return results;
+    }
+
+    private String buildSystemPrompt() {
+        List<SpecDefinition> defs = specDefinitionRepository.findAllByOrderByDisplayOrderAscNameAsc();
+        StringBuilder sb = new StringBuilder();
+        for (SpecDefinition def : defs) {
+            sb.append("\n  - \"").append(def.getName()).append("\"");
+            if ("SELECT".equals(def.getDataType()) && def.getOptions() != null) {
+                sb.append("  (options: ").append(def.getOptions()).append(")");
+            } else if ("NUMBER".equals(def.getDataType()) && def.getUnit() != null) {
+                sb.append("  (unit: ").append(def.getUnit()).append(")");
+            } else if ("BOOLEAN".equals(def.getDataType())) {
+                sb.append("  (true/false)");
+            }
+        }
+        return String.format(SYSTEM_PROMPT_TEMPLATE, sb.toString());
     }
 
     private static String nullIfBlank(String s) {

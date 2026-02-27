@@ -177,6 +177,11 @@ export default function QuickAddPage() {
     Promise.all([getLocations(), getSpecDefinitions()])
       .then(([locs, defs]) => {
         setLocations(locs);
+        // Validate remembered locationId still exists
+        const savedLocId = form.locationId;
+        if (savedLocId && !locs.some((l: Location) => String(l.id) === savedLocId)) {
+          setForm((prev) => ({ ...prev, locationId: '' }));
+        }
         setSpecDefs(defs);
         // Pre-fill spec values from AI specsRaw (name: value format)
         const aiSpecs: Record<string, string> = {};
@@ -223,7 +228,7 @@ export default function QuickAddPage() {
       description: result.shortDescription ?? '',
       manufacturer: result.manufacturer ?? '',
       datasheetUrl: result.datasheetUrl ?? '',
-      locationId: '',
+      locationId: localStorage.getItem('quickadd.lastLocationId') ?? '',
       quantity: '1',
       minimumQuantity: '1',
       unitPrice: '',
@@ -292,6 +297,7 @@ export default function QuickAddPage() {
 
     try {
       const response = await quickAddPart(payload);
+      localStorage.setItem('quickadd.lastLocationId', form.locationId);
       const partId = response.part.id;
 
       // Upload selected images: fetch via our same-origin proxy, then upload as multipart.
