@@ -53,17 +53,21 @@ frontend/src/
 - Provider: Anthropic Claude (model configured in `application.yml`, default `claude-haiku-4-5-20251001`)
 - `AiPartSearchService` calls the Anthropic Messages API via RestTemplate (no SDK dependency)
 - `DuckDuckGoImageService` searches for part images via DuckDuckGo
-- AI responses may be wrapped in ```json markdown fences — the service strips these defensively
+- The AI system prompt is built dynamically from `spec_definition` table — spec names, types, units, and SELECT options are included so the AI returns specs using exact database field names for automatic pre-fill
+- AI response parser handles: clean JSON, markdown-fenced JSON, and prose text preceding JSON (extracts from first `[` or ` ``` ` fence)
 
 ## Key Features
 
 - **CRUD** for parts, categories (hierarchical), locations, stock entries
 - **Dashboard** with low stock alerts
 - **Quick Add wizard** (3-step): AI part search → select result → confirm details + stock entry
-  - Image picker fetches suggestions via DuckDuckGo, displays through backend proxy, uploads selected images as multipart blobs
+  - AI returns specs using exact spec definition names → auto-fills spec fields in the confirm step
+  - Image picker fetches suggestions via DuckDuckGo, displays through backend proxy, uploads selected images as multipart blobs (client-side fetch + multipart upload to avoid Cloudflare/CORS issues)
   - Shows error feedback if image uploads fail (with link to navigate to saved part)
+  - Location field defaults to last used location (persisted in `localStorage` key `quickadd.lastLocationId`)
 - **Part images**: upload/delete photos per part (max 5), stored as PNG BYTEA in DB
 - **Spec definitions**: configurable specification fields (text, number, boolean, select) with units; can be associated with categories
+  - Pre-populated with specs for transistors, diodes, capacitors, resistors, and ICs (inserted directly in DB, not via migration)
 - **Part detail page**: image gallery on left, details on right; thumbnail strip; stock entries with unit price; total stock value
 
 ## API Endpoints (all under /api)
