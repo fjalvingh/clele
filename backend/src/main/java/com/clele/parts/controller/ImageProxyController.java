@@ -8,8 +8,6 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
-import java.util.List;
-import java.util.Set;
 
 /**
  * Proxies external image URLs through the backend so the browser is not subject
@@ -17,12 +15,6 @@ import java.util.Set;
  */
 @RestController
 public class ImageProxyController {
-
-    private static final Set<String> ALLOWED_HOSTS = Set.of(
-            "upload.wikimedia.org",
-            "commons.wikimedia.org",
-            "external-content.duckduckgo.com"
-    );
 
     private final RestTemplate restTemplate;
 
@@ -39,17 +31,16 @@ public class ImageProxyController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid URL");
         }
 
-        if (!ALLOWED_HOSTS.contains(uri.getHost())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Host not in allowlist: " + uri.getHost());
+        if (!"https".equals(uri.getScheme()) && !"http".equals(uri.getScheme())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only HTTP(S) URLs allowed");
         }
 
         HttpHeaders outgoing = new HttpHeaders();
         outgoing.set("User-Agent",
-                "Mozilla/5.0 (compatible; CleleBot/1.0; +https://github.com/clele)");
-        outgoing.set("Referer", "https://en.wikipedia.org/");
-        outgoing.setAccept(List.of(MediaType.IMAGE_JPEG, MediaType.IMAGE_PNG,
-                MediaType.IMAGE_GIF, MediaType.ALL));
+                "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0");
+        outgoing.set("Accept", "image/*, */*;q=0.8");
+        outgoing.set("Accept-Language", "en-US,en;q=0.5");
+        outgoing.set("Referer", uri.getScheme() + "://" + uri.getHost() + "/");
 
         ResponseEntity<byte[]> upstream;
         try {

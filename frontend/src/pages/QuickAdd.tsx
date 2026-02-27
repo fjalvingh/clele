@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { addPartImageFromUrl, getLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline } from '../api';
+import { getLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline, uploadPartImage } from '../api';
 import type { ImageSuggestion, Location, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -121,15 +121,11 @@ interface ConfirmForm {
   specsRaw: string[];
 }
 
-const PROXY_HOSTS = ['upload.wikimedia.org', 'commons.wikimedia.org', 'external-content.duckduckgo.com'];
-
 function displayUrl(img: { url: string; thumbnailUrl?: string }) {
   const src = img.thumbnailUrl ?? img.url;
-  try {
-    const host = new URL(src).hostname;
-    if (PROXY_HOSTS.includes(host)) return `/api/image-proxy?url=${encodeURIComponent(src)}`;
-  } catch { /* invalid URL */ }
-  return src;
+  // Proxy all external images through our backend to avoid CORS / tainted canvas
+  // issues and Cloudflare bot-protection blocking server-side downloads.
+  return `/api/image-proxy?url=${encodeURIComponent(src)}`;
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
@@ -161,6 +157,7 @@ export default function QuickAddPage() {
   const [locLoading, setLocLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [createdPartId, setCreatedPartId] = useState<number | null>(null);
 
   // Spec fields (no category for quick-add; show all definitions)
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
@@ -297,13 +294,37 @@ export default function QuickAddPage() {
       const response = await quickAddPart(payload);
       const partId = response.part.id;
 
-      // Upload selected images sequentially; ignore individual failures
-      for (const url of selectedImageUrls) {
+      // Upload selected images: fetch via our same-origin proxy, then upload as multipart.
+      const imageErrors: string[] = [];
+      let imgIndex = 0;
+      for (const originalUrl of selectedImageUrls) {
         try {
-          await addPartImageFromUrl(partId, url);
-        } catch {
-          // best-effort
+          const suggestion = imageSuggestions.find((s) => s.url === originalUrl);
+          const proxyUrl = suggestion ? displayUrl(suggestion) : `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+          const resp = await fetch(proxyUrl);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const blob = await resp.blob();
+          const file = new File([blob], `image-${imgIndex}.png`, { type: blob.type || 'image/png' });
+          await uploadPartImage(partId, file);
+        } catch (imgErr) {
+          imageErrors.push((imgErr as Error).message);
         }
+        imgIndex++;
+      }
+
+      if (imageErrors.length > 0) {
+        const succeeded = selectedImageUrls.size - imageErrors.length;
+        setSaveError(
+          `Part saved, but ${imageErrors.length} photo(s) failed to upload` +
+          (succeeded > 0 ? ` (${succeeded} succeeded)` : '') +
+          `: ${imageErrors[0]}` +
+          (imageErrors.length > 1 ? ` (and ${imageErrors.length - 1} more)` : '') +
+          `. View your part or try uploading photos manually.`
+        );
+        setSaving(false);
+        // Store partId so user can navigate manually
+        setCreatedPartId(partId);
+        return;
       }
 
       navigate(`/parts/${partId}`);
@@ -738,6 +759,15 @@ export default function QuickAddPage() {
           {saveError && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
               {saveError}
+              {createdPartId && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/parts/${createdPartId}`)}
+                  className="ml-2 font-medium text-blue-600 hover:underline"
+                >
+                  View part →
+                </button>
+              )}
             </div>
           )}
 

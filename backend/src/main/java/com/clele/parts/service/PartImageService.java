@@ -7,6 +7,10 @@ import com.clele.parts.repository.PartImageRepository;
 import com.clele.parts.repository.PartRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -22,6 +26,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -103,9 +108,19 @@ public class PartImageService {
     }
 
     private byte[] downloadAndConvertToPng(String url) {
+        log.info("Downloading image from URL: {}", url);
         byte[] imageBytes;
         try {
-            ResponseEntity<byte[]> response = restTemplate.getForEntity(url, byte[].class);
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0");
+            headers.set("Accept", "image/*, */*;q=0.8");
+            headers.set("Accept-Language", "en-US,en;q=0.5");
+            try {
+                var uri = new java.net.URI(url);
+                headers.set("Referer", uri.getScheme() + "://" + uri.getHost() + "/");
+            } catch (Exception ignored) {}
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+            ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
             imageBytes = response.getBody();
             if (imageBytes == null || imageBytes.length == 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Empty response from image URL");
@@ -113,6 +128,7 @@ public class PartImageService {
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
+            log.error("Failed to download image from {}: {}", url, e.getMessage());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Failed to download image: " + e.getMessage());
         }

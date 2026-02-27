@@ -109,7 +109,9 @@ export const getPartImages = (partId: number) =>
 export const uploadPartImage = (partId: number, file: File) => {
   const form = new FormData();
   form.append('file', file);
-  return client.post<PartImage>(`/parts/${partId}/images`, form).then((r) => r.data);
+  return client.post<PartImage>(`/parts/${partId}/images`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then((r) => r.data);
 };
 
 export const deletePartImage = (partId: number, imageId: number) =>
