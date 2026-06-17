@@ -275,7 +275,7 @@ export default function PartsPage() {
         </Link>
       ),
     },
-    { key: 'name', header: 'Name' },
+    { key: 'description', header: 'Description', render: (r) => r.description ?? '—' },
     { key: 'manufacturer', header: 'Manufacturer', render: (r) => r.manufacturer ?? '—' },
     {
       key: 'category',
