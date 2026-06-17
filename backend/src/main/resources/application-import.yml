@@ -1,0 +1,5 @@
+# Activated by the 'import' profile: run the Partsbox importer as a CLI tool and exit
+# instead of starting the web server.
+spring:
+  main:
+    web-application-type: none

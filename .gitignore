@@ -26,3 +26,7 @@ application.yml
 # OS
 .DS_Store
 Thumbs.db
+
+data.txt
+partsbox.json
+

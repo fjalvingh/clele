@@ -15,6 +15,9 @@ public class PartDTO {
     private String name;
     private String description;
     private String manufacturer;
+    private String footprint;
+    private String mpn;
+    private String octopartId;
     private String datasheetUrl;
     private Map<String, Object> specs;
     private Long categoryId;

@@ -32,6 +32,15 @@ public class Part {
 
     private String manufacturer;
 
+    @Column(length = 64)
+    private String footprint;
+
+    @Column(length = 128)
+    private String mpn;
+
+    @Column(name = "octopart_id", length = 64)
+    private String octopartId;
+
     @Column(name = "datasheet_url", columnDefinition = "TEXT")
     private String datasheetUrl;
 
