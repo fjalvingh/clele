@@ -154,6 +154,7 @@ export default function PartsPage() {
   const [search, setSearch] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState<number | undefined>();
   const [loading, setLoading] = useState(true);
+  const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Part | null>(null);
@@ -165,6 +166,7 @@ export default function PartsPage() {
   const [catStatus, setCatStatus] = useState<CategorizationStatus | null>(null);
 
   const loadParts = (s?: string, cid?: number) => {
+    setSearched(true);
     getParts(s, cid)
       .then(setParts)
       .catch((e: Error) => setError(e.message));
@@ -178,7 +180,8 @@ export default function PartsPage() {
         if (st.running) {
           setTimeout(pollCategorize, 1500);
         } else {
-          loadParts(search || undefined, filterCategoryId);
+          // Only refresh the table if the user has an active search; otherwise leave it empty.
+          if (searched) loadParts(search.trim() || undefined, filterCategoryId);
           getCategoryTree().then(setCategoryTree).catch(() => {});
         }
       })
@@ -199,11 +202,12 @@ export default function PartsPage() {
     }
   };
 
+  // Load only the category lists up front — parts are fetched on demand once the user searches,
+  // so opening the page is fast even with a large catalogue.
   useEffect(() => {
     setLoading(true);
-    Promise.all([getParts(), getCategories(), getCategoryTree()])
-      .then(([p, c, t]) => {
-        setParts(p);
+    Promise.all([getCategories(), getCategoryTree()])
+      .then(([c, t]) => {
         setCategories(c);
         setCategoryTree(t);
       })
@@ -245,7 +249,13 @@ export default function PartsPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    loadParts(search || undefined, filterCategoryId);
+    if (!search.trim() && filterCategoryId === undefined) {
+      // Nothing to search on — keep the page empty rather than loading the whole catalogue.
+      setParts([]);
+      setSearched(false);
+      return;
+    }
+    loadParts(search.trim() || undefined, filterCategoryId);
   };
 
   const openCreate = () => {
@@ -403,7 +413,7 @@ export default function PartsPage() {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name or part number…"
+          placeholder="Search by name, part number or description…"
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <select
@@ -429,7 +439,8 @@ export default function PartsPage() {
           onClick={() => {
             setSearch('');
             setFilterCategoryId(undefined);
-            loadParts();
+            setParts([]);
+            setSearched(false);
           }}
           className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
         >
@@ -440,7 +451,13 @@ export default function PartsPage() {
       {loading && <p className="text-gray-500">Loading...</p>}
       {error && <p className="text-red-600">{error}</p>}
 
-      {!loading && (
+      {!loading && !searched && (
+        <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-10 text-center text-gray-500">
+          Enter a search term or pick a category, then press <span className="font-medium">Search</span> to find parts.
+        </div>
+      )}
+
+      {!loading && searched && (
         <DataTable
           columns={columns}
           data={parts}

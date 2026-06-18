@@ -30,13 +30,8 @@ public class PartService {
     private final PartImageRepository partImageRepository;
 
     public List<PartDTO> search(String search, Long categoryId) {
-        String term = (search != null && !search.isBlank()) ? search.toLowerCase() : null;
-        return partRepository.findAllWithCategory().stream()
-                .filter(p -> term == null
-                        || p.getName().toLowerCase().contains(term)
-                        || p.getPartNumber().toLowerCase().contains(term))
-                .filter(p -> categoryId == null
-                        || (p.getCategory() != null && p.getCategory().getId().equals(categoryId)))
+        String term = (search != null && !search.isBlank()) ? search.trim() : null;
+        return partRepository.search(term, categoryId).stream()
                 .map(this::toDTO)
                 .collect(Collectors.toList());
     }

@@ -1,0 +1,10 @@
+#!/bin/bash
+cd backend
+mvn21 package
+if [ $? != 0 ]; then
+	echo "Build failed"
+	exit 10
+fi
+cd ..
+/opt/java/21/bin/java -jar backend/target/parts-0.0.1-SNAPSHOT.jar
+
