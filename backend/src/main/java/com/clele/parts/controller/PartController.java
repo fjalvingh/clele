@@ -31,8 +31,9 @@ public class PartController {
     @Operation(summary = "List / search parts")
     public List<PartDTO> search(
             @RequestParam(required = false) String search,
-            @RequestParam(required = false) Long categoryId) {
-        return partService.search(search, categoryId);
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false, defaultValue = "partNumber") String sort) {
+        return partService.search(search, categoryId, sort);
     }
 
     @GetMapping("/{id}")

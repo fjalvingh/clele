@@ -1,6 +1,6 @@
 #!/bin/bash
 cd backend
-mvn21 package
+mvn21 clean package
 if [ $? != 0 ]; then
 	echo "Build failed"
 	exit 10

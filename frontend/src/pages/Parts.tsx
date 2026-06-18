@@ -153,6 +153,7 @@ export default function PartsPage() {
   const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
   const [search, setSearch] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState<number | undefined>();
+  const [sort, setSort] = useState<'partNumber' | 'manufacturer'>('partNumber');
   const [loading, setLoading] = useState(true);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,9 +166,9 @@ export default function PartsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [catStatus, setCatStatus] = useState<CategorizationStatus | null>(null);
 
-  const loadParts = (s?: string, cid?: number) => {
+  const loadParts = (s?: string, cid?: number, sortBy: string = sort) => {
     setSearched(true);
-    getParts(s, cid)
+    getParts(s, cid, sortBy)
       .then(setParts)
       .catch((e: Error) => setError(e.message));
   };
@@ -427,6 +428,20 @@ export default function PartsPage() {
               {c.breadcrumb}
             </option>
           ))}
+        </select>
+        <select
+          value={sort}
+          onChange={(e) => {
+            const next = e.target.value as 'partNumber' | 'manufacturer';
+            setSort(next);
+            // Re-run the current search with the new ordering if results are showing.
+            if (searched) loadParts(search.trim() || undefined, filterCategoryId, next);
+          }}
+          title="Sort results by"
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="partNumber">Sort: Part #</option>
+          <option value="manufacturer">Sort: Manufacturer</option>
         </select>
         <button
           type="submit"

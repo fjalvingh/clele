@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -29,11 +30,26 @@ public class PartService {
     private final StockEntryRepository stockEntryRepository;
     private final PartImageRepository partImageRepository;
 
-    public List<PartDTO> search(String search, Long categoryId) {
+    public List<PartDTO> search(String search, Long categoryId, String sort) {
         String term = (search != null && !search.isBlank()) ? search.trim() : null;
+        Comparator<PartDTO> comparator = comparatorFor(sort);
         return partRepository.search(term, categoryId).stream()
                 .map(this::toDTO)
+                .sorted(comparator)
                 .collect(Collectors.toList());
+    }
+
+    /** Build the result comparator. Supported sorts: "manufacturer"; anything else → part number. */
+    private Comparator<PartDTO> comparatorFor(String sort) {
+        Comparator<String> nullsLastCi =
+                Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER);
+        Comparator<PartDTO> byPartNumber =
+                Comparator.comparing(PartDTO::getPartNumber, nullsLastCi);
+        if ("manufacturer".equalsIgnoreCase(sort)) {
+            return Comparator.comparing(PartDTO::getManufacturer, nullsLastCi)
+                    .thenComparing(byPartNumber);
+        }
+        return byPartNumber;
     }
 
     public PartDTO findById(Long id) {

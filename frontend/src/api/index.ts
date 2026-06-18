@@ -44,10 +44,11 @@ export const deleteCategory = (id: number) =>
   client.delete(`/categories/${id}`);
 
 // Parts
-export const getParts = (search?: string, categoryId?: number) => {
+export const getParts = (search?: string, categoryId?: number, sort?: string) => {
   const params: Record<string, string | number> = {};
   if (search) params.search = search;
   if (categoryId) params.categoryId = categoryId;
+  if (sort) params.sort = sort;
   return client.get<Part[]>('/parts', { params }).then((r) => r.data);
 };
 
