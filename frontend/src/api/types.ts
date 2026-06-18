@@ -153,6 +153,17 @@ export interface PartImage {
   createdAt: string;
 }
 
+export interface CategorizationStatus {
+  running: boolean;
+  total: number;
+  processed: number;
+  assigned: number;
+  skipped: number;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  lastError?: string | null;
+}
+
 export interface Dashboard {
   totalParts: number;
   totalLocations: number;

@@ -31,3 +31,8 @@ springdoc:
 anthropic:
   api-key: ""
   model: claude-haiku-4-5-20251001
+
+# Local AI (Ollama) used for offline part auto-categorization
+ollama:
+  base-url: http://localhost:11434
+  model: qwen2.5:7b-instruct

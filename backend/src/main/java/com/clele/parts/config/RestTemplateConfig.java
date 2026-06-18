@@ -15,4 +15,13 @@ public class RestTemplateConfig {
         factory.setReadTimeout(30_000); // web search can take up to ~15 s
         return new RestTemplate(factory);
     }
+
+    /** Dedicated template for local Ollama calls — CPU inference of a 3B model can be slow. */
+    @Bean
+    public RestTemplate ollamaRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5_000);
+        factory.setReadTimeout(120_000);
+        return new RestTemplate(factory);
+    }
 }

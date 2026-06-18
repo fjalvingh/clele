@@ -1,5 +1,6 @@
 import client from './client';
 import type {
+  CategorizationStatus,
   Category,
   CategoryRequest,
   CategoryTree,
@@ -66,6 +67,15 @@ export const updatePart = (id: number, data: PartRequest) =>
   client.put<Part>(`/parts/${id}`, data).then((r) => r.data);
 
 export const deletePart = (id: number) => client.delete(`/parts/${id}`);
+
+// AI auto-categorization (local Ollama)
+export const startAutoCategorize = (onlyUncategorized = false) =>
+  client
+    .post<CategorizationStatus>('/parts/auto-categorize', null, { params: { onlyUncategorized } })
+    .then((r) => r.data);
+
+export const getAutoCategorizeStatus = () =>
+  client.get<CategorizationStatus>('/parts/auto-categorize/status').then((r) => r.data);
 
 // Locations
 export const getLocations = () =>

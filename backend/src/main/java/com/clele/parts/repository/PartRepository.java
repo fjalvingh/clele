@@ -14,6 +14,8 @@ public interface PartRepository extends JpaRepository<Part, Long> {
     @Query("SELECT p FROM Part p LEFT JOIN FETCH p.category ORDER BY p.name")
     List<Part> findAllWithCategory();
 
+    List<Part> findByCategoryIsNull();
+
     boolean existsByPartNumber(String partNumber);
 
     boolean existsByPartNumberAndIdNot(String partNumber, Long id);

@@ -46,10 +46,16 @@ frontend/src/
 ## Database
 
 - PostgreSQL: database `partsdb`, user `partsuser`, password `partspass`
-- Schema managed by Flyway migrations (V1–V5) in `backend/src/main/resources/db/migration/`
+- Schema managed by Flyway migrations (V1–V7) in `backend/src/main/resources/db/migration/`
   - V5 added `part.footprint/mpn/octopart_id` columns and the `stock_movement` ledger table
   - V6 added `spec_definition.json_name` (machine key matching `part.specs` JSON keys), dropped
     the unique constraint on `name`, and wiped the old (mismatched) spec_definition records
+  - V7 seeds a standard Octopart/Digi-Key-style category taxonomy (~157 rows, 2–3 levels:
+    Passives, Semiconductors→ICs→Logic/Analog/Power/MCU/Memory/Interface/Clock/RF,
+    Optoelectronics, Connectors, Electromechanical, Sensors, Power, Cables, Hardware, Modules).
+    Fresh-replace: it deletes the old ad-hoc demo/test category rows (safe — no part referenced a
+    category) and inserts the tree with explicit ids, then realigns `category_id_seq`. The manual
+    `db/seed_74xx.sql` is now superseded for categories (its 74xx tree lives under ICs→Logic ICs)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 
@@ -124,6 +130,17 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - `DuckDuckGoImageService` searches for part images via DuckDuckGo
 - The AI system prompt is built dynamically from `spec_definition` table — each spec's `json_name` (the exact key) plus its title, type, unit, and SELECT options are included so the AI returns specs using exact `part.specs` JSON keys for automatic pre-fill
 - AI response parser handles: clean JSON, markdown-fenced JSON, and prose text preceding JSON (extracts from first `[` or ` ``` ` fence)
+- **Local AI (Ollama) for part auto-categorization** — separate from the cloud Anthropic path,
+  fully offline. Config: `ollama.base-url` (default `http://localhost:11434`) + `ollama.model`
+  (default `qwen2.5:7b-instruct`) in `application.yml`; uses a dedicated `ollamaRestTemplate` bean (120s read).
+  `PartCategorizationService` runs a single background job (own daemon thread, guarded by an
+  `AtomicBoolean`): it derives the **leaf categories** (those that are not any other category's
+  parent) with their breadcrumb paths, then for each part calls Ollama `/api/chat`
+  (`format:"json"`, `temperature:0`) to pick a `categoryId`, validates it against the leaf set, and
+  saves it in a per-part transaction (invalid/null choices leave the part unchanged). Endpoints:
+  `POST /api/parts/auto-categorize` (start, 409 if already running) and
+  `GET /api/parts/auto-categorize/status` (progress: total/processed/assigned/skipped/lastError).
+  The Parts page has an "Auto-categorize (AI)" button that starts the job and polls status.
 
 ## Key Features
 
@@ -158,6 +175,7 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - `POST /parts/quick-add` — atomic create part + stock entry
 - `GET /parts/{id}/stock` — on-hand stock entries per location for a part
 - `GET /parts/{id}/movements` — stock movement history for a part (most recent first)
+- `POST /parts/auto-categorize`, `GET /parts/auto-categorize/status` — local-AI (Ollama) bulk categorization job
 - `GET/POST/DELETE /parts/{id}/images`, `POST /parts/{id}/images/from-url`
 - `GET/POST /categories`, `GET/PUT/DELETE /categories/{id}`, `GET /categories/tree`
 - `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`
