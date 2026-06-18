@@ -38,11 +38,16 @@ public class SpecDefinition {
     @Column(name = "display_order", nullable = false)
     private int displayOrder;
 
+    /** Grouping for display: one of DIMENSIONS, PHYSICAL, TECHNICAL. */
+    @Column(name = "major_type", nullable = false, length = 20)
+    private String majorType;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+        if (majorType == null) majorType = "TECHNICAL";
     }
 }

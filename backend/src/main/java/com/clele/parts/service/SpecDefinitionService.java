@@ -111,6 +111,7 @@ public class SpecDefinitionService {
                         .jsonName(jsonName)
                         .name(SpecNameHumanizer.humanize(jsonName))
                         .displayOrder(nextOrder++)
+                        .majorType("TECHNICAL")
                         .build();
             }
             // Preserve name/unit/displayOrder; refresh inferred type + options.
@@ -215,6 +216,7 @@ public class SpecDefinitionService {
         spec.setDataType(request.getDataType() != null ? request.getDataType() : "TEXT");
         spec.setUnit(request.getUnit());
         spec.setDisplayOrder(request.getDisplayOrder());
+        spec.setMajorType(request.getMajorType() != null ? request.getMajorType() : "TECHNICAL");
 
         if (request.getOptions() != null && !request.getOptions().isEmpty()) {
             try {
@@ -237,6 +239,7 @@ public class SpecDefinitionService {
                 .unit(spec.getUnit())
                 .options(options.isEmpty() ? null : options)
                 .displayOrder(spec.getDisplayOrder())
+                .majorType(spec.getMajorType())
                 .build();
     }
 

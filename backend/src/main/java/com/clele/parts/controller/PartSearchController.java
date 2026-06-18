@@ -4,11 +4,13 @@ import com.clele.parts.dto.ImageSuggestionDTO;
 import com.clele.parts.dto.PartSearchResultDTO;
 import com.clele.parts.dto.QuickAddRequest;
 import com.clele.parts.dto.QuickAddResponseDTO;
+import com.clele.parts.model.Permissions;
 import com.clele.parts.service.AiPartSearchService;
 import com.clele.parts.service.QuickAddService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -32,6 +34,7 @@ public class PartSearchController {
 
     @PostMapping("/api/parts/quick-add")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
     public QuickAddResponseDTO quickAdd(@Valid @RequestBody QuickAddRequest request) {
         return quickAddService.quickAdd(request);
     }

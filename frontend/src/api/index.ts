@@ -1,5 +1,6 @@
 import client from './client';
 import type {
+  AuthUser,
   CategorizationStatus,
   Category,
   CategoryRequest,
@@ -19,6 +20,8 @@ import type {
   StockEntry,
   StockEntryRequest,
   StockMovement,
+  User,
+  UserRequest,
 } from './types';
 
 // Categories
@@ -93,6 +96,31 @@ export const updateLocation = (id: number, data: LocationRequest) =>
 
 export const deleteLocation = (id: number) =>
   client.delete(`/locations/${id}`);
+
+// Auth
+export const login = (email: string, password: string) =>
+  client.post<AuthUser>('/auth/login', { email, password }).then((r) => r.data);
+
+export const logout = () => client.post('/auth/logout');
+
+export const getMe = () =>
+  client.get<AuthUser>('/auth/me').then((r) => r.data);
+
+// Users
+export const getUsers = () =>
+  client.get<User[]>('/users').then((r) => r.data);
+
+export const getUser = (id: number) =>
+  client.get<User>(`/users/${id}`).then((r) => r.data);
+
+export const createUser = (data: UserRequest) =>
+  client.post<User>('/users', data).then((r) => r.data);
+
+export const updateUser = (id: number, data: UserRequest) =>
+  client.put<User>(`/users/${id}`, data).then((r) => r.data);
+
+export const deleteUser = (id: number) =>
+  client.delete(`/users/${id}`);
 
 // Stock
 export const getStock = () =>

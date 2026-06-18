@@ -9,12 +9,14 @@ import {
   getPartImages,
   getPartMovements,
   getPartStock,
-  getSpecsForCategory,
+  getSpecDefinitions,
   partImageUrl,
+  searchPartImages,
   updateStockEntry,
   uploadPartImage,
 } from '../api';
 import type {
+  ImageSuggestion,
   Location,
   Part,
   PartImage,
@@ -23,6 +25,8 @@ import type {
   StockEntryRequest,
   StockMovement,
 } from '../api/types';
+import { MAJOR_TYPES } from '../api/types';
+import { useAuth } from '../auth/AuthContext';
 import Badge from '../components/Badge';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
@@ -36,36 +40,31 @@ const emptyStockForm = (partId: number): StockEntryRequest => ({
   minimumQuantity: 0,
 });
 
-function SpecValue({ spec, value }: { spec: SpecDefinition; value: string }) {
+// Proxy external images through our backend to avoid CORS / Cloudflare bot-protection issues.
+function displayUrl(img: { url: string; thumbnailUrl?: string }) {
+  const src = img.thumbnailUrl ?? img.url;
+  return `/api/image-proxy?url=${encodeURIComponent(src)}`;
+}
+
+// Render a spec value as a display string for a table cell.
+function formatSpecValue(spec: SpecDefinition, value: string): string {
   if (spec.dataType === 'BOOLEAN') {
-    return (
-      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
-        <span className="font-medium">{spec.name}:</span>{' '}
-        {value === 'true' ? '✓' : '✗'}
-      </span>
-    );
+    return value === 'true' ? '✓' : '✗';
   }
   if (spec.dataType === 'NUMBER') {
     const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
     // Multi-unit: value already contains the chosen unit (e.g. "64 KB") — display as-is
     // Single unit: append the fixed unit suffix
-    const display = units.length > 1 ? value : (units[0] ? `${value} ${units[0]}` : value);
-    return (
-      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
-        <span className="font-medium">{spec.name}:</span> {display}
-      </span>
-    );
+    return units.length > 1 ? value : units[0] ? `${value} ${units[0]}` : value;
   }
-  return (
-    <span className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700">
-      <span className="font-medium">{spec.name}:</span> {value}
-    </span>
-  );
+  return value;
 }
 
 export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission('PARTS_EDIT');
   const partId = Number(id);
 
   const [part, setPart] = useState<Part | null>(null);
@@ -88,6 +87,16 @@ export default function PartDetailPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // "Find image" modal — same image search/attach flow used by Quick Add.
+  const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [imageQuery, setImageQuery] = useState('');
+  const [imageSuggestions, setImageSuggestions] = useState<ImageSuggestion[]>([]);
+  const [imagesLoading, setImagesLoading] = useState(false);
+  const [selectedImageUrls, setSelectedImageUrls] = useState<Set<string>>(new Set());
+  const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
+  const [attaching, setAttaching] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
+
   const loadData = () => {
     Promise.all([getPart(partId), getPartStock(partId), getLocations(), getPartImages(partId)])
       .then(([p, s, l, imgs]) => {
@@ -99,8 +108,9 @@ export default function PartDetailPage() {
         getPartMovements(partId)
           .then(setMovements)
           .catch(() => setMovements([]));
-        // Fetch spec definitions best-effort — don't fail if unavailable
-        getSpecsForCategory(p.categoryId ?? null)
+        // Match against the full definition list (every key has a name + majorType),
+        // not the category-scoped subset. Best-effort — don't fail the page if unavailable.
+        getSpecDefinitions()
           .then(setSpecDefs)
           .catch(() => setSpecDefs([]));
       })
@@ -186,6 +196,77 @@ export default function PartDetailPage() {
     }
   };
 
+  const runImageSearch = (q: string) => {
+    if (!q.trim()) return;
+    setImagesLoading(true);
+    setImageSuggestions([]);
+    setSelectedImageUrls(new Set());
+    setFailedImageUrls(new Set());
+    searchPartImages(q.trim())
+      .then(setImageSuggestions)
+      .catch(() => setImageSuggestions([]))
+      .finally(() => setImagesLoading(false));
+  };
+
+  const openFindImage = () => {
+    const q = part?.partNumber ?? '';
+    setImageQuery(q);
+    setAttachError(null);
+    setImageModalOpen(true);
+    runImageSearch(q);
+  };
+
+  const toggleImageSelect = (url: string) => {
+    setSelectedImageUrls((prev) => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+  };
+
+  const handleAttachImages = async () => {
+    if (selectedImageUrls.size === 0) return;
+    setAttaching(true);
+    setAttachError(null);
+    // Fetch each selected image via the same-origin proxy, then upload as multipart (same approach
+    // as Quick Add) to sidestep CORS / tainted-canvas issues.
+    const errors: string[] = [];
+    let i = 0;
+    for (const originalUrl of selectedImageUrls) {
+      try {
+        const suggestion = imageSuggestions.find((s) => s.url === originalUrl);
+        const proxyUrl = suggestion
+          ? displayUrl(suggestion)
+          : `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+        const resp = await fetch(proxyUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        const file = new File([blob], `image-${i}.png`, { type: blob.type || 'image/png' });
+        await uploadPartImage(partId, file);
+      } catch (err: unknown) {
+        errors.push((err as Error).message);
+      }
+      i++;
+    }
+    setAttaching(false);
+
+    const imgs = await getPartImages(partId).catch(() => images);
+    setImages(imgs);
+
+    if (errors.length > 0) {
+      const succeeded = selectedImageUrls.size - errors.length;
+      setAttachError(
+        `${errors.length} photo(s) failed to attach` +
+          (succeeded > 0 ? ` (${succeeded} succeeded)` : '') +
+          `: ${errors[0]}` +
+          (errors.length > 1 ? ` (and ${errors.length - 1} more)` : ''),
+      );
+      return;
+    }
+    setImageModalOpen(false);
+  };
+
   const stockColumns: Column<StockEntry>[] = [
     { key: 'locationName', header: 'Location' },
     {
@@ -234,12 +315,23 @@ export default function PartDetailPage() {
   // Defined specs that have a value
   const definedSpecEntries = specDefs
     .filter((d) => partSpecs[d.jsonName] !== undefined && partSpecs[d.jsonName] !== '')
-    .map((d) => ({ spec: d, value: partSpecs[d.jsonName] }));
+    .map((d) => ({ label: d.name, value: formatSpecValue(d, partSpecs[d.jsonName]), majorType: d.majorType }));
 
   // Raw keys not covered by any definition
   const unmatchedEntries = Object.entries(partSpecs).filter(
     ([k, v]) => !specDefsMap.has(k) && v !== ''
   );
+
+  // Group every spec row into its major type; unmatched raw keys fall under TECHNICAL.
+  const specRows = [
+    ...definedSpecEntries,
+    ...unmatchedEntries.map(([k, v]) => ({ label: k, value: String(v), majorType: 'TECHNICAL' })),
+  ];
+  const specGroups = MAJOR_TYPES.map((t) => ({
+    label: t.label,
+    rows: specRows.filter((r) => (r.majorType ?? 'TECHNICAL') === t.key),
+  }));
+  const hasSpecs = specRows.length > 0;
 
   return (
     <div className="p-8">
@@ -283,20 +375,32 @@ export default function PartDetailPage() {
                           : 'border-gray-200'
                       }`}
                     />
-                    <button
-                      onClick={() => handleDeleteImage(img)}
-                      className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs text-white group-hover:flex"
-                      title="Remove"
-                    >
-                      ×
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => handleDeleteImage(img)}
+                        className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs text-white group-hover:flex"
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
             )}
 
+            {/* Find image (only when the part has no images) */}
+            {canEdit && images.length === 0 && (
+              <button
+                onClick={openFindImage}
+                className="rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
+              >
+                🔍 Find image
+              </button>
+            )}
+
             {/* Upload button */}
-            {images.length < 5 && (
+            {canEdit && images.length < 5 && (
               <>
                 <input
                   ref={fileInputRef}
@@ -367,29 +471,39 @@ export default function PartDetailPage() {
                 </div>
               )}
             </div>
-
-            {/* Specs */}
-            {(definedSpecEntries.length > 0 || unmatchedEntries.length > 0) && (
-              <div className="mt-4">
-                <h3 className="mb-2 text-sm font-semibold text-gray-700">Specifications</h3>
-                <div className="flex flex-wrap gap-2">
-                  {definedSpecEntries.map(({ spec, value }) => (
-                    <SpecValue key={spec.id} spec={spec} value={value} />
-                  ))}
-                  {unmatchedEntries.map(([k, v]) => (
-                    <span
-                      key={k}
-                      className="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700"
-                    >
-                      <span className="font-medium">{k}:</span> {String(v)}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
+
+      {/* Specifications — grouped into three columns by major type */}
+      {hasSpecs && (
+        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">Specifications</h2>
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            {specGroups.map((group) => (
+              <div key={group.label}>
+                <h3 className="mb-2 border-b border-gray-200 pb-1 text-sm font-semibold text-gray-700">
+                  {group.label}
+                </h3>
+                {group.rows.length > 0 ? (
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {group.rows.map((row) => (
+                        <tr key={row.label} className="align-top">
+                          <td className="whitespace-nowrap py-1 pr-3 text-gray-500">{row.label}</td>
+                          <td className="py-1 text-gray-900">{row.value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-sm text-gray-400">—</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stock section */}
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -575,6 +689,105 @@ export default function PartDetailPage() {
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
+        </div>
+      </Modal>
+
+      {/* Find image modal */}
+      <Modal open={imageModalOpen} onClose={() => setImageModalOpen(false)} title="Find image">
+        <div className="mb-4 flex gap-2">
+          <input
+            type="text"
+            value={imageQuery}
+            onChange={(e) => setImageQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && runImageSearch(imageQuery)}
+            placeholder="e.g. LM317 voltage regulator"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <button
+            onClick={() => runImageSearch(imageQuery)}
+            disabled={!imageQuery.trim() || imagesLoading}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            Search
+          </button>
+        </div>
+
+        <div className="min-h-[8rem]">
+          {imagesLoading ? (
+            <p className="text-sm text-gray-400">Searching for photos…</p>
+          ) : (
+            (() => {
+              const visible = imageSuggestions.filter((img) => !failedImageUrls.has(img.url));
+              if (visible.length === 0) {
+                return (
+                  <p className="text-sm text-gray-400">
+                    No photos found. Try a different search term.
+                  </p>
+                );
+              }
+              return (
+                <div className="grid grid-cols-3 gap-3">
+                  {imageSuggestions.map((img) => {
+                    if (failedImageUrls.has(img.url)) return null;
+                    const selected = selectedImageUrls.has(img.url);
+                    return (
+                      <button
+                        key={img.url}
+                        type="button"
+                        onClick={() => toggleImageSelect(img.url)}
+                        className={`relative overflow-hidden rounded-lg border-2 transition-all ${
+                          selected
+                            ? 'border-blue-500 ring-2 ring-blue-200'
+                            : 'border-gray-200 hover:border-gray-400'
+                        }`}
+                      >
+                        <img
+                          src={displayUrl(img)}
+                          alt={img.description ?? ''}
+                          className="h-24 w-full object-cover"
+                          onError={() =>
+                            setFailedImageUrls((prev) => new Set(prev).add(img.url))
+                          }
+                        />
+                        {selected && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-blue-500/20">
+                            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-bold text-white">
+                              ✓
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })()
+          )}
+        </div>
+
+        {attachError && <p className="mt-3 text-sm text-red-600">{attachError}</p>}
+
+        <div className="mt-4 flex items-center justify-between">
+          <span className="text-xs text-blue-600">
+            {selectedImageUrls.size > 0
+              ? `${selectedImageUrls.size} selected`
+              : ''}
+          </span>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setImageModalOpen(false)}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAttachImages}
+              disabled={attaching || selectedImageUrls.size === 0}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {attaching ? 'Attaching…' : 'Attach selected'}
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

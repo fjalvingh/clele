@@ -2,12 +2,14 @@ package com.clele.parts.controller;
 
 import com.clele.parts.dto.ImageFromUrlRequest;
 import com.clele.parts.dto.PartImageDTO;
+import com.clele.parts.model.Permissions;
 import com.clele.parts.service.PartImageService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -37,6 +39,7 @@ public class PartImageController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
     public PartImageDTO upload(@PathVariable Long partId,
                                @RequestParam("file") MultipartFile file) {
         return partImageService.upload(partId, file);
@@ -44,6 +47,7 @@ public class PartImageController {
 
     @PostMapping("/from-url")
     @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
     public PartImageDTO uploadFromUrl(@PathVariable Long partId,
                                      @jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody ImageFromUrlRequest request) {
         return partImageService.uploadFromUrl(partId, request.getUrl());
@@ -51,6 +55,7 @@ public class PartImageController {
 
     @DeleteMapping("/{imageId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
     public void delete(@PathVariable Long partId, @PathVariable Long imageId) {
         partImageService.delete(partId, imageId);
     }

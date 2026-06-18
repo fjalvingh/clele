@@ -25,4 +25,7 @@ public class SpecDefinitionRequest {
     private List<String> options;
 
     private int displayOrder;
+
+    /** One of DIMENSIONS, PHYSICAL, TECHNICAL. Defaults to TECHNICAL when null. */
+    private String majorType;
 }

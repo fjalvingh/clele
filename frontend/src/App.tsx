@@ -1,30 +1,60 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { AuthProvider, useAuth } from './auth/AuthContext';
 import Layout from './components/Layout';
 import CategoriesPage from './pages/Categories';
 import DashboardPage from './pages/Dashboard';
 import LocationsPage from './pages/Locations';
+import LoginPage from './pages/Login';
 import LowStockPage from './pages/LowStock';
 import PartDetailPage from './pages/PartDetail';
 import PartsPage from './pages/Parts';
 import QuickAddPage from './pages/QuickAdd';
 import SpecDefinitionsPage from './pages/SpecDefinitions';
+import UsersPage from './pages/Users';
+
+function RequireAuth({ children }: { children: React.ReactElement }) {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-100 text-gray-500">
+        Loading…
+      </div>
+    );
+  }
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+  return children;
+}
 
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<DashboardPage />} />
-          <Route path="parts" element={<PartsPage />} />
-          <Route path="parts/:id" element={<PartDetailPage />} />
-          <Route path="quick-add" element={<QuickAddPage />} />
-          <Route path="categories" element={<CategoriesPage />} />
-          <Route path="specs" element={<SpecDefinitionsPage />} />
-          <Route path="locations" element={<LocationsPage />} />
-          <Route path="low-stock" element={<LowStockPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route
+            element={
+              <RequireAuth>
+                <Layout />
+              </RequireAuth>
+            }
+          >
+            <Route index element={<DashboardPage />} />
+            <Route path="parts" element={<PartsPage />} />
+            <Route path="parts/:id" element={<PartDetailPage />} />
+            <Route path="quick-add" element={<QuickAddPage />} />
+            <Route path="categories" element={<CategoriesPage />} />
+            <Route path="specs" element={<SpecDefinitionsPage />} />
+            <Route path="locations" element={<LocationsPage />} />
+            <Route path="low-stock" element={<LowStockPage />} />
+            <Route path="users" element={<UsersPage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

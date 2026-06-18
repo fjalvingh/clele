@@ -1,3 +1,10 @@
+// Display grouping for specs. Order here drives the column order on the Part detail page.
+export const MAJOR_TYPES = [
+  { key: 'DIMENSIONS', label: 'Dimensions' },
+  { key: 'TECHNICAL', label: 'Technical' },
+  { key: 'PHYSICAL', label: 'Physical' },
+] as const;
+
 export interface SpecDefinition {
   id: number;
   jsonName: string; // machine key used inside part.specs
@@ -6,6 +13,7 @@ export interface SpecDefinition {
   unit?: string;
   options?: string[];
   displayOrder: number;
+  majorType: string; // DIMENSIONS | TECHNICAL | PHYSICAL
 }
 
 export interface SpecDefinitionRequest {
@@ -15,6 +23,7 @@ export interface SpecDefinitionRequest {
   unit?: string;
   options?: string[];
   displayOrder: number;
+  majorType: string;
 }
 
 export interface Category {
@@ -77,6 +86,32 @@ export interface LocationRequest {
   name: string;
   description?: string;
 }
+
+// Users & auth
+export interface User {
+  id: number;
+  email: string;
+  fullName?: string;
+  phone?: string;
+  permissions: string[];
+}
+
+export interface UserRequest {
+  email: string;
+  password?: string; // blank when editing keeps the existing password
+  fullName?: string;
+  phone?: string;
+  permissions: string[];
+}
+
+/** The currently authenticated user (same shape as User). */
+export type AuthUser = User;
+
+/** Known permission keys and their human-readable labels (shown in the user form). */
+export const PERMISSIONS: { key: string; label: string }[] = [
+  { key: 'PARTS_EDIT', label: 'Add/edit parts' },
+  { key: 'USERS_EDIT', label: 'Add/edit users' },
+];
 
 export interface StockEntry {
   id: number;

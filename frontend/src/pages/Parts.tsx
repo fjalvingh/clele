@@ -12,6 +12,7 @@ import {
   updatePart,
 } from '../api';
 import type { CategorizationStatus, Category, CategoryTree, Part, PartRequest, SpecDefinition } from '../api/types';
+import { useAuth } from '../auth/AuthContext';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
@@ -148,6 +149,8 @@ function SpecField({
 }
 
 export default function PartsPage() {
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission('PARTS_EDIT');
   const [parts, setParts] = useState<Part[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
@@ -352,30 +355,32 @@ export default function PartsPage() {
     <div className="p-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Parts</h1>
-        <div className="flex gap-3">
-          <button
-            onClick={() => handleAutoCategorize(true)}
-            disabled={catStatus?.running}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            title="Categorize only the parts that have no category yet (local AI / Ollama)"
-          >
-            ✨ Categorize uncategorized
-          </button>
-          <button
-            onClick={() => handleAutoCategorize(false)}
-            disabled={catStatus?.running}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-            title="Re-categorize every part, overwriting existing assignments (local AI / Ollama)"
-          >
-            {catStatus?.running ? 'Categorizing…' : '✨ Re-categorize all'}
-          </button>
-          <button
-            onClick={openCreate}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            + New Part
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex gap-3">
+            <button
+              onClick={() => handleAutoCategorize(true)}
+              disabled={catStatus?.running}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              title="Categorize only the parts that have no category yet (local AI / Ollama)"
+            >
+              ✨ Categorize uncategorized
+            </button>
+            <button
+              onClick={() => handleAutoCategorize(false)}
+              disabled={catStatus?.running}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              title="Re-categorize every part, overwriting existing assignments (local AI / Ollama)"
+            >
+              {catStatus?.running ? 'Categorizing…' : '✨ Re-categorize all'}
+            </button>
+            <button
+              onClick={openCreate}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              + New Part
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Auto-categorization progress / result */}
@@ -477,22 +482,26 @@ export default function PartsPage() {
           columns={columns}
           data={parts}
           keyExtractor={(p) => p.id}
-          actions={(part) => (
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => openEdit(part)}
-                className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => handleDelete(part)}
-                className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-              >
-                Delete
-              </button>
-            </div>
-          )}
+          actions={
+            canEdit
+              ? (part) => (
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => openEdit(part)}
+                      className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(part)}
+                      className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )
+              : undefined
+          }
         />
       )}
 

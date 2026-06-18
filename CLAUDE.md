@@ -22,31 +22,34 @@ app and bundles it into the Spring Boot jar, which serves the UI and the `/api` 
 
 ## Tech Stack
 
-- **Backend**: Spring Boot 3.2.3, Java 21, PostgreSQL, Flyway, Spring Data JPA, Springdoc OpenAPI, Lombok
+- **Backend**: Spring Boot 3.2.3, Java 21, PostgreSQL, Flyway, Spring Data JPA, Spring Security, Springdoc OpenAPI, Lombok
 - **Frontend**: React 19 + TypeScript, Vite 7, React Router 7, Tailwind CSS 4, Axios 1.x
 
 ## Project Structure
 
 ```
 backend/src/main/java/com/clele/parts/
-  config/         RestTemplateConfig (5s connect/10s read timeouts), CorsConfig (/api/**)
+  config/         RestTemplateConfig (5s connect/10s read timeouts), CorsConfig (/api/**),
+                  SecurityConfig (Spring Security filter chain + password encoder)
   controller/     REST controllers — all endpoints use explicit /api/... prefix
   dto/            Request/response DTOs
-  model/          JPA entities: Part, Category, Location, StockEntry, PartImage, SpecDefinition
+  model/          JPA entities: Part, Category, Location, StockEntry, PartImage, SpecDefinition,
+                  AppUser; Permissions (authority-string constants)
   repository/     Spring Data JPA repositories
   service/        Business logic
 
 frontend/src/
   api/            Axios client (client.ts), API functions (index.ts), TypeScript types (types.ts)
+  auth/           AuthContext (current-user provider + useAuth hook)
   components/     Reusable UI: Layout, DataTable, Modal, FormField, Badge
   pages/          Route pages: Dashboard, Parts, PartDetail, Categories, Locations,
-                  LowStock, QuickAdd, SpecDefinitions
+                  LowStock, QuickAdd, SpecDefinitions, Users, Login
 ```
 
 ## Database
 
 - PostgreSQL: database `partsdb`, user `partsuser`, password `partspass`
-- Schema managed by Flyway migrations (V1–V7) in `backend/src/main/resources/db/migration/`
+- Schema managed by Flyway migrations (V1–V10) in `backend/src/main/resources/db/migration/`
   - V5 added `part.footprint/mpn/octopart_id` columns and the `stock_movement` ledger table
   - V6 added `spec_definition.json_name` (machine key matching `part.specs` JSON keys), dropped
     the unique constraint on `name`, and wiped the old (mismatched) spec_definition records
@@ -56,17 +59,56 @@ frontend/src/
     Fresh-replace: it deletes the old ad-hoc demo/test category rows (safe — no part referenced a
     category) and inserts the tree with explicit ids, then realigns `category_id_seq`. The manual
     `db/seed_74xx.sql` is now superseded for categories (its 74xx tree lives under ICs→Logic ICs)
+  - V9 adds a GIN full-text index on `part.description` (`to_tsvector('english', …)`) backing the
+    Parts description search
+  - V10 adds the `app_user` table (note: `user` is reserved in PostgreSQL) + `app_user_permission`
+    child table, and seeds a bootstrap admin (see Authentication below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 
 ## Key Patterns & Gotchas
 
-- **Axios client** (`api/client.ts`) sets default `Content-Type: application/json` and converts all errors to `new Error(message)` via interceptor. In catch blocks use `(err as Error).message`, never `err.response.status`. For multipart uploads, explicitly override the Content-Type header.
+- **Axios client** (`api/client.ts`) sets default `Content-Type: application/json`, sends `withCredentials: true` (the session cookie), and converts all errors to `new Error(message)` via interceptor; on HTTP 401 it redirects to `/login` (except while already on login or probing `/auth/me|/auth/login`). In catch blocks use `(err as Error).message`, never `err.response.status`. For multipart uploads, explicitly override the Content-Type header.
 - **TypeScript** `verbatimModuleSyntax` is enabled — use `import { type Foo }` for type-only imports
 - **Global exception handler** returns errors under key `"error"` (not `"message"`)
 - **Flyway**: `flyway-core` alone handles PostgreSQL in Flyway 9.x — do not add `flyway-database-postgresql` (not managed by Spring Boot 3.2 BOM)
 - **Multipart upload limit**: 10MB configured in `application.yml`
 - **Image proxy** (`/api/image-proxy?url=`): proxies external images through the backend with browser-like headers. Accepts any HTTP(S) host. Used by Quick Add to avoid CORS and Cloudflare bot-protection issues.
+
+## Authentication & Authorization
+
+- **Session-cookie auth** via Spring Security (`config/SecurityConfig`). Users are `app_user` rows
+  (email + BCrypt `password_hash` + full name + phone) with a set of **permission strings**
+  (`app_user_permission`). Permission strings are used **directly as Spring Security authorities**.
+- **Permissions** are defined as constants in `model/Permissions.java` and mirrored in the frontend
+  `api/types.ts` `PERMISSIONS` list (key → label):
+  - `PARTS_EDIT` — "Add/edit parts"
+  - `USERS_EDIT` — "Add/edit users"
+- **Login flow**: `POST /api/auth/login` runs the `AuthenticationManager`, persists the
+  `SecurityContext` to the HTTP session via `HttpSessionSecurityContextRepository`, returns the
+  `UserDTO`. `POST /api/auth/logout` invalidates the session. `GET /api/auth/me` returns the current
+  user (401 if anonymous). Auth is loaded by `AppUserDetailsService` (find by email → authorities).
+- **Enforcement**:
+  - All `/api/**` requires an authenticated session **except** `/api/auth/login` (and swagger /
+    api-docs). Static SPA assets + the client-router fallback are public.
+  - Specific mutations are gated with method security (`@EnableMethodSecurity` +
+    `@PreAuthorize("hasAuthority('…')")`): part mutations (create/update/delete, image
+    upload/from-url/delete, quick-add, auto-categorize) require `PARTS_EDIT`; all `/api/users`
+    endpoints require `USERS_EDIT`.
+  - **Not yet gated** (authenticated-only, no specific permission): categories, locations, specs,
+    stock-entry mutations — easy to tighten by adding `@PreAuthorize`.
+- **CSRF is disabled** for the API (token-style JSON API; SameSite cookie). Unauthenticated/forbidden
+  API calls return JSON `{"error": …}` with status 401/403 (custom entry point / access-denied
+  handler) so the SPA can react. `CorsConfig` sets `allowCredentials(true)` so the dev Vite proxy
+  origin can send the cookie.
+- **Frontend**: `auth/AuthContext` (`AuthProvider` + `useAuth`) loads `/auth/me` on mount and exposes
+  `user`, `hasPermission(key)`, `login`, `logout`. `App.tsx` wraps routes in `AuthProvider`, exposes a
+  public `/login`, and guards app routes with `RequireAuth` (redirect to `/login`, preserving `from`).
+  The sidebar (`components/Layout`) hides permission-gated nav (Users) and shows the current user +
+  logout. The Parts page hides New/Edit/Delete/categorize controls without `PARTS_EDIT`.
+- **Bootstrap admin** (seeded by migration V10): `admin@clele.local` / `admin` with both permissions.
+  **Change this password after first login** (via the Users screen). To regenerate the seed hash use a
+  BCrypt hash of the new password (Spring's `BCryptPasswordEncoder`, or `htpasswd -bnBC 10 "" <pw>`).
 
 ## Partsbox Import
 
@@ -145,6 +187,10 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 ## Key Features
 
 - **CRUD** for parts, categories (hierarchical), locations, stock entries
+- **User accounts & login** with permission-based UI gating + backend enforcement (see
+  Authentication & Authorization above); Users management screen + add/edit modal
+- **Parts search screen**: searches on demand (name / part number / description full-text), filters
+  by category subtree, sortable by part number or manufacturer
 - **Dashboard** with low stock alerts
 - **Quick Add wizard** (3-step): AI part search → select result → confirm details + stock entry
   - AI returns specs keyed by each spec definition's `jsonName` → auto-fills spec fields in the confirm step
@@ -171,8 +217,16 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 
 ## API Endpoints (all under /api)
 
-- `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}`
-- `POST /parts/quick-add` — atomic create part + stock entry
+- `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` — session auth (login is the only
+  unauthenticated `/api` endpoint)
+- `GET/POST /users`, `GET/PUT/DELETE /users/{id}` — user management (requires `USERS_EDIT`)
+- `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`)
+  - `GET /parts?search=&categoryId=&sort=` — search runs in the DB: `search` matches name /
+    part_number (case-insensitive substring) + description (PostgreSQL full-text,
+    `websearch_to_tsquery`); `categoryId` matches the category **and all descendants** (recursive
+    CTE over `parent_id`); `sort` is `partNumber` (default) or `manufacturer`. The Parts page only
+    fetches results once a search/filter is applied (it does not list the whole catalogue on load).
+- `POST /parts/quick-add` — atomic create part + stock entry (requires `PARTS_EDIT`)
 - `GET /parts/{id}/stock` — on-hand stock entries per location for a part
 - `GET /parts/{id}/movements` — stock movement history for a part (most recent first)
 - `POST /parts/auto-categorize`, `GET /parts/auto-categorize/status` — local-AI (Ollama) bulk categorization job

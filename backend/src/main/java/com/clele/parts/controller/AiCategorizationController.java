@@ -1,10 +1,12 @@
 package com.clele.parts.controller;
 
 import com.clele.parts.dto.CategorizationStatusDTO;
+import com.clele.parts.model.Permissions;
 import com.clele.parts.service.PartCategorizationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -17,6 +19,7 @@ public class AiCategorizationController {
 
     @PostMapping
     @Operation(summary = "Start a background job that auto-assigns parts to categories via Ollama")
+    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
     public CategorizationStatusDTO start(
             @RequestParam(defaultValue = "false") boolean onlyUncategorized) {
         return categorizationService.start(onlyUncategorized);

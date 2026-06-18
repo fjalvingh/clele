@@ -7,6 +7,7 @@ import {
   updateSpecDefinition,
 } from '../api';
 import type { SpecDefinition, SpecDefinitionRequest } from '../api/types';
+import { MAJOR_TYPES } from '../api/types';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
 
@@ -19,6 +20,7 @@ const emptyForm = (): SpecDefinitionRequest => ({
   unit: '',
   options: [],
   displayOrder: 0,
+  majorType: 'TECHNICAL',
 });
 
 function typeLabel(dataType: string): string {
@@ -29,6 +31,10 @@ function typeLabel(dataType: string): string {
     case 'SELECT': return 'Select';
     default: return dataType;
   }
+}
+
+function majorTypeLabel(majorType: string): string {
+  return MAJOR_TYPES.find((t) => t.key === majorType)?.label ?? majorType;
 }
 
 function unitOrOptions(spec: SpecDefinition): string {
@@ -77,6 +83,7 @@ export default function SpecDefinitionsPage() {
       unit: spec.unit ?? '',
       options: spec.options ?? [],
       displayOrder: spec.displayOrder,
+      majorType: spec.majorType ?? 'TECHNICAL',
     });
     setOptionsText(spec.options ? spec.options.join(', ') : '');
     setFormError(null);
@@ -183,6 +190,7 @@ export default function SpecDefinitionsPage() {
                 <tr>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">JSON Name</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Title</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Major Type</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Type</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Unit / Options</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Order</th>
@@ -194,6 +202,7 @@ export default function SpecDefinitionsPage() {
                   <tr key={spec.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{spec.jsonName}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{spec.name}</td>
+                    <td className="px-4 py-3 text-gray-600">{majorTypeLabel(spec.majorType)}</td>
                     <td className="px-4 py-3">
                       <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
                         {typeLabel(spec.dataType)}
@@ -242,6 +251,18 @@ export default function SpecDefinitionsPage() {
           onChange={(e) => setForm({ ...form, name: e.target.value })}
           placeholder="e.g. Package, Voltage Rating"
         />
+        <FormField
+          as="select"
+          label="Major Type *"
+          value={form.majorType}
+          onChange={(e) => setForm({ ...form, majorType: e.target.value })}
+        >
+          {MAJOR_TYPES.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.label}
+            </option>
+          ))}
+        </FormField>
         <FormField
           as="select"
           label="Type *"

@@ -4,6 +4,7 @@ import com.clele.parts.dto.PartDTO;
 import com.clele.parts.dto.PartRequest;
 import com.clele.parts.dto.StockEntryDTO;
 import com.clele.parts.dto.StockMovementDTO;
+import com.clele.parts.model.Permissions;
 import com.clele.parts.service.PartService;
 import com.clele.parts.service.StockEntryService;
 import com.clele.parts.service.StockMovementService;
@@ -13,6 +14,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -56,18 +58,21 @@ public class PartController {
 
     @PostMapping
     @Operation(summary = "Create a new part")
+    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
     public ResponseEntity<PartDTO> create(@Valid @RequestBody PartRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(partService.create(request));
     }
 
     @PutMapping("/{id}")
     @Operation(summary = "Update a part")
+    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
     public PartDTO update(@PathVariable Long id, @Valid @RequestBody PartRequest request) {
         return partService.update(id, request);
     }
 
     @DeleteMapping("/{id}")
     @Operation(summary = "Delete a part")
+    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         partService.delete(id);
         return ResponseEntity.noContent().build();

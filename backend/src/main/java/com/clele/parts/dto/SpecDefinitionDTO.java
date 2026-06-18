@@ -16,4 +16,5 @@ public class SpecDefinitionDTO {
     private String unit;
     private List<String> options;
     private int displayOrder;
+    private String majorType;
 }
