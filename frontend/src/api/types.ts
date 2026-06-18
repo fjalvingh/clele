@@ -1,5 +1,6 @@
 export interface SpecDefinition {
   id: number;
+  jsonName: string; // machine key used inside part.specs
   name: string;
   dataType: string; // TEXT | NUMBER | BOOLEAN | SELECT
   unit?: string;
@@ -8,6 +9,7 @@ export interface SpecDefinition {
 }
 
 export interface SpecDefinitionRequest {
+  jsonName: string;
   name: string;
   dataType: string;
   unit?: string;

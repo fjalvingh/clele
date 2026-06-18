@@ -57,8 +57,10 @@ public class AiPartSearchService {
             - category: component category such as "Transistors" or "Logic ICs" (string or null)
             - specs: array of "Name: Value" strings for verified key specifications
 
-            IMPORTANT: For spec names you MUST use EXACTLY these predefined names when applicable \
-            (use only the numeric value without repeating the unit that is already in the name):
+            IMPORTANT: For spec names you MUST use EXACTLY these predefined keys when applicable. \
+            Each entry below is the exact key to use, followed by a human-readable title in parentheses \
+            (a hint only — do NOT use the title as the key). \
+            Use only the numeric value without repeating the unit that is already in the key:
             %s
 
             Only include specs where you have a verified value. \
@@ -315,7 +317,7 @@ public class AiPartSearchService {
         List<SpecDefinition> defs = specDefinitionRepository.findAllByOrderByDisplayOrderAscNameAsc();
         StringBuilder sb = new StringBuilder();
         for (SpecDefinition def : defs) {
-            sb.append("\n  - \"").append(def.getName()).append("\"");
+            sb.append("\n  - \"").append(def.getJsonName()).append("\" (").append(def.getName()).append(")");
             if ("SELECT".equals(def.getDataType()) && def.getOptions() != null) {
                 sb.append("  (options: ").append(def.getOptions()).append(")");
             } else if ("NUMBER".equals(def.getDataType()) && def.getUnit() != null) {

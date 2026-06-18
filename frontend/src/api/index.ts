@@ -136,6 +136,9 @@ export const updateSpecDefinition = (id: number, data: SpecDefinitionRequest) =>
 export const deleteSpecDefinition = (id: number) =>
   client.delete(`/spec-definitions/${id}`);
 
+export const rescanSpecDefinitions = () =>
+  client.post<SpecDefinition[]>('/spec-definitions/rescan').then((r) => r.data);
+
 export const getSpecsForCategory = (categoryId: number | null) =>
   categoryId != null
     ? client.get<SpecDefinition[]>(`/spec-definitions/for-category/${categoryId}`).then((r) => r.data)

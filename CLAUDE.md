@@ -37,6 +37,8 @@ frontend/src/
 - PostgreSQL: database `partsdb`, user `partsuser`, password `partspass`
 - Schema managed by Flyway migrations (V1–V5) in `backend/src/main/resources/db/migration/`
   - V5 added `part.footprint/mpn/octopart_id` columns and the `stock_movement` ledger table
+  - V6 added `spec_definition.json_name` (machine key matching `part.specs` JSON keys), dropped
+    the unique constraint on `name`, and wiped the old (mismatched) spec_definition records
 - `ddl-auto: validate` — every schema change requires a new Flyway migration
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 
@@ -109,7 +111,7 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - Provider: Anthropic Claude (model configured in `application.yml`, default `claude-haiku-4-5-20251001`)
 - `AiPartSearchService` calls the Anthropic Messages API via RestTemplate (no SDK dependency)
 - `DuckDuckGoImageService` searches for part images via DuckDuckGo
-- The AI system prompt is built dynamically from `spec_definition` table — spec names, types, units, and SELECT options are included so the AI returns specs using exact database field names for automatic pre-fill
+- The AI system prompt is built dynamically from `spec_definition` table — each spec's `json_name` (the exact key) plus its title, type, unit, and SELECT options are included so the AI returns specs using exact `part.specs` JSON keys for automatic pre-fill
 - AI response parser handles: clean JSON, markdown-fenced JSON, and prose text preceding JSON (extracts from first `[` or ` ``` ` fence)
 
 ## Key Features
@@ -117,13 +119,23 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - **CRUD** for parts, categories (hierarchical), locations, stock entries
 - **Dashboard** with low stock alerts
 - **Quick Add wizard** (3-step): AI part search → select result → confirm details + stock entry
-  - AI returns specs using exact spec definition names → auto-fills spec fields in the confirm step
+  - AI returns specs keyed by each spec definition's `jsonName` → auto-fills spec fields in the confirm step
   - Image picker fetches suggestions via DuckDuckGo, displays through backend proxy, uploads selected images as multipart blobs (client-side fetch + multipart upload to avoid Cloudflare/CORS issues)
   - Shows error feedback if image uploads fail (with link to navigate to saved part)
   - Location field defaults to last used location (persisted in `localStorage` key `quickadd.lastLocationId`)
 - **Part images**: upload/delete photos per part (max 5), stored as PNG BYTEA in DB
 - **Spec definitions**: configurable specification fields (text, number, boolean, select) with units; can be associated with categories
-  - Pre-populated with specs for transistors, diodes, capacitors, resistors, and ICs (inserted directly in DB, not via migration)
+  - Each definition has a `jsonName` (the exact key stored inside `part.specs`) separate from its
+    human-readable `name`/title. All matching (AI prompt, Quick Add, Parts edit, Part detail) keys off `jsonName`
+  - **"Rescan from parts"** (`POST /api/spec-definitions/rescan`, button on the Spec Definitions page):
+    scans every part's `specs` JSON and upserts a definition per distinct key, inferring the data type
+    and possible values. Upsert by `jsonName` preserves manually-edited title/unit while refreshing the
+    inferred dataType/options. Inference: all-boolean → BOOLEAN; all-numeric → NUMBER; string set ≤30
+    distinct with no digit-bearing value → SELECT (values become options); else TEXT
+  - New definitions get a default title from `SpecNameHumanizer` — it splits separators + camelCase,
+    then word-segments lowercase-concatenated keys (e.g. `numberofbits` → "Number of Bits") against a
+    curated electronics vocabulary, applying an acronym map (DC, I2C, RoHS, …). Unknown tokens fall back
+    to a single capitalized word
 - **Part detail page**: image gallery on left, details on right; thumbnail strip; stock entries with unit price; total stock value
 
 ## API Endpoints (all under /api)
@@ -138,5 +150,5 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - `GET /parts-search?q=` — AI part search
 - `GET /parts-search/images?q=` — image suggestions
 - `GET /image-proxy?url=` — external image proxy
-- `GET/POST /spec-definitions`, `PUT/DELETE /spec-definitions/{id}`
+- `GET/POST /spec-definitions`, `PUT/DELETE /spec-definitions/{id}`, `POST /spec-definitions/rescan`
 - Swagger UI at `http://localhost:8080/swagger-ui.html`

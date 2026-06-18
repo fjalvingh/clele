@@ -3,6 +3,7 @@ import {
   createSpecDefinition,
   deleteSpecDefinition,
   getSpecDefinitions,
+  rescanSpecDefinitions,
   updateSpecDefinition,
 } from '../api';
 import type { SpecDefinition, SpecDefinitionRequest } from '../api/types';
@@ -12,6 +13,7 @@ import Modal from '../components/Modal';
 const DATA_TYPES = ['TEXT', 'NUMBER', 'BOOLEAN', 'SELECT'] as const;
 
 const emptyForm = (): SpecDefinitionRequest => ({
+  jsonName: '',
   name: '',
   dataType: 'TEXT',
   unit: '',
@@ -46,6 +48,7 @@ export default function SpecDefinitionsPage() {
   const [optionsText, setOptionsText] = useState('');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [rescanning, setRescanning] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -68,6 +71,7 @@ export default function SpecDefinitionsPage() {
   const openEdit = (spec: SpecDefinition) => {
     setEditing(spec);
     setForm({
+      jsonName: spec.jsonName,
       name: spec.name,
       dataType: spec.dataType,
       unit: spec.unit ?? '',
@@ -109,6 +113,25 @@ export default function SpecDefinitionsPage() {
     }
   };
 
+  const handleRescan = async () => {
+    if (
+      !confirm(
+        'Scan all parts and upsert spec fields from their specs? ' +
+          'Inferred type and options are refreshed; titles and units you edited are kept.'
+      )
+    )
+      return;
+    setRescanning(true);
+    setError(null);
+    try {
+      setSpecs(await rescanSpecDefinitions());
+    } catch (e: unknown) {
+      setError((e as Error).message);
+    } finally {
+      setRescanning(false);
+    }
+  };
+
   const handleDelete = async (spec: SpecDefinition) => {
     if (!confirm(`Delete spec field "${spec.name}"?`)) return;
     try {
@@ -128,12 +151,21 @@ export default function SpecDefinitionsPage() {
             Define typed specification fields that can be assigned to categories.
           </p>
         </div>
-        <button
-          onClick={openCreate}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          + New Spec Field
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={handleRescan}
+            disabled={rescanning}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {rescanning ? 'Rescanning…' : 'Rescan from parts'}
+          </button>
+          <button
+            onClick={openCreate}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            + New Spec Field
+          </button>
+        </div>
       </div>
 
       {loading && <p className="text-gray-500">Loading...</p>}
@@ -149,7 +181,8 @@ export default function SpecDefinitionsPage() {
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Name</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">JSON Name</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Title</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Type</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Unit / Options</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Order</th>
@@ -159,6 +192,7 @@ export default function SpecDefinitionsPage() {
               <tbody className="divide-y divide-gray-100">
                 {specs.map((spec) => (
                   <tr key={spec.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{spec.jsonName}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{spec.name}</td>
                     <td className="px-4 py-3">
                       <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
@@ -197,7 +231,13 @@ export default function SpecDefinitionsPage() {
         title={editing ? 'Edit Spec Field' : 'New Spec Field'}
       >
         <FormField
-          label="Name *"
+          label="JSON Name *"
+          value={form.jsonName}
+          onChange={(e) => setForm({ ...form, jsonName: e.target.value })}
+          placeholder="e.g. supply_voltage — exact key inside part.specs"
+        />
+        <FormField
+          label="Title *"
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
           placeholder="e.g. Package, Voltage Rating"
@@ -257,7 +297,7 @@ export default function SpecDefinitionsPage() {
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !form.name.trim()}
+            disabled={saving || !form.jsonName.trim() || !form.name.trim()}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}

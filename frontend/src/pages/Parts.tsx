@@ -181,7 +181,7 @@ export default function PartsPage() {
         setSpecValues((prev) => {
           const next: Record<string, string> = {};
           for (const def of defs) {
-            next[def.name] = prev[def.name] ?? '';
+            next[def.jsonName] = prev[def.jsonName] ?? '';
           }
           return next;
         });
@@ -233,8 +233,8 @@ export default function PartsPage() {
     // Only include spec values for keys present in current spec definitions
     const filteredSpecs: Record<string, string> = {};
     for (const def of specDefs) {
-      if (specValues[def.name] !== undefined && specValues[def.name] !== '') {
-        filteredSpecs[def.name] = specValues[def.name];
+      if (specValues[def.jsonName] !== undefined && specValues[def.jsonName] !== '') {
+        filteredSpecs[def.jsonName] = specValues[def.jsonName];
       }
     }
     const payload: PartRequest = { ...form, specs: filteredSpecs };
@@ -424,8 +424,8 @@ export default function PartsPage() {
                 <SpecField
                   key={spec.id}
                   spec={spec}
-                  value={specValues[spec.name] ?? ''}
-                  onChange={(val) => setSpecValues((prev) => ({ ...prev, [spec.name]: val }))}
+                  value={specValues[spec.jsonName] ?? ''}
+                  onChange={(val) => setSpecValues((prev) => ({ ...prev, [spec.jsonName]: val }))}
                 />
               ))}
             </div>

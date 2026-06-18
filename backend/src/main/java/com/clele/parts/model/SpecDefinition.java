@@ -18,7 +18,12 @@ public class SpecDefinition {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(unique = true, nullable = false, length = 100)
+    /** Machine key used as the JSON key inside {@code part.specs}. */
+    @Column(name = "json_name", nullable = false, unique = true, length = 100)
+    private String jsonName;
+
+    /** Human-readable display title. */
+    @Column(nullable = false, length = 100)
     private String name;
 
     @Column(name = "data_type", nullable = false, length = 20)

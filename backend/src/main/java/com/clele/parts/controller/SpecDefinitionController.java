@@ -46,6 +46,12 @@ public class SpecDefinitionController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/rescan")
+    @Operation(summary = "Scan all parts and upsert spec definitions from their specs JSON")
+    public List<SpecDefinitionDTO> rescan() {
+        return specService.rescanFromParts();
+    }
+
     @GetMapping("/for-category/{catId}")
     @Operation(summary = "Get inherited spec definitions for a category")
     public List<SpecDefinitionDTO> forCategory(@PathVariable Long catId) {

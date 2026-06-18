@@ -11,6 +11,9 @@ import java.util.List;
 @AllArgsConstructor
 public class SpecDefinitionRequest {
 
+    @NotBlank(message = "JSON name is required")
+    private String jsonName;
+
     @NotBlank(message = "Name is required")
     private String name;
 

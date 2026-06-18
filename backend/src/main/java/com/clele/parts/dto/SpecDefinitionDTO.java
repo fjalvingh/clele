@@ -10,6 +10,7 @@ import java.util.List;
 @Builder
 public class SpecDefinitionDTO {
     private Long id;
+    private String jsonName;
     private String name;
     private String dataType;
     private String unit;

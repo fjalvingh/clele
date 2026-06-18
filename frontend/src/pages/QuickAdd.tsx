@@ -193,7 +193,7 @@ export default function QuickAddPage() {
         }
         const prefilled: Record<string, string> = {};
         for (const def of defs) {
-          prefilled[def.name] = aiSpecs[def.name] ?? '';
+          prefilled[def.jsonName] = aiSpecs[def.jsonName] ?? '';
         }
         setSpecValues(prefilled);
       })
@@ -276,9 +276,9 @@ export default function QuickAddPage() {
     // Only include spec values that match a definition and are non-empty
     const specs: Record<string, string> = {};
     for (const def of specDefs) {
-      const v = specValues[def.name];
+      const v = specValues[def.jsonName];
       if (v !== undefined && v !== '') {
-        specs[def.name] = v;
+        specs[def.jsonName] = v;
       }
     }
 
@@ -484,11 +484,11 @@ export default function QuickAddPage() {
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={specValues[spec.name] === 'true'}
+                            checked={specValues[spec.jsonName] === 'true'}
                             onChange={(e) =>
                               setSpecValues((prev) => ({
                                 ...prev,
-                                [spec.name]: e.target.checked ? 'true' : 'false',
+                                [spec.jsonName]: e.target.checked ? 'true' : 'false',
                               }))
                             }
                             className="rounded border-gray-300 text-blue-600"
@@ -505,9 +505,9 @@ export default function QuickAddPage() {
                           {spec.name}
                         </label>
                         <select
-                          value={specValues[spec.name] ?? ''}
+                          value={specValues[spec.jsonName] ?? ''}
                           onChange={(e) =>
-                            setSpecValues((prev) => ({ ...prev, [spec.name]: e.target.value }))
+                            setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
                           }
                           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                         >
@@ -522,7 +522,7 @@ export default function QuickAddPage() {
                   if (spec.dataType === 'NUMBER') {
                     const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
                     const isMulti = units.length > 1;
-                    const currentVal = specValues[spec.name] ?? '';
+                    const currentVal = specValues[spec.jsonName] ?? '';
                     if (isMulti) {
                       let numPart = currentVal, unitPart = units[0] ?? '';
                       for (const u of units) {
@@ -537,14 +537,14 @@ export default function QuickAddPage() {
                               step="any"
                               value={numPart}
                               onChange={(e) =>
-                                setSpecValues((prev) => ({ ...prev, [spec.name]: e.target.value ? e.target.value + ' ' + unitPart : '' }))
+                                setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value ? e.target.value + ' ' + unitPart : '' }))
                               }
                               className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                             />
                             <select
                               value={unitPart}
                               onChange={(e) =>
-                                setSpecValues((prev) => ({ ...prev, [spec.name]: numPart ? numPart + ' ' + e.target.value : '' }))
+                                setSpecValues((prev) => ({ ...prev, [spec.jsonName]: numPart ? numPart + ' ' + e.target.value : '' }))
                               }
                               className="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                             >
@@ -564,7 +564,7 @@ export default function QuickAddPage() {
                           step="any"
                           value={currentVal}
                           onChange={(e) =>
-                            setSpecValues((prev) => ({ ...prev, [spec.name]: e.target.value }))
+                            setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
                           }
                           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
@@ -576,9 +576,9 @@ export default function QuickAddPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
                       <input
                         type="text"
-                        value={specValues[spec.name] ?? ''}
+                        value={specValues[spec.jsonName] ?? ''}
                         onChange={(e) =>
-                          setSpecValues((prev) => ({ ...prev, [spec.name]: e.target.value }))
+                          setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
                         }
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />

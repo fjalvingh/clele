@@ -213,13 +213,13 @@ export default function PartDetailPage() {
   const primaryImage = images[0] ?? null;
 
   // Build spec display: use definitions where available, fall back to raw keys for unmatched
-  const specDefsMap = new Map(specDefs.map((d) => [d.name, d]));
+  const specDefsMap = new Map(specDefs.map((d) => [d.jsonName, d]));
   const partSpecs = part.specs ?? {};
 
   // Defined specs that have a value
   const definedSpecEntries = specDefs
-    .filter((d) => partSpecs[d.name] !== undefined && partSpecs[d.name] !== '')
-    .map((d) => ({ spec: d, value: partSpecs[d.name] }));
+    .filter((d) => partSpecs[d.jsonName] !== undefined && partSpecs[d.jsonName] !== '')
+    .map((d) => ({ spec: d, value: partSpecs[d.jsonName] }));
 
   // Raw keys not covered by any definition
   const unmatchedEntries = Object.entries(partSpecs).filter(
