@@ -73,6 +73,7 @@ export default function PartDetailPage() {
   const [movementsOpen, setMovementsOpen] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
   const [images, setImages] = useState<PartImage[]>([]);
+  const [selectedImageId, setSelectedImageId] = useState<number | null>(null);
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -306,7 +307,8 @@ export default function PartDetailPage() {
   if (error) return <div className="p-8 text-red-600">{error}</div>;
   if (!part) return null;
 
-  const primaryImage = images[0] ?? null;
+  const primaryImage =
+    images.find((img) => img.id === selectedImageId) ?? images[0] ?? null;
 
   // Build spec display: use definitions where available, fall back to raw keys for unmatched
   const specDefsMap = new Map(specDefs.map((d) => [d.jsonName, d]));
@@ -366,15 +368,22 @@ export default function PartDetailPage() {
               <div className="flex flex-wrap gap-1">
                 {images.map((img) => (
                   <div key={img.id} className="group relative">
-                    <img
-                      src={partImageUrl(partId, img.id)}
-                      alt=""
-                      className={`h-12 w-12 rounded border object-contain ${
-                        img.id === primaryImage?.id
-                          ? 'border-blue-400'
-                          : 'border-gray-200'
-                      }`}
-                    />
+                    <button
+                      type="button"
+                      onClick={() => setSelectedImageId(img.id)}
+                      className="block"
+                      title="Show this photo"
+                    >
+                      <img
+                        src={partImageUrl(partId, img.id)}
+                        alt=""
+                        className={`h-12 w-12 rounded border object-contain ${
+                          img.id === primaryImage?.id
+                            ? 'border-blue-400 ring-2 ring-blue-200'
+                            : 'border-gray-200 hover:border-gray-400'
+                        }`}
+                      />
+                    </button>
                     {canEdit && (
                       <button
                         onClick={() => handleDeleteImage(img)}
