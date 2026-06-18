@@ -4,10 +4,21 @@ Full-stack web app for managing electronic component inventory with AI-powered p
 
 ## Build & Run
 
-- **Backend**: `mvn21 spring-boot:run` from `backend/` — uses Java 21 toolchain (`mvn21`, not `mvn`)
-- **Frontend dev**: `npm install && npm run dev` from `frontend/`
+Frontend and backend ship as a **single web container**: the Maven build compiles the React/Vite
+app and bundles it into the Spring Boot jar, which serves the UI and the `/api` on the same port.
+
+- **Production build (one jar serving both)**: `mvn21 package` from `backend/` — the
+  `frontend-maven-plugin` downloads a private Node into `backend/target`, runs `npm install` +
+  `npm run build` (in `../frontend`), and `maven-resources-plugin` copies `frontend/dist` into the
+  jar's `static/`. Run with `java -jar target/parts-0.0.1-SNAPSHOT.jar` → everything on port 8080.
+- **Run the merged app from source**: `mvn21 spring-boot:run` from `backend/` builds the frontend
+  too and serves it from `static/` (port 8080).
+- **Fast backend-only run** (skip the npm build): `mvn21 spring-boot:run -DskipFrontend=true`
+- **Frontend hot-reload dev**: `npm install && npm run dev` from `frontend/` — Vite dev server on
+  port 5173 proxies `/api` to the backend on 8080. Use this alongside `-DskipFrontend=true`.
 - **Frontend build check**: `npm run build` from `frontend/` (must be in that directory, not project root)
-- Backend runs on port 8080; frontend Vite dev server on port 5173 (proxies `/api` to 8080)
+- **SPA routing**: `config/SpaWebConfig` serves static files when present and falls back to
+  `index.html` for non-`/api` paths so BrowserRouter deep links / refreshes work.
 
 ## Tech Stack
 
@@ -136,12 +147,17 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
     then word-segments lowercase-concatenated keys (e.g. `numberofbits` → "Number of Bits") against a
     curated electronics vocabulary, applying an acronym map (DC, I2C, RoHS, …). Unknown tokens fall back
     to a single capitalized word
-- **Part detail page**: image gallery on left, details on right; thumbnail strip; stock entries with unit price; total stock value
+- **Part detail page**: image gallery on left, details on right; thumbnail strip; per-location stock
+  entries with unit price; total on-hand quantity + total stock value summary; a collapsible
+  "Stock Movements" history (ledger sorted newest-first, showing quantity, location, price, comments,
+  timestamp, and who made the move) backed by `GET /parts/{id}/movements`
 
 ## API Endpoints (all under /api)
 
 - `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}`
 - `POST /parts/quick-add` — atomic create part + stock entry
+- `GET /parts/{id}/stock` — on-hand stock entries per location for a part
+- `GET /parts/{id}/movements` — stock movement history for a part (most recent first)
 - `GET/POST/DELETE /parts/{id}/images`, `POST /parts/{id}/images/from-url`
 - `GET/POST /categories`, `GET/PUT/DELETE /categories/{id}`, `GET /categories/tree`
 - `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`

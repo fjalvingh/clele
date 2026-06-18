@@ -7,13 +7,22 @@ import {
   getLocations,
   getPart,
   getPartImages,
+  getPartMovements,
   getPartStock,
   getSpecsForCategory,
   partImageUrl,
   updateStockEntry,
   uploadPartImage,
 } from '../api';
-import type { Location, Part, PartImage, SpecDefinition, StockEntry, StockEntryRequest } from '../api/types';
+import type {
+  Location,
+  Part,
+  PartImage,
+  SpecDefinition,
+  StockEntry,
+  StockEntryRequest,
+  StockMovement,
+} from '../api/types';
 import Badge from '../components/Badge';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
@@ -61,6 +70,8 @@ export default function PartDetailPage() {
 
   const [part, setPart] = useState<Part | null>(null);
   const [stock, setStock] = useState<StockEntry[]>([]);
+  const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [movementsOpen, setMovementsOpen] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
   const [images, setImages] = useState<PartImage[]>([]);
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
@@ -84,6 +95,10 @@ export default function PartDetailPage() {
         setStock(s);
         setLocations(l);
         setImages(imgs);
+        // Movement history is supplementary — load best-effort, don't fail the page
+        getPartMovements(partId)
+          .then(setMovements)
+          .catch(() => setMovements([]));
         // Fetch spec definitions best-effort — don't fail if unavailable
         getSpecsForCategory(p.categoryId ?? null)
           .then(setSpecDefs)
@@ -387,23 +402,36 @@ export default function PartDetailPage() {
             + Add Stock
           </button>
         </div>
-        {(() => {
-          const priced = stock.filter((s) => s.unitPrice != null);
-          if (priced.length === 0) return null;
-          const total = priced.reduce((sum, s) => sum + s.quantity * Number(s.unitPrice), 0);
-          const partial = priced.length < stock.length;
-          return (
-            <div className="mb-4 flex items-baseline gap-2 text-sm text-gray-600">
-              <span className="font-medium">Total stock value:</span>
+        {stock.length > 0 && (
+          <div className="mb-4 flex flex-wrap items-baseline gap-x-8 gap-y-2 text-sm text-gray-600">
+            <span className="flex items-baseline gap-2">
+              <span className="font-medium">Total on hand:</span>
               <span className="font-mono text-base font-semibold text-gray-900">
-                {total.toFixed(2)}
+                {stock.reduce((sum, s) => sum + s.quantity, 0)}
               </span>
-              {partial && (
-                <span className="text-xs text-gray-400">(some locations have no price)</span>
-              )}
-            </div>
-          );
-        })()}
+              <span className="text-xs text-gray-400">
+                across {stock.length} location{stock.length === 1 ? '' : 's'}
+              </span>
+            </span>
+            {(() => {
+              const priced = stock.filter((s) => s.unitPrice != null);
+              if (priced.length === 0) return null;
+              const total = priced.reduce((sum, s) => sum + s.quantity * Number(s.unitPrice), 0);
+              const partial = priced.length < stock.length;
+              return (
+                <span className="flex items-baseline gap-2">
+                  <span className="font-medium">Total stock value:</span>
+                  <span className="font-mono text-base font-semibold text-gray-900">
+                    {total.toFixed(2)}
+                  </span>
+                  {partial && (
+                    <span className="text-xs text-gray-400">(some locations have no price)</span>
+                  )}
+                </span>
+              );
+            })()}
+          </div>
+        )}
         <DataTable
           columns={stockColumns}
           data={stock}
@@ -426,6 +454,57 @@ export default function PartDetailPage() {
             </div>
           )}
         />
+      </div>
+
+      {/* Stock movement history (collapsible) */}
+      <div className="mt-6 rounded-xl border border-gray-200 bg-white shadow-sm">
+        <button
+          onClick={() => setMovementsOpen((o) => !o)}
+          className="flex w-full items-center justify-between px-6 py-4 text-left"
+        >
+          <span className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-gray-900">Stock Movements</h2>
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+              {movements.length}
+            </span>
+          </span>
+          <span className="text-gray-400">{movementsOpen ? '▲' : '▼'}</span>
+        </button>
+        {movementsOpen && (
+          <div className="border-t border-gray-100 px-6 py-4">
+            {movements.length === 0 ? (
+              <p className="text-sm text-gray-500">No stock movements recorded for this part.</p>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {movements.map((m) => (
+                  <li key={m.id} className="flex items-start justify-between gap-4 py-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={m.quantity >= 0 ? 'green' : 'red'}>
+                          {m.quantity >= 0 ? `+${m.quantity}` : m.quantity}
+                        </Badge>
+                        <span className="text-sm font-medium text-gray-800">{m.locationName}</span>
+                        {m.unitPrice != null && (
+                          <span className="font-mono text-xs text-gray-500">
+                            @ {Number(m.unitPrice).toFixed(2)}
+                            {m.currency ? ` ${m.currency}` : ''}
+                          </span>
+                        )}
+                      </div>
+                      {m.comments && (
+                        <p className="mt-1 text-sm text-gray-600">{m.comments}</p>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-right text-xs text-gray-400">
+                      <div>{new Date(m.movedAt).toLocaleString()}</div>
+                      {m.createdBy && <div className="mt-0.5">{m.createdBy}</div>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Stock entry modal */}

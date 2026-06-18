@@ -91,6 +91,19 @@ export interface StockEntry {
   unitPrice?: number | null;
 }
 
+export interface StockMovement {
+  id: number;
+  partId: number;
+  locationId: number;
+  locationName: string;
+  quantity: number;
+  unitPrice?: number | null;
+  currency?: string | null;
+  comments?: string | null;
+  movedAt: string;
+  createdBy?: string | null;
+}
+
 export interface StockEntryRequest {
   partId: number;
   locationId: number;

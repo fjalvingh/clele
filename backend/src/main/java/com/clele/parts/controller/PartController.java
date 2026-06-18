@@ -3,8 +3,10 @@ package com.clele.parts.controller;
 import com.clele.parts.dto.PartDTO;
 import com.clele.parts.dto.PartRequest;
 import com.clele.parts.dto.StockEntryDTO;
+import com.clele.parts.dto.StockMovementDTO;
 import com.clele.parts.service.PartService;
 import com.clele.parts.service.StockEntryService;
+import com.clele.parts.service.StockMovementService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -23,6 +25,7 @@ public class PartController {
 
     private final PartService partService;
     private final StockEntryService stockEntryService;
+    private final StockMovementService stockMovementService;
 
     @GetMapping
     @Operation(summary = "List / search parts")
@@ -42,6 +45,12 @@ public class PartController {
     @Operation(summary = "Get all stock entries for a part")
     public List<StockEntryDTO> getStockForPart(@PathVariable Long id) {
         return stockEntryService.findByPartId(id);
+    }
+
+    @GetMapping("/{id}/movements")
+    @Operation(summary = "Get the stock movement history for a part (most recent first)")
+    public List<StockMovementDTO> getMovementsForPart(@PathVariable Long id) {
+        return stockMovementService.findByPartId(id);
     }
 
     @PostMapping

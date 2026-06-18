@@ -17,6 +17,7 @@ import type {
   SpecDefinitionRequest,
   StockEntry,
   StockEntryRequest,
+  StockMovement,
 } from './types';
 
 // Categories
@@ -54,6 +55,9 @@ export const getPart = (id: number) =>
 
 export const getPartStock = (id: number) =>
   client.get<StockEntry[]>(`/parts/${id}/stock`).then((r) => r.data);
+
+export const getPartMovements = (id: number) =>
+  client.get<StockMovement[]>(`/parts/${id}/movements`).then((r) => r.data);
 
 export const createPart = (data: PartRequest) =>
   client.post<Part>('/parts', data).then((r) => r.data);
