@@ -1,14 +1,41 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { getDashboard } from '../api';
 import type { Dashboard } from '../api/types';
 
+const iconProps = {
+  className: 'h-8 w-8',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.8,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+  viewBox: '0 0 24 24',
+};
+
+// Microchip — represents electronic parts
+const PartsIcon = (
+  <svg {...iconProps}>
+    <rect x="7" y="7" width="10" height="10" rx="1.5" />
+    <path d="M10 3v2M14 3v2M10 19v2M14 19v2M3 10h2M3 14h2M19 10h2M19 14h2" />
+  </svg>
+);
+
+// Map pin — represents locations
+const LocationIcon = (
+  <svg {...iconProps}>
+    <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z" />
+    <circle cx="12" cy="10" r="2.5" />
+  </svg>
+);
+
 interface StatCardProps {
   label: string;
-  value: number;
+  value: number | string;
   to: string;
   color: string;
-  icon: string;
+  icon: ReactNode;
 }
 
 function StatCard({ label, value, to, color, icon }: StatCardProps) {
@@ -52,21 +79,24 @@ export default function DashboardPage() {
             value={stats.totalParts}
             to="/parts"
             color="bg-blue-50 text-blue-900"
-            icon="🔧"
-          />
-          <StatCard
-            label="Categories"
-            value={stats.totalCategories}
-            to="/categories"
-            color="bg-purple-50 text-purple-900"
-            icon="📁"
+            icon={PartsIcon}
           />
           <StatCard
             label="Locations"
             value={stats.totalLocations}
             to="/locations"
             color="bg-green-50 text-green-900"
-            icon="📍"
+            icon={LocationIcon}
+          />
+          <StatCard
+            label="Total Stock Value"
+            value={Number(stats.totalStockValue ?? 0).toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+            to="/parts"
+            color="bg-amber-50 text-amber-900"
+            icon="💰"
           />
           <StatCard
             label="Low Stock Alerts"

@@ -31,6 +31,7 @@ public class DashboardController {
                 .totalLocations(locationService.countAll())
                 .totalCategories(categoryRepository.count())
                 .lowStockCount(stockEntryService.countLowStock())
+                .totalStockValue(stockEntryService.totalStockValue())
                 .build();
     }
 }

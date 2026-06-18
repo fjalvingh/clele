@@ -204,4 +204,5 @@ export interface Dashboard {
   totalLocations: number;
   totalCategories: number;
   lowStockCount: number;
+  totalStockValue: number;
 }

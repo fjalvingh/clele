@@ -54,6 +54,10 @@ public class StockEntryService {
         return stockEntryRepository.countLowStock();
     }
 
+    public java.math.BigDecimal totalStockValue() {
+        return stockEntryRepository.totalStockValue();
+    }
+
     @Transactional
     public StockEntryDTO create(StockEntryRequest request) {
         if (stockEntryRepository.existsByPartIdAndLocationId(request.getPartId(), request.getLocationId())) {
