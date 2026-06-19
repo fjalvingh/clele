@@ -35,18 +35,18 @@ export default function DataTable<T>({
           autoWidth ? 'w-auto' : 'min-w-full'
         } divide-y divide-gray-200 text-sm`}
       >
-        <thead className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur">
+        <thead className="sticky top-0 z-10 bg-blue-50/95 backdrop-blur">
           <tr>
             {columns.map((col) => (
               <th
                 key={col.key}
-                className="border-b border-gray-200 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500"
+                className="border-b border-blue-100 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-blue-800/80"
               >
                 {col.header}
               </th>
             ))}
             {actions && (
-              <th className="border-b border-gray-200 px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">
+              <th className="border-b border-blue-100 px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-blue-800/80">
                 Actions
               </th>
             )}

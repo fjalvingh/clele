@@ -410,6 +410,52 @@ export default function PartDetailPage() {
     },
   ];
 
+  const movementColumns: Column<StockMovement>[] = [
+    {
+      key: 'quantity',
+      header: 'Change',
+      render: (m) => (
+        <Badge variant={m.quantity >= 0 ? 'green' : 'red'}>
+          {m.quantity >= 0 ? `+${m.quantity}` : m.quantity}
+        </Badge>
+      ),
+    },
+    { key: 'locationName', header: 'Location', render: (m) => m.locationName ?? '—' },
+    {
+      key: 'unitPrice',
+      header: 'Unit Price',
+      render: (m) =>
+        m.unitPrice != null ? (
+          <span className="whitespace-nowrap font-mono text-sm">
+            {Number(m.unitPrice).toFixed(2)}
+            {m.currency ? ` ${m.currency}` : ''}
+          </span>
+        ) : (
+          <span className="text-gray-400">—</span>
+        ),
+    },
+    {
+      key: 'comments',
+      header: 'Comments',
+      render: (m) =>
+        m.comments ? (
+          <span className="text-gray-600">{m.comments}</span>
+        ) : (
+          <span className="text-gray-400">—</span>
+        ),
+    },
+    {
+      key: 'movedAt',
+      header: 'Date',
+      render: (m) => (
+        <span className="whitespace-nowrap text-gray-600">
+          {new Date(m.movedAt).toLocaleString()}
+        </span>
+      ),
+    },
+    { key: 'createdBy', header: 'By', render: (m) => m.createdBy ?? '—' },
+  ];
+
   if (loading) return <div className="p-8 text-gray-500">Loading...</div>;
   if (error) return <div className="p-8 text-red-600">{error}</div>;
   if (!part) return null;
@@ -703,8 +749,8 @@ export default function PartDetailPage() {
         </div>
         {stock.length > 0 && (
           <div className="mb-5 grid grid-cols-2 gap-3 sm:max-w-md">
-            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+            <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-blue-800/70">
                 Total on hand
               </div>
               <div className="mt-1 font-mono text-2xl font-semibold text-gray-900">
@@ -780,33 +826,12 @@ export default function PartDetailPage() {
             {movements.length === 0 ? (
               <p className="text-sm text-gray-500">No stock movements recorded for this part.</p>
             ) : (
-              <ul className="divide-y divide-gray-100">
-                {movements.map((m) => (
-                  <li key={m.id} className="flex items-start justify-between gap-4 py-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Badge variant={m.quantity >= 0 ? 'green' : 'red'}>
-                          {m.quantity >= 0 ? `+${m.quantity}` : m.quantity}
-                        </Badge>
-                        <span className="text-sm font-medium text-gray-800">{m.locationName}</span>
-                        {m.unitPrice != null && (
-                          <span className="font-mono text-xs text-gray-500">
-                            @ {Number(m.unitPrice).toFixed(2)}
-                            {m.currency ? ` ${m.currency}` : ''}
-                          </span>
-                        )}
-                      </div>
-                      {m.comments && (
-                        <p className="mt-1 text-sm text-gray-600">{m.comments}</p>
-                      )}
-                    </div>
-                    <div className="shrink-0 text-right text-xs text-gray-400">
-                      <div>{new Date(m.movedAt).toLocaleString()}</div>
-                      {m.createdBy && <div className="mt-0.5">{m.createdBy}</div>}
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <DataTable
+                autoWidth
+                columns={movementColumns}
+                data={movements}
+                keyExtractor={(m) => m.id}
+              />
             )}
           </div>
         )}

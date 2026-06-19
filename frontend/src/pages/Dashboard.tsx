@@ -117,13 +117,13 @@ export default function DashboardPage() {
           <h2 className="mb-4 text-lg font-semibold text-gray-900">By User</h2>
           <div className="inline-block max-w-full overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
             <table className="w-auto divide-y divide-gray-200 bg-white text-sm">
-              <thead className="bg-gray-50">
+              <thead className="bg-blue-50">
                 <tr>
                   {['User', 'Locations', 'Parts', 'On Hand', 'Stock Value', 'Low Stock'].map(
                     (h, i) => (
                       <th
                         key={h}
-                        className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 ${
+                        className={`border-b border-blue-100 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-blue-800/80 ${
                           i === 0 ? 'text-left' : 'text-right'
                         }`}
                       >
