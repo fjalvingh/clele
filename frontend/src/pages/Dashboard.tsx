@@ -111,6 +111,61 @@ export default function DashboardPage() {
           />
         </div>
       )}
+
+      {stats && stats.perUser.length > 0 && (
+        <div className="mt-10">
+          <h2 className="mb-4 text-lg font-semibold text-gray-900">By User</h2>
+          <div className="inline-block max-w-full overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
+            <table className="w-auto divide-y divide-gray-200 bg-white text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['User', 'Locations', 'Parts', 'On Hand', 'Stock Value', 'Low Stock'].map(
+                    (h, i) => (
+                      <th
+                        key={h}
+                        className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 ${
+                          i === 0 ? 'text-left' : 'text-right'
+                        }`}
+                      >
+                        {h}
+                      </th>
+                    ),
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {stats.perUser.map((u) => (
+                  <tr key={u.userId} className="hover:bg-gray-50">
+                    <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-800">
+                      {u.userName}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-700">{u.locations}</td>
+                    <td className="px-4 py-3 text-right text-gray-700">{u.parts}</td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-700">
+                      {u.totalQuantity}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-700">
+                      {Number(u.totalStockValue ?? 0).toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {u.lowStockCount > 0 ? (
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                          {u.lowStockCount}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">0</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

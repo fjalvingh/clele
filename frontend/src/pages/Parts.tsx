@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   createPart,
   deletePart,
@@ -148,15 +148,24 @@ function SpecField({
   );
 }
 
+type SortKey = 'partNumber' | 'manufacturer';
+
 export default function PartsPage() {
   const { hasPermission } = useAuth();
   const canEdit = hasPermission('PARTS_EDIT');
+  // Search criteria are mirrored in the URL query string so navigating into a part and back
+  // (or reloading) restores the same results instead of showing an empty list.
+  const [searchParams, setSearchParams] = useSearchParams();
   const [parts, setParts] = useState<Part[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
-  const [search, setSearch] = useState('');
-  const [filterCategoryId, setFilterCategoryId] = useState<number | undefined>();
-  const [sort, setSort] = useState<'partNumber' | 'manufacturer'>('partNumber');
+  const [search, setSearch] = useState(searchParams.get('q') ?? '');
+  const [filterCategoryId, setFilterCategoryId] = useState<number | undefined>(
+    searchParams.get('cat') ? Number(searchParams.get('cat')) : undefined,
+  );
+  const [sort, setSort] = useState<SortKey>(
+    searchParams.get('sort') === 'manufacturer' ? 'manufacturer' : 'partNumber',
+  );
   const [loading, setLoading] = useState(true);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,6 +183,16 @@ export default function PartsPage() {
     getParts(s, cid, sortBy)
       .then(setParts)
       .catch((e: Error) => setError(e.message));
+  };
+
+  // Persist the criteria to the URL (so Back / reload restores them) and run the search.
+  const runSearch = (s: string, cid: number | undefined, sortBy: SortKey) => {
+    const params: Record<string, string> = {};
+    if (s.trim()) params.q = s.trim();
+    if (cid !== undefined) params.cat = String(cid);
+    if (sortBy !== 'partNumber') params.sort = sortBy;
+    setSearchParams(params, { replace: true });
+    loadParts(s.trim() || undefined, cid, sortBy);
   };
 
   // Poll the auto-categorization job until it finishes, then refresh the list + category tree.
@@ -219,6 +238,16 @@ export default function PartsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Restore results when the page mounts with search criteria in the URL (back navigation / reload).
+  useEffect(() => {
+    const q = searchParams.get('q') ?? '';
+    const cid = searchParams.get('cat') ? Number(searchParams.get('cat')) : undefined;
+    if (q.trim() || cid !== undefined) {
+      loadParts(q.trim() || undefined, cid, sort);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Resume progress display if a categorization job is already running (e.g. after a reload).
   useEffect(() => {
     getAutoCategorizeStatus()
@@ -255,11 +284,12 @@ export default function PartsPage() {
     e.preventDefault();
     if (!search.trim() && filterCategoryId === undefined) {
       // Nothing to search on — keep the page empty rather than loading the whole catalogue.
+      setSearchParams({}, { replace: true });
       setParts([]);
       setSearched(false);
       return;
     }
-    loadParts(search.trim() || undefined, filterCategoryId);
+    runSearch(search, filterCategoryId, sort);
   };
 
   const openCreate = () => {
@@ -437,10 +467,10 @@ export default function PartsPage() {
         <select
           value={sort}
           onChange={(e) => {
-            const next = e.target.value as 'partNumber' | 'manufacturer';
+            const next = e.target.value as SortKey;
             setSort(next);
             // Re-run the current search with the new ordering if results are showing.
-            if (searched) loadParts(search.trim() || undefined, filterCategoryId, next);
+            if (searched) runSearch(search, filterCategoryId, next);
           }}
           title="Sort results by"
           className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -461,6 +491,7 @@ export default function PartsPage() {
             setFilterCategoryId(undefined);
             setParts([]);
             setSearched(false);
+            setSearchParams({}, { replace: true });
           }}
           className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
         >

@@ -12,4 +12,7 @@ public class LocationRequest {
     private String name;
 
     private String description;
+
+    /** Reassign the location to another user. Admin-only; ignored on create. */
+    private Long ownerId;
 }

@@ -15,6 +15,7 @@ public class StockEntryDTO {
     private String partNumber;
     private Long locationId;
     private String locationName;
+    private String ownerName;
     private Integer quantity;
     private Integer minimumQuantity;
     private boolean lowStock;

@@ -274,6 +274,7 @@ export default function PartDetailPage() {
   };
 
   const stockColumns: Column<StockEntry>[] = [
+    { key: 'ownerName', header: 'Owner', render: (row) => row.ownerName ?? '—' },
     { key: 'locationName', header: 'Location' },
     {
       key: 'quantity',
@@ -561,6 +562,7 @@ export default function PartDetailPage() {
           </div>
         )}
         <DataTable
+          autoWidth
           columns={stockColumns}
           data={stock}
           keyExtractor={(s) => s.id}

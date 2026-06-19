@@ -12,6 +12,8 @@ interface DataTableProps<T> {
   keyExtractor: (row: T) => string | number;
   actions?: (row: T) => ReactNode;
   emptyMessage?: string;
+  /** Size the table to its content (columns take their natural width) instead of filling the row. */
+  autoWidth?: boolean;
 }
 
 export default function DataTable<T>({
@@ -20,10 +22,19 @@ export default function DataTable<T>({
   keyExtractor,
   actions,
   emptyMessage = 'No data found.',
+  autoWidth = false,
 }: DataTableProps<T>) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
-      <table className="min-w-full divide-y divide-gray-200 bg-white text-sm">
+    <div
+      className={`overflow-x-auto rounded-lg border border-gray-200 shadow-sm ${
+        autoWidth ? 'inline-block max-w-full align-top' : ''
+      }`}
+    >
+      <table
+        className={`${
+          autoWidth ? 'w-auto' : 'min-w-full'
+        } divide-y divide-gray-200 bg-white text-sm`}
+      >
         <thead className="bg-gray-50">
           <tr>
             {columns.map((col) => (

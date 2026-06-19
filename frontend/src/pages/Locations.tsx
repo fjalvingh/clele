@@ -3,9 +3,10 @@ import {
   createLocation,
   deleteLocation,
   getLocations,
+  getUsers,
   updateLocation,
 } from '../api';
-import type { Location, LocationRequest } from '../api/types';
+import type { Location, LocationRequest, User } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
@@ -17,6 +18,7 @@ export default function LocationsPage() {
   const isAdmin = hasPermission('USERS_EDIT');
   const canManage = (loc: Location) => isAdmin || loc.ownerId === user?.id;
   const [locations, setLocations] = useState<Location[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -31,6 +33,12 @@ export default function LocationsPage() {
       .then(setLocations)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+    // Admins can reassign ownership, so they need the user list for the picker.
+    if (isAdmin) {
+      getUsers()
+        .then(setUsers)
+        .catch(() => setUsers([]));
+    }
   };
 
   useEffect(load, []);
@@ -44,7 +52,7 @@ export default function LocationsPage() {
 
   const openEdit = (loc: Location) => {
     setEditing(loc);
-    setForm({ name: loc.name, description: loc.description ?? '' });
+    setForm({ name: loc.name, description: loc.description ?? '', ownerId: loc.ownerId });
     setFormError(null);
     setModalOpen(true);
   };
@@ -147,6 +155,22 @@ export default function LocationsPage() {
           rows={2}
           placeholder="Optional description"
         />
+        {isAdmin && editing && (
+          <FormField
+            as="select"
+            label="Owner"
+            value={form.ownerId ?? ''}
+            onChange={(e) =>
+              setForm({ ...form, ownerId: e.target.value ? Number(e.target.value) : undefined })
+            }
+          >
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.fullName || u.email}
+              </option>
+            ))}
+          </FormField>
+        )}
         {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
         <div className="flex justify-end gap-3">
           <button

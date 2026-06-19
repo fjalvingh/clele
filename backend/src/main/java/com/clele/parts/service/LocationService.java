@@ -66,8 +66,25 @@ public class LocationService {
     public LocationDTO update(Long id, LocationRequest request) {
         Location location = getOrThrow(id);
         requireManagePermission(location);
-        Long ownerId = location.getOwner().getId();
-        if (locationRepository.existsByOwnerIdAndNameAndIdNot(ownerId, request.getName(), id)) {
+
+        // Optional reassignment to another user (admin only).
+        AppUser targetOwner = location.getOwner();
+        Long requestedOwnerId = request.getOwnerId();
+        if (requestedOwnerId != null && !requestedOwnerId.equals(targetOwner.getId())) {
+            if (!currentUserService.isAdmin()) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Only admins can reassign a location to another user");
+            }
+            if (userRepository.existsByDefaultLocationId(id)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "This location is a user's default location and cannot be reassigned");
+            }
+            targetOwner = userRepository.findById(requestedOwnerId)
+                    .orElseThrow(() -> new EntityNotFoundException("User not found: " + requestedOwnerId));
+            location.setOwner(targetOwner);
+        }
+
+        if (locationRepository.existsByOwnerIdAndNameAndIdNot(targetOwner.getId(), request.getName(), id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "That owner already has a location named: " + request.getName());
         }
@@ -93,6 +110,11 @@ public class LocationService {
 
     public long countAll() {
         return locationRepository.count();
+    }
+
+    /** Per-user roll-up of owned locations and the stock held in them (for the dashboard). */
+    public List<com.clele.parts.dto.UserDashboardDTO> perUserStats() {
+        return locationRepository.perUserStats();
     }
 
     private Location getOrThrow(Long id) {

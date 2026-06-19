@@ -120,6 +120,7 @@ public class StockEntryService {
     }
 
     private StockEntryDTO toDTO(StockEntry entry) {
+        AppUser owner = entry.getLocation().getOwner();
         return StockEntryDTO.builder()
                 .id(entry.getId())
                 .partId(entry.getPart().getId())
@@ -127,6 +128,7 @@ public class StockEntryService {
                 .partNumber(entry.getPart().getPartNumber())
                 .locationId(entry.getLocation().getId())
                 .locationName(entry.getLocation().getName())
+                .ownerName(owner != null ? (owner.getFullName() != null ? owner.getFullName() : owner.getEmail()) : null)
                 .quantity(entry.getQuantity())
                 .minimumQuantity(entry.getMinimumQuantity())
                 .lowStock(entry.getQuantity() < entry.getMinimumQuantity())

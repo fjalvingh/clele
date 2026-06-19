@@ -87,6 +87,7 @@ export interface Location {
 export interface LocationRequest {
   name: string;
   description?: string;
+  ownerId?: number; // admin-only: reassign the location to another user
 }
 
 // Users & auth
@@ -126,6 +127,7 @@ export interface StockEntry {
   partNumber: string;
   locationId: number;
   locationName: string;
+  ownerName?: string;
   quantity: number;
   minimumQuantity: number;
   lowStock: boolean;
@@ -205,10 +207,21 @@ export interface CategorizationStatus {
   lastError?: string | null;
 }
 
+export interface UserDashboard {
+  userId: number;
+  userName: string;
+  locations: number;
+  parts: number;
+  totalQuantity: number;
+  totalStockValue: number;
+  lowStockCount: number;
+}
+
 export interface Dashboard {
   totalParts: number;
   totalLocations: number;
   totalCategories: number;
   lowStockCount: number;
   totalStockValue: number;
+  perUser: UserDashboard[];
 }
