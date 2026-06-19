@@ -1,4 +1,4 @@
-import { Dialog, DialogPanel, DialogTitle } from '@headlessui/react';
+import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from '@headlessui/react';
 import { type ReactNode } from 'react';
 
 interface ModalProps {
@@ -11,16 +11,25 @@ interface ModalProps {
 export default function Modal({ open, onClose, title, children }: ModalProps) {
   return (
     <Dialog open={open} onClose={onClose} className="relative z-50">
-      <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
+      <DialogBackdrop
+        transition
+        className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm transition-opacity duration-200 data-[closed]:opacity-0"
+      />
       <div className="fixed inset-0 flex items-center justify-center p-4">
-        <DialogPanel className="w-full max-w-lg rounded-xl bg-white shadow-2xl">
-          <div className="flex items-center justify-between border-b px-6 py-4">
+        <DialogPanel
+          transition
+          className="w-full max-w-lg rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 transition duration-200 ease-out data-[closed]:scale-95 data-[closed]:opacity-0"
+        >
+          <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
             <DialogTitle className="text-lg font-semibold text-gray-900">{title}</DialogTitle>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 text-xl font-bold leading-none"
+              aria-label="Close"
+              className="-mr-1 flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
             >
-              ×
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="m6 6 12 12M18 6 6 18" />
+              </svg>
             </button>
           </div>
           <div className="px-6 py-4">{children}</div>

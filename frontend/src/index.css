@@ -1,1 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
+
+/*
+ * Design system for Clele — an electronics parts inventory.
+ * Direction: a calm "instrument bench" look. Cool slate neutrals + a single
+ * teal accent (reads as PCB / test-equipment rather than generic SaaS blue),
+ * Inter for UI text and JetBrains Mono for the data people actually scan
+ * (part numbers, MPNs, quantities, prices).
+ *
+ * The accent and neutral ramps are remapped onto Tailwind's `blue` and `gray`
+ * scales so the existing utility classes across every page adopt the new
+ * identity without per-page edits. Use `blue-*` for accent, `gray-*` for
+ * neutral; red/amber/green keep their semantic meaning.
+ */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* Neutral ramp — cool slate */
+  --color-gray-50: #f8fafc;
+  --color-gray-100: #f1f5f9;
+  --color-gray-200: #e2e8f0;
+  --color-gray-300: #cbd5e1;
+  --color-gray-400: #94a3b8;
+  --color-gray-500: #64748b;
+  --color-gray-600: #475569;
+  --color-gray-700: #334155;
+  --color-gray-800: #1e293b;
+  --color-gray-900: #0f172a;
+  --color-gray-950: #020617;
+
+  /* Accent ramp — "signal teal". The ramp is shifted one step darker than
+   * Tailwind's teal so the 600 used on buttons/links clears WCAG AA on white. */
+  --color-blue-50: #f0fdfa;
+  --color-blue-100: #ccfbf1;
+  --color-blue-200: #99f6e4;
+  --color-blue-300: #5eead4;
+  --color-blue-400: #2dd4bf;
+  --color-blue-500: #14b8a6;
+  --color-blue-600: #0f766e;
+  --color-blue-700: #115e59;
+  --color-blue-800: #134e4a;
+  --color-blue-900: #134e4a;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-gray-100);
+    color: var(--color-gray-800);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Tighten display type a touch — Inter benefits from negative tracking at
+   * heading sizes, which reads as more deliberate than the browser default. */
+  h1, h2, h3 {
+    letter-spacing: -0.018em;
+  }
+
+  /* Tabular figures everywhere monospace is used, so columns of numbers and
+   * part numbers line up vertically in tables. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+  }
+}

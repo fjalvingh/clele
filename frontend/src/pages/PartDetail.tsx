@@ -444,6 +444,8 @@ export default function PartDetailPage() {
 
   return (
     <div className="p-8">
+      {/* Constrain content width — full-bleed cards look lost on wide monitors. */}
+      <div className="mx-auto max-w-6xl">
       {/* Breadcrumb */}
       <nav className="mb-4 text-sm text-gray-500">
         <Link to="/parts" className="hover:underline">
@@ -466,7 +468,18 @@ export default function PartDetailPage() {
                   className="h-full w-full object-contain"
                 />
               ) : (
-                <span className="text-4xl text-gray-300">🔧</span>
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-16 w-16 text-gray-300"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="7" y="7" width="10" height="10" rx="1.5" />
+                  <path d="M10 3v2M14 3v2M10 19v2M14 19v2M3 10h2M3 14h2M19 10h2M19 14h2" />
+                </svg>
               )}
             </div>
 
@@ -542,9 +555,18 @@ export default function PartDetailPage() {
           {/* Details column */}
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between">
-              <div>
+              <div className="min-w-0">
                 <h1 className="text-2xl font-bold text-gray-900">{part.name}</h1>
-                <p className="mt-1 font-mono text-sm text-gray-500">{part.partNumber}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded-md bg-blue-50 px-2 py-1 font-mono text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">
+                    {part.partNumber}
+                  </span>
+                  {part.footprint && (
+                    <span className="rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/20">
+                      {part.footprint}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {/* OctoPart enrichment — only when the part has no link yet */}
@@ -634,29 +656,33 @@ export default function PartDetailPage() {
       {/* Specifications — grouped into three columns by major type */}
       {hasSpecs && (
         <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold text-gray-900">Specifications</h2>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            {specGroups.map((group) => (
-              <div key={group.label}>
-                <h3 className="mb-2 border-b border-gray-200 pb-1 text-sm font-semibold text-gray-700">
-                  {group.label}
-                </h3>
-                {group.rows.length > 0 ? (
-                  <table className="w-full text-sm">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-gray-900">
+            <span className="h-5 w-1 rounded-full bg-blue-500" />
+            Specifications
+          </h2>
+          {/* Each group sizes to its own content (wrapping when the row runs out of
+              room) instead of three equal thirds — so short groups stop wasting
+              space and the wide Technical group can take what it needs. */}
+          <div className="flex flex-col gap-x-12 gap-y-6 md:flex-row md:flex-wrap md:items-start">
+            {specGroups
+              .filter((group) => group.rows.length > 0)
+              .map((group) => (
+                <div key={group.label}>
+                  <h3 className="mb-2 border-b border-gray-200 pb-1.5 text-xs font-semibold uppercase tracking-wider text-blue-700/80">
+                    {group.label}
+                  </h3>
+                  <table className="w-auto text-sm">
                     <tbody>
                       {group.rows.map((row) => (
-                        <tr key={row.label} className="align-top">
-                          <td className="whitespace-nowrap py-1 pr-3 text-gray-500">{row.label}</td>
-                          <td className="py-1 text-gray-900">{row.value}</td>
+                        <tr key={row.label} className="align-top odd:bg-gray-50">
+                          <td className="whitespace-nowrap rounded-l-md px-2 py-1.5 pr-3 text-gray-500">{row.label}</td>
+                          <td className="max-w-sm break-words rounded-r-md px-2 py-1.5 font-medium text-gray-900">{row.value}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                ) : (
-                  <p className="text-sm text-gray-400">—</p>
-                )}
-              </div>
-            ))}
+                </div>
+              ))}
           </div>
         </div>
       )}
@@ -664,7 +690,10 @@ export default function PartDetailPage() {
       {/* Stock section */}
       <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Stock Locations</h2>
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+            <span className="h-5 w-1 rounded-full bg-blue-500" />
+            Stock Locations
+          </h2>
           <button
             onClick={openAddStock}
             className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
@@ -673,31 +702,35 @@ export default function PartDetailPage() {
           </button>
         </div>
         {stock.length > 0 && (
-          <div className="mb-4 flex flex-wrap items-baseline gap-x-8 gap-y-2 text-sm text-gray-600">
-            <span className="flex items-baseline gap-2">
-              <span className="font-medium">Total on hand:</span>
-              <span className="font-mono text-base font-semibold text-gray-900">
+          <div className="mb-5 grid grid-cols-2 gap-3 sm:max-w-md">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                Total on hand
+              </div>
+              <div className="mt-1 font-mono text-2xl font-semibold text-gray-900">
                 {stock.reduce((sum, s) => sum + s.quantity, 0)}
-              </span>
-              <span className="text-xs text-gray-400">
+              </div>
+              <div className="text-xs text-gray-400">
                 across {stock.length} location{stock.length === 1 ? '' : 's'}
-              </span>
-            </span>
+              </div>
+            </div>
             {(() => {
               const priced = stock.filter((s) => s.unitPrice != null);
               if (priced.length === 0) return null;
               const total = priced.reduce((sum, s) => sum + s.quantity * Number(s.unitPrice), 0);
               const partial = priced.length < stock.length;
               return (
-                <span className="flex items-baseline gap-2">
-                  <span className="font-medium">Total stock value:</span>
-                  <span className="font-mono text-base font-semibold text-gray-900">
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                  <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                    Total stock value
+                  </div>
+                  <div className="mt-1 font-mono text-2xl font-semibold text-gray-900">
                     {total.toFixed(2)}
-                  </span>
+                  </div>
                   {partial && (
-                    <span className="text-xs text-gray-400">(some locations have no price)</span>
+                    <div className="text-xs text-gray-400">some locations have no price</div>
                   )}
-                </span>
+                </div>
               );
             })()}
           </div>
@@ -734,6 +767,7 @@ export default function PartDetailPage() {
           className="flex w-full items-center justify-between px-6 py-4 text-left"
         >
           <span className="flex items-center gap-2">
+            <span className="h-5 w-1 rounded-full bg-blue-500" />
             <h2 className="text-lg font-semibold text-gray-900">Stock Movements</h2>
             <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
               {movements.length}
@@ -1092,6 +1126,7 @@ export default function PartDetailPage() {
           </>
         )}
       </Modal>
+      </div>
     </div>
   );
 }
