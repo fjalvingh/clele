@@ -10,4 +10,6 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, Lo
 
     @Query("SELECT m FROM StockMovement m JOIN FETCH m.location WHERE m.part.id = :partId ORDER BY m.movedAt DESC")
     List<StockMovement> findByPartIdOrderByMovedAtDesc(Long partId);
+
+    boolean existsByLocationId(Long locationId);
 }

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline, uploadPartImage } from '../api';
+import { getMyLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline, uploadPartImage } from '../api';
 import type { ImageSuggestion, Location, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
+import { useAuth } from '../auth/AuthContext';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -132,6 +133,7 @@ function displayUrl(img: { url: string; thumbnailUrl?: string }) {
 
 export default function QuickAddPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [step, setStep] = useState(1);
 
   // Step 1
@@ -174,13 +176,19 @@ export default function QuickAddPage() {
   useEffect(() => {
     if (step !== 3) return;
     setLocLoading(true);
-    Promise.all([getLocations(), getSpecDefinitions()])
+    Promise.all([getMyLocations(), getSpecDefinitions()])
       .then(([locs, defs]) => {
         setLocations(locs);
-        // Validate remembered locationId still exists
+        // Resolve the selected location: keep the remembered one if it's still one of the
+        // user's own locations, otherwise fall back to the user's default location.
         const savedLocId = form.locationId;
-        if (savedLocId && !locs.some((l: Location) => String(l.id) === savedLocId)) {
-          setForm((prev) => ({ ...prev, locationId: '' }));
+        const validSaved = savedLocId && locs.some((l: Location) => String(l.id) === savedLocId);
+        if (!validSaved) {
+          const fallback =
+            user?.defaultLocationId && locs.some((l: Location) => l.id === user.defaultLocationId)
+              ? String(user.defaultLocationId)
+              : '';
+          setForm((prev) => ({ ...prev, locationId: fallback }));
         }
         setSpecDefs(defs);
         // Pre-fill spec values from AI specsRaw (name: value format)

@@ -6,12 +6,16 @@ import {
   updateLocation,
 } from '../api';
 import type { Location, LocationRequest } from '../api/types';
+import { useAuth } from '../auth/AuthContext';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
 
 export default function LocationsPage() {
+  const { user, hasPermission } = useAuth();
+  const isAdmin = hasPermission('USERS_EDIT');
+  const canManage = (loc: Location) => isAdmin || loc.ownerId === user?.id;
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +84,7 @@ export default function LocationsPage() {
       header: 'Description',
       render: (row) => row.description ?? '—',
     },
+    { key: 'ownerName', header: 'Owner', render: (row) => row.ownerName ?? '—' },
   ];
 
   return (
@@ -102,22 +107,24 @@ export default function LocationsPage() {
           columns={columns}
           data={locations}
           keyExtractor={(l) => l.id}
-          actions={(loc) => (
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => openEdit(loc)}
-                className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => handleDelete(loc)}
-                className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-              >
-                Delete
-              </button>
-            </div>
-          )}
+          actions={(loc) =>
+            canManage(loc) ? (
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => openEdit(loc)}
+                  className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => handleDelete(loc)}
+                  className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                >
+                  Delete
+                </button>
+              </div>
+            ) : null
+          }
         />
       )}
 

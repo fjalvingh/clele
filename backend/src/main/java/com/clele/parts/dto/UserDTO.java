@@ -15,4 +15,6 @@ public class UserDTO {
     private String fullName;
     private String phone;
     private Set<String> permissions;
+    private Long defaultLocationId;
+    private String defaultLocationName;
 }

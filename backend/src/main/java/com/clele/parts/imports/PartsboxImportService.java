@@ -48,6 +48,7 @@ public class PartsboxImportService {
 
     private final PartRepository partRepository;
     private final LocationRepository locationRepository;
+    private final com.clele.parts.repository.AppUserRepository userRepository;
     private final StockEntryRepository stockEntryRepository;
     private final StockMovementRepository stockMovementRepository;
     private final PartImageRepository partImageRepository;
@@ -192,6 +193,11 @@ public class PartsboxImportService {
     }
 
     private Map<String, Location> loadLocations(List<Map<String, Object>> storageRows) {
+        // Imported locations are owned by the bootstrap admin (the import runs without a
+        // logged-in user). Locations now require an owner.
+        com.clele.parts.model.AppUser owner = userRepository.findByEmail("admin@clele.local")
+                .or(() -> userRepository.findAll().stream().findFirst())
+                .orElseThrow(() -> new IllegalStateException("No user to own imported locations"));
         Map<String, Location> byId = new HashMap<>();
         for (Map<String, Object> s : storageRows) {
             String id = str(s, "storage/id");
@@ -201,7 +207,8 @@ public class PartsboxImportService {
             }
             Location location = locationRepository.findByName(name)
                     .orElseGet(() -> locationRepository.save(
-                            Location.builder().name(name).description(str(s, "storage/description")).build()));
+                            Location.builder().name(name).description(str(s, "storage/description"))
+                                    .owner(owner).build()));
             byId.put(id, location);
         }
         return byId;

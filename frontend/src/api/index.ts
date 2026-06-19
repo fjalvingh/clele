@@ -85,6 +85,10 @@ export const getAutoCategorizeStatus = () =>
 export const getLocations = () =>
   client.get<Location[]>('/locations').then((r) => r.data);
 
+// Locations owned by the current user (for stock-add pickers)
+export const getMyLocations = () =>
+  client.get<Location[]>('/locations/mine').then((r) => r.data);
+
 export const getLocation = (id: number) =>
   client.get<Location>(`/locations/${id}`).then((r) => r.data);
 

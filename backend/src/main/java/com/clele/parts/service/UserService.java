@@ -3,7 +3,9 @@ package com.clele.parts.service;
 import com.clele.parts.dto.UserDTO;
 import com.clele.parts.dto.UserRequest;
 import com.clele.parts.model.AppUser;
+import com.clele.parts.model.Location;
 import com.clele.parts.repository.AppUserRepository;
+import com.clele.parts.repository.LocationRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -23,6 +25,7 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private final AppUserRepository userRepository;
+    private final LocationRepository locationRepository;
     private final PasswordEncoder passwordEncoder;
 
     public List<UserDTO> findAll() {
@@ -40,6 +43,9 @@ public class UserService {
         if (request.getPassword() == null || request.getPassword().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password is required");
         }
+        if (request.getDefaultLocationName() == null || request.getDefaultLocationName().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A default location name is required");
+        }
         String email = normalizeEmail(request.getEmail());
         if (userRepository.existsByEmail(email)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists: " + email);
@@ -51,6 +57,13 @@ public class UserService {
                 .phone(request.getPhone())
                 .permissions(sanitizePermissions(request.getPermissions()))
                 .build();
+        user = userRepository.save(user);
+        // Every user must own a default location; create it now and mark it default.
+        Location defaultLocation = locationRepository.save(Location.builder()
+                .name(request.getDefaultLocationName().trim())
+                .owner(user)
+                .build());
+        user.setDefaultLocation(defaultLocation);
         return toDTO(userRepository.save(user));
     }
 
@@ -68,6 +81,17 @@ public class UserService {
         // Only change the password when a new, non-blank one is supplied.
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        }
+        // Re-point the default location (must be one the user owns).
+        if (request.getDefaultLocationId() != null) {
+            Location loc = locationRepository.findById(request.getDefaultLocationId())
+                    .orElseThrow(() -> new EntityNotFoundException(
+                            "Location not found: " + request.getDefaultLocationId()));
+            if (loc.getOwner() == null || !loc.getOwner().getId().equals(user.getId())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Default location must be one the user owns");
+            }
+            user.setDefaultLocation(loc);
         }
         return toDTO(userRepository.save(user));
     }
@@ -99,12 +123,15 @@ public class UserService {
     }
 
     public UserDTO toDTO(AppUser user) {
+        Location defaultLocation = user.getDefaultLocation();
         return UserDTO.builder()
                 .id(user.getId())
                 .email(user.getEmail())
                 .fullName(user.getFullName())
                 .phone(user.getPhone())
                 .permissions(new HashSet<>(user.getPermissions()))
+                .defaultLocationId(defaultLocation != null ? defaultLocation.getId() : null)
+                .defaultLocationName(defaultLocation != null ? defaultLocation.getName() : null)
                 .build();
     }
 }

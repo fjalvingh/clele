@@ -24,5 +24,7 @@ public interface StockEntryRepository extends JpaRepository<StockEntry, Long> {
 
     boolean existsByPartIdAndLocationId(Long partId, Long locationId);
 
+    boolean existsByLocationId(Long locationId);
+
     boolean existsByPartIdAndLocationIdAndIdNot(Long partId, Long locationId, Long id);
 }

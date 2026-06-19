@@ -2,6 +2,7 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.StockEntryDTO;
 import com.clele.parts.dto.StockEntryRequest;
+import com.clele.parts.model.AppUser;
 import com.clele.parts.model.Location;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.StockEntry;
@@ -26,6 +27,7 @@ public class StockEntryService {
     private final StockEntryRepository stockEntryRepository;
     private final PartRepository partRepository;
     private final LocationRepository locationRepository;
+    private final CurrentUserService currentUserService;
 
     public List<StockEntryDTO> findAll() {
         return stockEntryRepository.findAll().stream()
@@ -68,6 +70,7 @@ public class StockEntryService {
                 .orElseThrow(() -> new EntityNotFoundException("Part not found: " + request.getPartId()));
         Location location = locationRepository.findById(request.getLocationId())
                 .orElseThrow(() -> new EntityNotFoundException("Location not found: " + request.getLocationId()));
+        requireOwnLocation(location);
         StockEntry entry = StockEntry.builder()
                 .part(part)
                 .location(location)
@@ -91,6 +94,7 @@ public class StockEntryService {
                 .orElseThrow(() -> new EntityNotFoundException("Part not found: " + request.getPartId()));
         Location location = locationRepository.findById(request.getLocationId())
                 .orElseThrow(() -> new EntityNotFoundException("Location not found: " + request.getLocationId()));
+        requireOwnLocation(location);
         entry.setPart(part);
         entry.setLocation(location);
         entry.setQuantity(request.getQuantity());
@@ -104,6 +108,15 @@ public class StockEntryService {
         StockEntry entry = stockEntryRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Stock entry not found: " + id));
         stockEntryRepository.delete(entry);
+    }
+
+    /** Stock may only be added to a location the current user owns. */
+    private void requireOwnLocation(Location location) {
+        AppUser me = currentUserService.current();
+        if (location.getOwner() == null || !location.getOwner().getId().equals(me.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "You can only add stock to your own locations");
+        }
     }
 
     private StockEntryDTO toDTO(StockEntry entry) {

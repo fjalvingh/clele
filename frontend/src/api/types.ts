@@ -80,6 +80,8 @@ export interface Location {
   id: number;
   name: string;
   description?: string;
+  ownerId?: number;
+  ownerName?: string;
 }
 
 export interface LocationRequest {
@@ -94,6 +96,8 @@ export interface User {
   fullName?: string;
   phone?: string;
   permissions: string[];
+  defaultLocationId?: number;
+  defaultLocationName?: string;
 }
 
 export interface UserRequest {
@@ -102,6 +106,8 @@ export interface UserRequest {
   fullName?: string;
   phone?: string;
   permissions: string[];
+  defaultLocationName?: string; // create: name of the default location to create
+  defaultLocationId?: number; // edit: which owned location is the default
 }
 
 /** The currently authenticated user (same shape as User). */

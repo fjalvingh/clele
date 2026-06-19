@@ -27,4 +27,10 @@ public class UserRequest {
     private String phone;
 
     private Set<String> permissions = new HashSet<>();
+
+    /** Name of the default location to create for the user. Required on create. */
+    private String defaultLocationName;
+
+    /** On update: which existing owned location to set as the user's default. */
+    private Long defaultLocationId;
 }

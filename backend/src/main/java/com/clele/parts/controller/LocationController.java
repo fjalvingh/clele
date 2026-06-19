@@ -27,6 +27,12 @@ public class LocationController {
         return locationService.findAll();
     }
 
+    @GetMapping("/mine")
+    @Operation(summary = "List locations owned by the current user")
+    public List<LocationDTO> listMine() {
+        return locationService.findMine();
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "Get location by ID")
     public LocationDTO getById(@PathVariable Long id) {

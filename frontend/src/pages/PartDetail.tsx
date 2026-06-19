@@ -4,7 +4,7 @@ import {
   createStockEntry,
   deletePartImage,
   deleteStockEntry,
-  getLocations,
+  getMyLocations,
   getPart,
   getPartImages,
   getPartMovements,
@@ -63,7 +63,7 @@ function formatSpecValue(spec: SpecDefinition, value: string): string {
 export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const canEdit = hasPermission('PARTS_EDIT');
   const partId = Number(id);
 
@@ -99,7 +99,7 @@ export default function PartDetailPage() {
   const [attachError, setAttachError] = useState<string | null>(null);
 
   const loadData = () => {
-    Promise.all([getPart(partId), getPartStock(partId), getLocations(), getPartImages(partId)])
+    Promise.all([getPart(partId), getPartStock(partId), getMyLocations(), getPartImages(partId)])
       .then(([p, s, l, imgs]) => {
         setPart(p);
         setStock(s);
@@ -123,7 +123,12 @@ export default function PartDetailPage() {
 
   const openAddStock = () => {
     setEditingStock(null);
-    setStockForm(emptyStockForm(partId));
+    // Default to the user's default location when it is one of their own locations.
+    const defaultLoc =
+      user?.defaultLocationId && locations.some((l) => l.id === user.defaultLocationId)
+        ? user.defaultLocationId
+        : 0;
+    setStockForm({ ...emptyStockForm(partId), locationId: defaultLoc });
     setFormError(null);
     setStockModalOpen(true);
   };

@@ -31,6 +31,11 @@ public class AppUser {
 
     private String phone;
 
+    /** The user's mandatory default location (always set after creation). */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "default_location_id")
+    private Location defaultLocation;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "app_user_permission", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "permission", nullable = false)
