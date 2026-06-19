@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
+  applyOctopart,
   createStockEntry,
   deletePartImage,
   deleteStockEntry,
   getMyLocations,
+  getOctopartUsage,
   getPart,
   getPartImages,
   getPartMovements,
   getPartStock,
   getSpecDefinitions,
   partImageUrl,
+  searchOctopart,
   searchPartImages,
   updateStockEntry,
   uploadPartImage,
@@ -18,6 +21,9 @@ import {
 import type {
   ImageSuggestion,
   Location,
+  OctopartApplyRequest,
+  OctopartResult,
+  OctopartUsage,
   Part,
   PartImage,
   SpecDefinition,
@@ -60,6 +66,18 @@ function formatSpecValue(spec: SpecDefinition, value: string): string {
   return value;
 }
 
+// Real part columns that an OctoPart result can change. Each must be confirmed (per-field
+// checkbox) before it overwrites the existing value. Specs are applied wholesale, separately.
+const OCTOPART_FIELDS = [
+  { key: 'mpn', label: 'MPN' },
+  { key: 'manufacturer', label: 'Manufacturer' },
+  { key: 'description', label: 'Description' },
+  { key: 'footprint', label: 'Footprint' },
+  { key: 'datasheetUrl', label: 'Datasheet URL' },
+] as const;
+
+type OctopartFieldKey = (typeof OCTOPART_FIELDS)[number]['key'];
+
 export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -98,6 +116,19 @@ export default function PartDetailPage() {
   const [attaching, setAttaching] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
 
+  // OctoPart (Nexar) enrichment — search/pick/confirm.
+  const [octoModalOpen, setOctoModalOpen] = useState(false);
+  const [octoUsage, setOctoUsage] = useState<OctopartUsage | null>(null);
+  const [octoQuery, setOctoQuery] = useState('');
+  const [octoResults, setOctoResults] = useState<OctopartResult[]>([]);
+  const [octoLoading, setOctoLoading] = useState(false);
+  const [octoError, setOctoError] = useState<string | null>(null);
+  const [octoPicked, setOctoPicked] = useState<OctopartResult | null>(null);
+  const [octoAccept, setOctoAccept] = useState<Record<OctopartFieldKey, boolean>>(
+    {} as Record<OctopartFieldKey, boolean>,
+  );
+  const [octoApplying, setOctoApplying] = useState(false);
+
   const loadData = () => {
     Promise.all([getPart(partId), getPartStock(partId), getMyLocations(), getPartImages(partId)])
       .then(([p, s, l, imgs]) => {
@@ -120,6 +151,76 @@ export default function PartDetailPage() {
   };
 
   useEffect(loadData, [partId]);
+
+  // Load the user's OctoPart quota once we know the part has no link yet and the user can edit.
+  useEffect(() => {
+    if (canEdit && part && !part.octopartId && user?.hasOctopartCredentials) {
+      getOctopartUsage().then(setOctoUsage).catch(() => setOctoUsage(null));
+    }
+  }, [canEdit, part, user?.hasOctopartCredentials]);
+
+  const runOctopartSearch = (q: string) => {
+    if (!q.trim()) return;
+    setOctoLoading(true);
+    setOctoError(null);
+    setOctoResults([]);
+    setOctoPicked(null);
+    searchOctopart(q.trim())
+      .then((results) => {
+        setOctoResults(results);
+        // A search spends one request — refresh the remaining count.
+        getOctopartUsage().then(setOctoUsage).catch(() => {});
+      })
+      .catch((err) => {
+        setOctoError((err as Error).message);
+        getOctopartUsage().then(setOctoUsage).catch(() => {});
+      })
+      .finally(() => setOctoLoading(false));
+  };
+
+  const openOctopart = () => {
+    const q = part?.mpn || part?.partNumber || part?.name || '';
+    setOctoQuery(q);
+    setOctoResults([]);
+    setOctoPicked(null);
+    setOctoError(null);
+    setOctoModalOpen(true);
+  };
+
+  const pickOctopartResult = (result: OctopartResult) => {
+    setOctoPicked(result);
+    // Default every changed column to accepted (ticked).
+    const accept = {} as Record<OctopartFieldKey, boolean>;
+    for (const f of OCTOPART_FIELDS) {
+      accept[f.key] = true;
+    }
+    setOctoAccept(accept);
+  };
+
+  const handleApplyOctopart = async () => {
+    if (!octoPicked || !part) return;
+    setOctoApplying(true);
+    setOctoError(null);
+    try {
+      const body: OctopartApplyRequest = {
+        octopartId: octoPicked.octopartId,
+        specs: octoPicked.specs,
+      };
+      for (const f of OCTOPART_FIELDS) {
+        const newVal = octoPicked[f.key];
+        if (octoAccept[f.key] && newVal) {
+          body[f.key] = newVal;
+        }
+      }
+      await applyOctopart(part.id, body);
+      setOctoModalOpen(false);
+      loadData();
+    } catch (err) {
+      setOctoError((err as Error).message);
+    } finally {
+      setOctoApplying(false);
+    }
+  };
 
   const openAddStock = () => {
     setEditingStock(null);
@@ -445,12 +546,46 @@ export default function PartDetailPage() {
                 <h1 className="text-2xl font-bold text-gray-900">{part.name}</h1>
                 <p className="mt-1 font-mono text-sm text-gray-500">{part.partNumber}</p>
               </div>
-              <button
-                onClick={() => navigate('/parts')}
-                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
-              >
-                ← Back
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                {/* OctoPart enrichment — only when the part has no link yet */}
+                {canEdit && !part.octopartId && (
+                  user?.hasOctopartCredentials ? (
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={openOctopart}
+                        disabled={octoUsage != null && octoUsage.remaining <= 0}
+                        title={
+                          octoUsage != null && octoUsage.remaining <= 0
+                            ? 'Monthly OctoPart request limit reached'
+                            : 'Look this part up on OctoPart'
+                        }
+                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        🔎 Search OctoPart
+                      </button>
+                      {octoUsage != null && (
+                        <span className="text-xs text-gray-400">
+                          {octoUsage.remaining} left this month
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <Link
+                      to="/profile"
+                      className="text-xs text-blue-600 hover:underline"
+                      title="Set your OctoPart credentials to enable lookups"
+                    >
+                      Set OctoPart credentials
+                    </Link>
+                  )
+                )}
+                <button
+                  onClick={() => navigate('/parts')}
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+                >
+                  ← Back
+                </button>
+              </div>
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
@@ -477,6 +612,12 @@ export default function PartDetailPage() {
                   >
                     View
                   </a>
+                </div>
+              )}
+              {part.octopartId && (
+                <div>
+                  <span className="font-medium text-gray-500">OctoPart:</span>{' '}
+                  <span className="font-mono text-gray-800">{part.octopartId}</span>
                 </div>
               )}
               {part.description && (
@@ -805,6 +946,151 @@ export default function PartDetailPage() {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* OctoPart search / pick / confirm modal */}
+      <Modal
+        open={octoModalOpen}
+        onClose={() => setOctoModalOpen(false)}
+        title="Search OctoPart"
+      >
+        {!octoPicked ? (
+          <>
+            <div className="mb-2 flex gap-2">
+              <input
+                type="text"
+                value={octoQuery}
+                onChange={(e) => setOctoQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && runOctopartSearch(octoQuery)}
+                placeholder="Manufacturer part number"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                onClick={() => runOctopartSearch(octoQuery)}
+                disabled={
+                  !octoQuery.trim() ||
+                  octoLoading ||
+                  (octoUsage != null && octoUsage.remaining <= 0)
+                }
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Search
+              </button>
+            </div>
+            {octoUsage != null && (
+              <p className="mb-3 text-xs text-gray-400">
+                {octoUsage.remaining} of {octoUsage.limit} requests left this month. Each search uses
+                one.
+              </p>
+            )}
+
+            {octoError && <p className="mb-3 text-sm text-red-600">{octoError}</p>}
+
+            <div className="min-h-[8rem]">
+              {octoLoading ? (
+                <p className="text-sm text-gray-400">Searching OctoPart…</p>
+              ) : octoResults.length === 0 ? (
+                <p className="text-sm text-gray-400">
+                  No results yet. Enter an MPN and search.
+                </p>
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {octoResults.map((r) => (
+                    <li key={r.octopartId} className="flex items-start justify-between gap-3 py-3">
+                      <div className="min-w-0">
+                        <div className="font-mono text-sm font-medium text-gray-900">{r.mpn}</div>
+                        {r.manufacturer && (
+                          <div className="text-xs text-gray-500">{r.manufacturer}</div>
+                        )}
+                        {r.description && (
+                          <div className="mt-0.5 truncate text-xs text-gray-600">
+                            {r.description}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => pickOctopartResult(r)}
+                        className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                      >
+                        Use this
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="mb-3 text-sm text-gray-600">
+              Review the changes from{' '}
+              <span className="font-mono font-medium text-gray-900">{octoPicked.mpn}</span>. Untick
+              any column you want to keep as-is.
+            </p>
+
+            {(() => {
+              const changes = OCTOPART_FIELDS.map((f) => ({
+                field: f,
+                oldVal: (part[f.key] ?? '') as string,
+                newVal: (octoPicked[f.key] ?? '') as string,
+              })).filter((c) => c.newVal && c.newVal !== c.oldVal);
+
+              if (changes.length === 0) {
+                return (
+                  <p className="mb-3 text-sm text-gray-500">
+                    No column changes — only specs and the OctoPart link will be set.
+                  </p>
+                );
+              }
+              return (
+                <ul className="mb-3 space-y-3">
+                  {changes.map(({ field, oldVal, newVal }) => (
+                    <li key={field.key} className="flex gap-2">
+                      <input
+                        type="checkbox"
+                        checked={octoAccept[field.key] ?? false}
+                        onChange={(e) =>
+                          setOctoAccept((prev) => ({ ...prev, [field.key]: e.target.checked }))
+                        }
+                        className="mt-1 h-4 w-4 shrink-0"
+                      />
+                      <div className="min-w-0 text-sm">
+                        <div className="font-medium text-gray-700">{field.label}</div>
+                        {oldVal && (
+                          <div className="truncate text-xs text-gray-400 line-through">{oldVal}</div>
+                        )}
+                        <div className="break-words text-gray-900">{newVal}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}
+
+            <p className="mb-4 text-xs text-gray-500">
+              All {Object.keys(octoPicked.specs ?? {}).length} OctoPart spec field(s) will be applied,
+              and the part will be linked to OctoPart.
+            </p>
+
+            {octoError && <p className="mb-3 text-sm text-red-600">{octoError}</p>}
+
+            <div className="flex justify-between gap-3">
+              <button
+                onClick={() => setOctoPicked(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+              >
+                ← Back to results
+              </button>
+              <button
+                onClick={handleApplyOctopart}
+                disabled={octoApplying}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {octoApplying ? 'Applying…' : 'Apply to part'}
+              </button>
+            </div>
+          </>
+        )}
       </Modal>
     </div>
   );

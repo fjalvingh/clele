@@ -79,6 +79,37 @@ public class PartService {
         return toDTO(partRepository.save(buildPartFromRequest(part, request)));
     }
 
+    /**
+     * Enrich a part from a chosen OctoPart result. Always sets the {@code octopartId} link and
+     * overlays the supplied specs onto the part's existing specs. Each non-null column field (name,
+     * description, manufacturer, mpn, footprint, datasheet) is a change the user explicitly
+     * confirmed; null fields are left unchanged. Does not touch images.
+     */
+    @Transactional
+    public PartDTO applyOctopart(Long id, com.clele.parts.dto.OctopartApplyRequest request) {
+        Part part = partRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Part not found: " + id));
+
+        part.setOctopartId(request.getOctopartId());
+
+        if (request.getSpecs() != null) {
+            java.util.Map<String, Object> merged = part.getSpecs() != null
+                    ? new java.util.LinkedHashMap<>(part.getSpecs())
+                    : new java.util.LinkedHashMap<>();
+            merged.putAll(request.getSpecs());
+            part.setSpecs(merged);
+        }
+
+        if (request.getName() != null) part.setName(request.getName());
+        if (request.getDescription() != null) part.setDescription(request.getDescription());
+        if (request.getManufacturer() != null) part.setManufacturer(request.getManufacturer());
+        if (request.getMpn() != null) part.setMpn(request.getMpn());
+        if (request.getFootprint() != null) part.setFootprint(request.getFootprint());
+        if (request.getDatasheetUrl() != null) part.setDatasheetUrl(request.getDatasheetUrl());
+
+        return toDTO(partRepository.save(part));
+    }
+
     @Transactional
     public void delete(Long id) {
         if (!partRepository.existsById(id)) {

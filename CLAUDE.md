@@ -43,7 +43,7 @@ frontend/src/
   auth/           AuthContext (current-user provider + useAuth hook)
   components/     Reusable UI: Layout, DataTable, Modal, FormField, Badge
   pages/          Route pages: Dashboard, Parts, PartDetail, Categories, Locations,
-                  LowStock, QuickAdd, SpecDefinitions, Users, Login
+                  LowStock, QuickAdd, SpecDefinitions, Users, Profile, Login
 ```
 
 ## Database
@@ -63,8 +63,17 @@ frontend/src/
     Parts description search
   - V10 adds the `app_user` table (note: `user` is reserved in PostgreSQL) + `app_user_permission`
     child table, and seeds a bootstrap admin (see Authentication below)
-- `ddl-auto: validate` — every schema change requires a new Flyway migration
+  - V11 adds `spec_definition.major_type` (display grouping); V12 adds location ownership
+    (`location.owner_id` + `app_user.default_location_id`, locations are per-user)
+  - V13 adds per-user OctoPart (Nexar) credentials (`app_user.octopart_client_id` /
+    `octopart_client_secret`) + the `octopart_usage(user_id, period 'YYYY-MM', request_count)`
+    monthly request-quota table (see OctoPart Enrichment below)
+- `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
+  is **V14** (CLAUDE.md previously lagged the actual migrations — always check the
+  `db/migration/` directory for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
+- Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
+  `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
 
 ## Key Patterns & Gotchas
 
@@ -93,8 +102,9 @@ frontend/src/
     api-docs). Static SPA assets + the client-router fallback are public.
   - Specific mutations are gated with method security (`@EnableMethodSecurity` +
     `@PreAuthorize("hasAuthority('…')")`): part mutations (create/update/delete, image
-    upload/from-url/delete, quick-add, auto-categorize) require `PARTS_EDIT`; all `/api/users`
-    endpoints require `USERS_EDIT`.
+    upload/from-url/delete, quick-add, auto-categorize, OctoPart search/apply) require `PARTS_EDIT`;
+    all `/api/users` endpoints require `USERS_EDIT`. `/api/profile/**` (self-service settings) and
+    `/api/parts/octopart/usage` are authenticated-only (no specific permission).
   - **Not yet gated** (authenticated-only, no specific permission): categories, locations, specs,
     stock-entry mutations — easy to tighten by adding `@PreAuthorize`.
 - **CSRF is disabled** for the API (token-style JSON API; SameSite cookie). Unauthenticated/forbidden
@@ -184,6 +194,36 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   `GET /api/parts/auto-categorize/status` (progress: total/processed/assigned/skipped/lastError).
   The Parts page has an "Auto-categorize (AI)" button that starts the job and polls status.
 
+## OctoPart Enrichment
+
+- Enrich an **existing** part from OctoPart — now the **Nexar Supply API** (OAuth2
+  client-credentials → GraphQL). Because the API is metered, **credentials and quota are per-user**:
+  each user supplies their own free Nexar contract (limited to ~100 requests/month).
+- **Credentials** live on `app_user` (`octopart_client_id` / `octopart_client_secret`, secret never
+  returned by the API). Users set them **self-service** on the **My Account** page (`/profile`,
+  `GET/PUT /api/profile/octopart`, `ProfileController`/`ProfileService`) — no special permission, so
+  any user manages their own. `UserDTO.hasOctopartCredentials` (in `/auth/me`) gates the UI.
+- **Quota**: `octopart_usage(user_id, period 'YYYY-MM', request_count)`, cap from
+  `octopart.monthly-limit` (default 100). `OctopartQuotaService.consumeOrThrow` runs in a
+  `REQUIRES_NEW` tx and is called **after** the (free) token fetch but **before** the billable
+  GraphQL query, so a request still counts if the search later fails, while invalid credentials
+  (token failure) cost nothing. `GET /api/parts/octopart/usage` → `{limit, used, remaining,
+  hasCredentials}`.
+- **Flow**: `NexarApiService` caches the OAuth token per client id, then runs `supSearchMpn`
+  (maps results → `OctopartResultDTO`: octopartId, mpn, manufacturer, description, datasheet,
+  footprint-from-package-spec, specs). `OctopartService` orchestrates (creds check `428` → token →
+  consume quota `429` → search). `GET /api/parts/octopart/search?q=` (PARTS_EDIT) spends one
+  request.
+- **Apply** is free (no Nexar call): `POST /api/parts/octopart/{id}/apply` (PARTS_EDIT) →
+  `PartService.applyOctopart` sets `octopartId`, **overlays all specs**, and sets each supplied
+  column field. This is a **dedicated path** because `octopartId`/`mpn`/`footprint` are not writable
+  via the normal `PartRequest`/`buildPartFromRequest`.
+- **Frontend** (`pages/PartDetail.tsx`): a **🔎 Search OctoPart** button shows only when the part has
+  **no** `octopartId` yet and the user can edit; it displays remaining quota ("N left this month")
+  and disables at zero (or links to `/profile` if no credentials). The modal does search → pick →
+  **per-field checkbox confirmation** of changed real columns (specs applied wholesale; **no images
+  downloaded**). `AuthContext` exposes `refresh()` so saving credentials updates the gating.
+
 ## Key Features
 
 - **CRUD** for parts, categories (hierarchical), locations, stock entries
@@ -218,7 +258,9 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 ## API Endpoints (all under /api)
 
 - `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` — session auth (login is the only
-  unauthenticated `/api` endpoint)
+  unauthenticated `/api` endpoint); `/auth/me` includes `hasOctopartCredentials`
+- `GET/PUT /profile/octopart` — self-service: current user's OctoPart (Nexar) credentials
+  (authenticated; secret never returned)
 - `GET/POST /users`, `GET/PUT/DELETE /users/{id}` — user management (requires `USERS_EDIT`)
 - `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`)
   - `GET /parts?search=&categoryId=&sort=` — search runs in the DB: `search` matches name /
@@ -230,6 +272,9 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - `GET /parts/{id}/stock` — on-hand stock entries per location for a part
 - `GET /parts/{id}/movements` — stock movement history for a part (most recent first)
 - `POST /parts/auto-categorize`, `GET /parts/auto-categorize/status` — local-AI (Ollama) bulk categorization job
+- `GET /parts/octopart/usage` — current user's OctoPart monthly request usage (authenticated)
+- `GET /parts/octopart/search?q=` — OctoPart (Nexar) MPN search, spends one request (requires `PARTS_EDIT`)
+- `POST /parts/octopart/{id}/apply` — apply a chosen OctoPart result to a part, free (requires `PARTS_EDIT`)
 - `GET/POST/DELETE /parts/{id}/images`, `POST /parts/{id}/images/from-url`
 - `GET/POST /categories`, `GET/PUT/DELETE /categories/{id}`, `GET /categories/tree`
 - `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`

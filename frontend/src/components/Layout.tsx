@@ -61,15 +61,23 @@ export default function Layout() {
 
         {/* Current user + logout */}
         <div className="border-t border-gray-700 p-3">
-          <div className="px-1 pb-2 text-xs text-gray-400">
+          <NavLink
+            to="/profile"
+            className={({ isActive }) =>
+              `block rounded-lg px-1 py-2 text-xs transition-colors ${
+                isActive ? 'bg-gray-800' : 'hover:bg-gray-800'
+              }`
+            }
+          >
             <div className="truncate font-medium text-gray-200">
               {user?.fullName || user?.email}
             </div>
-            {user?.fullName && <div className="truncate">{user.email}</div>}
-          </div>
+            {user?.fullName && <div className="truncate text-gray-400">{user.email}</div>}
+            <div className="mt-0.5 text-gray-500">My Account ›</div>
+          </NavLink>
           <button
             onClick={handleLogout}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-white"
+            className="mt-1 w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-white"
           >
             ⎋ Log out
           </button>

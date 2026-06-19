@@ -31,6 +31,14 @@ public class AppUser {
 
     private String phone;
 
+    /** Per-user OctoPart (Nexar) API client id — the user's own free contract. Optional. */
+    @Column(name = "octopart_client_id")
+    private String octopartClientId;
+
+    /** Per-user OctoPart (Nexar) API client secret. Optional, never exposed via the API. */
+    @Column(name = "octopart_client_secret")
+    private String octopartClientSecret;
+
     /** The user's mandatory default location (always set after creation). */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "default_location_id")

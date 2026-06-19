@@ -9,6 +9,11 @@ import type {
   ImageSuggestion,
   Location,
   LocationRequest,
+  OctopartApplyRequest,
+  OctopartCredentialsRequest,
+  OctopartCredentialsStatus,
+  OctopartResult,
+  OctopartUsage,
   Part,
   PartImage,
   PartRequest,
@@ -200,3 +205,19 @@ export const quickAddPart = (data: QuickAddRequest) =>
 
 export const searchPartImages = (q: string) =>
   client.get<ImageSuggestion[]>('/parts-search/images', { params: { q } }).then((r) => r.data);
+
+// OctoPart (Nexar) enrichment
+export const getOctopartUsage = () =>
+  client.get<OctopartUsage>('/parts/octopart/usage').then((r) => r.data);
+
+export const searchOctopart = (q: string) =>
+  client.get<OctopartResult[]>('/parts/octopart/search', { params: { q } }).then((r) => r.data);
+
+export const applyOctopart = (partId: number, data: OctopartApplyRequest) =>
+  client.post<Part>(`/parts/octopart/${partId}/apply`, data).then((r) => r.data);
+
+export const getOctopartCredentials = () =>
+  client.get<OctopartCredentialsStatus>('/profile/octopart').then((r) => r.data);
+
+export const updateOctopartCredentials = (data: OctopartCredentialsRequest) =>
+  client.put<OctopartCredentialsStatus>('/profile/octopart', data).then((r) => r.data);

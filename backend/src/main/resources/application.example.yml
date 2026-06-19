@@ -36,3 +36,8 @@ anthropic:
 ollama:
   base-url: http://localhost:11434
   model: qwen2.5:7b-instruct
+
+# OctoPart (Nexar) part enrichment. Credentials are per-user (set on the profile page); this is
+# only the per-user monthly request cap matching the free Nexar contract.
+octopart:
+  monthly-limit: 100

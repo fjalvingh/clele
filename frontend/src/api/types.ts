@@ -57,6 +57,9 @@ export interface Part {
   name: string;
   description?: string;
   manufacturer?: string;
+  mpn?: string;
+  footprint?: string;
+  octopartId?: string;
   datasheetUrl?: string;
   specs?: Record<string, string>;
   categoryId?: number;
@@ -99,6 +102,7 @@ export interface User {
   permissions: string[];
   defaultLocationId?: number;
   defaultLocationName?: string;
+  hasOctopartCredentials?: boolean;
 }
 
 export interface UserRequest {
@@ -181,6 +185,46 @@ export interface QuickAddRequest {
 export interface QuickAddResponse {
   part: Part;
   stockEntry: StockEntry;
+}
+
+// OctoPart (Nexar) enrichment
+export interface OctopartResult {
+  octopartId: string;
+  mpn?: string;
+  manufacturer?: string;
+  description?: string;
+  datasheetUrl?: string;
+  footprint?: string;
+  specs?: Record<string, string>;
+}
+
+export interface OctopartUsage {
+  limit: number;
+  used: number;
+  remaining: number;
+  hasCredentials: boolean;
+}
+
+export interface OctopartApplyRequest {
+  octopartId: string;
+  name?: string;
+  description?: string;
+  manufacturer?: string;
+  mpn?: string;
+  footprint?: string;
+  datasheetUrl?: string;
+  specs?: Record<string, string>;
+}
+
+export interface OctopartCredentialsStatus {
+  hasClientId: boolean;
+  hasClientSecret: boolean;
+  clientId?: string;
+}
+
+export interface OctopartCredentialsRequest {
+  clientId: string;
+  clientSecret?: string; // blank keeps the existing secret
 }
 
 export interface ImageSuggestion {

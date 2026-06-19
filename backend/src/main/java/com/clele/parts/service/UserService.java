@@ -132,6 +132,9 @@ public class UserService {
                 .permissions(new HashSet<>(user.getPermissions()))
                 .defaultLocationId(defaultLocation != null ? defaultLocation.getId() : null)
                 .defaultLocationName(defaultLocation != null ? defaultLocation.getName() : null)
+                .hasOctopartCredentials(
+                        user.getOctopartClientId() != null && !user.getOctopartClientId().isBlank()
+                        && user.getOctopartClientSecret() != null && !user.getOctopartClientSecret().isBlank())
                 .build();
     }
 }
