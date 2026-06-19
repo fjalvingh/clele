@@ -580,7 +580,7 @@ export default function PartDetailPage() {
                   )
                 )}
                 <button
-                  onClick={() => navigate('/parts')}
+                  onClick={() => navigate(-1)}
                   className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
                 >
                   ← Back
