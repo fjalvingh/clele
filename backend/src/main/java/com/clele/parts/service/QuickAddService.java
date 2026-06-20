@@ -3,9 +3,9 @@ package com.clele.parts.service;
 import com.clele.parts.dto.QuickAddRequest;
 import com.clele.parts.dto.QuickAddResponseDTO;
 import com.clele.parts.dto.StockEntryDTO;
-import com.clele.parts.model.AppUser;
 import com.clele.parts.model.Category;
 import com.clele.parts.model.Location;
+import com.clele.parts.model.MovementType;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.StockEntry;
 import com.clele.parts.repository.CategoryRepository;
@@ -29,6 +29,7 @@ public class QuickAddService {
     private final CategoryRepository categoryRepository;
     private final PartService partService;
     private final CurrentUserService currentUserService;
+    private final StockMovementService stockMovementService;
 
     @Transactional
     public QuickAddResponseDTO quickAdd(QuickAddRequest request) {
@@ -40,27 +41,17 @@ public class QuickAddService {
         Location location = locationRepository.findById(request.getLocationId())
                 .orElseThrow(() -> new EntityNotFoundException("Location not found: " + request.getLocationId()));
 
-        // Stock may only be added to a location the current user owns.
-        AppUser me = currentUserService.current();
-        if (location.getOwner() == null || !location.getOwner().getId().equals(me.getId())) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "You can only add stock to your own locations");
-        }
-
         // Check for duplicate stock entry
         if (stockEntryRepository.existsByPartIdAndLocationId(part.getId(), location.getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "A stock entry already exists for this part/location combination");
         }
 
-        StockEntry entry = StockEntry.builder()
-                .part(part)
-                .location(location)
-                .quantity(request.getQuantity())
-                .minimumQuantity(request.getMinimumQuantity())
-                .unitPrice(request.getUnitPrice())
-                .build();
-        StockEntry saved = stockEntryRepository.save(entry);
+        // The funnel writes the INITIAL movement, creates the entry and checks location ownership.
+        StockEntry saved = stockMovementService.apply(part, location, request.getQuantity(),
+                request.getUnitPrice(), null, MovementType.INITIAL);
+        saved.setMinimumQuantity(request.getMinimumQuantity());
+        saved = stockEntryRepository.save(saved);
 
         StockEntryDTO stockEntryDTO = StockEntryDTO.builder()
                 .id(saved.getId())

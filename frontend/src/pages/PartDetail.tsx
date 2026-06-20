@@ -423,6 +423,18 @@ export default function PartDetailPage() {
         </Badge>
       ),
     },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (m) =>
+        m.type ? (
+          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600">
+            {m.type}
+          </span>
+        ) : (
+          <span className="text-gray-400">—</span>
+        ),
+    },
     { key: 'locationName', header: 'Location', render: (m) => m.locationName ?? '—' },
     {
       key: 'unitPrice',
@@ -903,6 +915,17 @@ export default function PartDetailPage() {
             setStockForm({
               ...stockForm,
               unitPrice: e.target.value !== '' ? Number(e.target.value) : null,
+            })
+          }
+        />
+        <FormField
+          label="Comment"
+          placeholder="Optional note for the stock movement"
+          value={stockForm.comments ?? ''}
+          onChange={(e) =>
+            setStockForm({
+              ...stockForm,
+              comments: e.target.value !== '' ? e.target.value : null,
             })
           }
         />

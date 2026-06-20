@@ -28,4 +28,7 @@ public class StockEntryRequest {
 
     @DecimalMin(value = "0.0", inclusive = true, message = "Unit price must be >= 0")
     private BigDecimal unitPrice;
+
+    /** Optional note recorded on the resulting stock movement. */
+    private String comments;
 }

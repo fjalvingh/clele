@@ -155,6 +155,7 @@ public class PartsboxImportService {
                             .comments(str(stock, "stock/comments"))
                             .movedAt(toLocalDateTime(ts))
                             .createdBy(str(stock, "stock/user"))
+                            .type(com.clele.parts.model.MovementType.IMPORT)
                             .build());
                     movementCount++;
 

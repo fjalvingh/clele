@@ -9,9 +9,11 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/stock")
@@ -56,5 +58,12 @@ public class StockEntryController {
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         stockEntryService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/reconcile")
+    @PreAuthorize("hasAuthority('PARTS_EDIT')")
+    @Operation(summary = "Realign every stock entry's on-hand quantity to its ledger")
+    public Map<String, Integer> reconcile() {
+        return Map.of("corrected", stockEntryService.reconcile());
     }
 }

@@ -6,11 +6,15 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface StockEntryRepository extends JpaRepository<StockEntry, Long> {
 
     @Query("SELECT s FROM StockEntry s JOIN FETCH s.part JOIN FETCH s.location WHERE s.part.id = :partId")
     List<StockEntry> findByPartId(Long partId);
+
+    @Query("SELECT s FROM StockEntry s JOIN FETCH s.part JOIN FETCH s.location WHERE s.part.id = :partId AND s.location.id = :locationId")
+    Optional<StockEntry> findByPartIdAndLocationId(Long partId, Long locationId);
 
     @Query("SELECT s FROM StockEntry s JOIN FETCH s.part JOIN FETCH s.location WHERE s.quantity < s.minimumQuantity")
     List<StockEntry> findLowStock();

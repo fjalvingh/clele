@@ -44,4 +44,8 @@ public class StockMovement {
 
     @Column(name = "created_by", length = 64)
     private String createdBy;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    private MovementType type;
 }

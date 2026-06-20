@@ -78,8 +78,13 @@ frontend/src/
     canonical PostgreSQL schema) so HTTP sessions persist in the DB and logins survive an app
     restart (see Authentication below). These tables are not JPA-mapped, so their `CHAR(36)`
     columns are exempt from `ddl-auto: validate`
+  - V17 adds `stock_movement.type` (`MovementType`: PURCHASE/CONSUME/ADJUST/INITIAL/IMPORT) and
+    backfills the ledger so the invariant `stock_entry.quantity == Σ stock_movement.quantity` holds
+    for every (part, location): existing importer movements are tagged `IMPORT`, and each drifted
+    aggregate (manual edits made before the funnel existed) gets one reconciling movement (see Stock
+    Model below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V17** (CLAUDE.md previously lagged the actual migrations — always check the
+  is **V18** (CLAUDE.md previously lagged the actual migrations — always check the
   `db/migration/` directory for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
@@ -187,8 +192,19 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 ## Stock Model
 
 - `stock_entry` = on-hand aggregate (one row per part+location; read by dashboard,
-  low-stock, part-detail). `stock_movement` = ledger of individual movements (history).
-  The importer writes both; manual stock edits currently only touch `stock_entry`.
+  low-stock, part-detail). `stock_movement` = ledger of signed-delta movements (history) and the
+  **source of truth**: the invariant `stock_entry.quantity == Σ stock_movement.quantity` holds per
+  (part, location).
+- **Every on-hand change funnels through `StockMovementService.apply(part, location, deltaQty,
+  unitPrice, comments, type)`** — it writes one `StockMovement` (delta) and updates the `stock_entry`
+  aggregate in the same transaction, checks location ownership, and rejects changes that would drive
+  stock negative. All manual paths route through it: `StockEntryService.create` (delta `+qty`,
+  `INITIAL`), `update` (delta `new−old`, `ADJUST`; a min-qty/price-only edit writes no movement),
+  `delete` (delta `−qty`, `ADJUST`, then drops the row); `QuickAddService` (delta `+qty`, `INITIAL`).
+  The UI keeps the absolute "set quantity to N" form — the backend derives the delta.
+- The Partsbox importer keeps its own dated-movement loop (movements tagged `IMPORT`, entry = Σ) — it
+  was already consistent. `POST /api/stock/reconcile` (`PARTS_EDIT`) realigns every aggregate to its
+  ledger and returns `{corrected: n}` — a verification/safety-net hook (expect 0 in steady state).
 
 ## Part Ownership
 
@@ -319,7 +335,8 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - `GET/POST/DELETE /parts/{id}/images`, `POST /parts/{id}/images/from-url`
 - `GET/POST /categories`, `GET/PUT/DELETE /categories/{id}`, `GET /categories/tree`
 - `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`
-- `GET/POST /stock-entries`, `GET/PUT/DELETE /stock-entries/{id}`
+- `GET/POST /stock-entries`, `GET/PUT/DELETE /stock-entries/{id}`; `POST /stock/reconcile` realigns
+  every stock entry to its ledger sum (requires `PARTS_EDIT`)
 - `GET /dashboard`
 - `GET /parts-search?q=` — AI part search
 - `GET /parts-search/images?q=` — image suggestions

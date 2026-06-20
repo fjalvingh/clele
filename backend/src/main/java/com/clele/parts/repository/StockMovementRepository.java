@@ -11,5 +11,8 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, Lo
     @Query("SELECT m FROM StockMovement m JOIN FETCH m.location WHERE m.part.id = :partId ORDER BY m.movedAt DESC")
     List<StockMovement> findByPartIdOrderByMovedAtDesc(Long partId);
 
+    @Query("SELECT COALESCE(SUM(m.quantity), 0) FROM StockMovement m WHERE m.part.id = :partId AND m.location.id = :locationId")
+    int sumQuantity(Long partId, Long locationId);
+
     boolean existsByLocationId(Long locationId);
 }

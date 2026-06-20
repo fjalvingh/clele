@@ -151,6 +151,7 @@ export interface StockMovement {
   comments?: string | null;
   movedAt: string;
   createdBy?: string | null;
+  type?: string | null;
 }
 
 export interface StockEntryRequest {
@@ -159,6 +160,7 @@ export interface StockEntryRequest {
   quantity: number;
   minimumQuantity: number;
   unitPrice?: number | null;
+  comments?: string | null;
 }
 
 export interface PartSearchResult {

@@ -20,4 +20,5 @@ public class StockMovementDTO {
     private String comments;
     private LocalDateTime movedAt;
     private String createdBy;
+    private com.clele.parts.model.MovementType type;
 }
