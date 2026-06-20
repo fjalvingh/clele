@@ -580,8 +580,8 @@ export default function PartDetailPage() {
               </div>
             )}
 
-            {/* Find image (only when the part has no images) */}
-            {canEdit && images.length === 0 && (
+            {/* Find image (whenever there's room for more photos) */}
+            {canEdit && images.length < 5 && (
               <button
                 onClick={openFindImage}
                 className="rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
