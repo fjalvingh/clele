@@ -5,7 +5,7 @@ import com.clele.parts.dto.PartRequest;
 import com.clele.parts.model.Category;
 import com.clele.parts.model.Part;
 import com.clele.parts.repository.CategoryRepository;
-import com.clele.parts.repository.PartImageRepository;
+import com.clele.parts.repository.PartAttachmentRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.repository.StockEntryRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -28,7 +28,7 @@ public class PartService {
     private final PartRepository partRepository;
     private final CategoryRepository categoryRepository;
     private final StockEntryRepository stockEntryRepository;
-    private final PartImageRepository partImageRepository;
+    private final PartAttachmentRepository partAttachmentRepository;
     private final CurrentUserService currentUserService;
 
     public List<PartDTO> search(String search, Long categoryId, String sort) {
@@ -132,7 +132,7 @@ public class PartService {
             throw new EntityNotFoundException("Part not found: " + id);
         }
         stockEntryRepository.deleteByPartId(id);
-        partImageRepository.deleteByPartId(id);
+        partAttachmentRepository.deleteByPartId(id);
         partRepository.deleteById(id);
     }
 
@@ -147,7 +147,7 @@ public class PartService {
         if (partIds.isEmpty()) {
             return 0;
         }
-        // stock_entry has no ON DELETE CASCADE (part_image and stock_movement do), so clear it
+        // stock_entry has no ON DELETE CASCADE (part_attachment and stock_movement do), so clear it
         // explicitly before removing the parts.
         stockEntryRepository.deleteByPartIdIn(partIds);
         return partRepository.deleteByCreatedById(userId);

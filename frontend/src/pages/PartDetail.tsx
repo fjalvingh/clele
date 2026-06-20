@@ -1,31 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
+  addAttachmentFromUrl,
   applyOctopart,
+  attachmentUrl,
   createStockEntry,
-  deletePartImage,
+  deletePartAttachment,
   deleteStockEntry,
   getMyLocations,
   getOctopartUsage,
   getPart,
-  getPartImages,
+  getPartAttachments,
   getPartMovements,
   getPartStock,
   getSpecDefinitions,
-  partImageUrl,
   searchOctopart,
   searchPartImages,
   updateStockEntry,
-  uploadPartImage,
+  uploadPartAttachment,
 } from '../api';
 import type {
+  AttachmentType,
   ImageSuggestion,
   Location,
   OctopartApplyRequest,
   OctopartResult,
   OctopartUsage,
   Part,
-  PartImage,
+  PartAttachment,
   SpecDefinition,
   StockEntry,
   StockEntryRequest,
@@ -93,7 +95,9 @@ export default function PartDetailPage() {
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [movementsOpen, setMovementsOpen] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
-  const [images, setImages] = useState<PartImage[]>([]);
+  const [images, setImages] = useState<PartAttachment[]>([]);
+  const [datasheets, setDatasheets] = useState<PartAttachment[]>([]);
+  const [attachments, setAttachments] = useState<PartAttachment[]>([]);
   const [selectedImageId, setSelectedImageId] = useState<number | null>(null);
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
   const [loading, setLoading] = useState(true);
@@ -108,6 +112,12 @@ export default function PartDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Datasheet + generic attachment uploads (preserve original file, no cap).
+  const [fileBusy, setFileBusy] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const datasheetInputRef = useRef<HTMLInputElement>(null);
+  const attachmentInputRef = useRef<HTMLInputElement>(null);
 
   // "Find image" modal — same image search/attach flow used by Quick Add.
   const [imageModalOpen, setImageModalOpen] = useState(false);
@@ -134,13 +144,22 @@ export default function PartDetailPage() {
 
   const [printModalOpen, setPrintModalOpen] = useState(false);
 
+  const splitAttachments = (atts: PartAttachment[]) => {
+    setImages(atts.filter((a) => a.type === 'PHOTO'));
+    setDatasheets(atts.filter((a) => a.type === 'DATASHEET'));
+    setAttachments(atts.filter((a) => a.type === 'ATTACHMENT'));
+  };
+
+  const refreshAttachments = () =>
+    getPartAttachments(partId).then(splitAttachments).catch(() => {});
+
   const loadData = () => {
-    Promise.all([getPart(partId), getPartStock(partId), getMyLocations(), getPartImages(partId)])
-      .then(([p, s, l, imgs]) => {
+    Promise.all([getPart(partId), getPartStock(partId), getMyLocations(), getPartAttachments(partId)])
+      .then(([p, s, l, atts]) => {
         setPart(p);
         setStock(s);
         setLocations(l);
-        setImages(imgs);
+        splitAttachments(atts);
         // Movement history is supplementary — load best-effort, don't fail the page
         getPartMovements(partId)
           .then(setMovements)
@@ -287,9 +306,8 @@ export default function PartDetailPage() {
     setUploading(true);
     setUploadError(null);
     try {
-      await uploadPartImage(partId, file);
-      const imgs = await getPartImages(partId);
-      setImages(imgs);
+      await uploadPartAttachment(partId, file, 'PHOTO');
+      await refreshAttachments();
     } catch (err: unknown) {
       setUploadError((err as Error).message);
     } finally {
@@ -297,12 +315,55 @@ export default function PartDetailPage() {
     }
   };
 
-  const handleDeleteImage = async (image: PartImage) => {
+  const handleDeleteImage = async (image: PartAttachment) => {
     if (!confirm('Remove this image?')) return;
     try {
-      await deletePartImage(partId, image.id);
-      const imgs = await getPartImages(partId);
-      setImages(imgs);
+      await deletePartAttachment(partId, image.id);
+      await refreshAttachments();
+    } catch (err: unknown) {
+      alert((err as Error).message);
+    }
+  };
+
+  // Datasheets & generic attachments — upload the original file as-is (no conversion, no cap).
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: AttachmentType,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setFileBusy(true);
+    setFileError(null);
+    try {
+      await uploadPartAttachment(partId, file, type);
+      await refreshAttachments();
+    } catch (err: unknown) {
+      setFileError((err as Error).message);
+    } finally {
+      setFileBusy(false);
+    }
+  };
+
+  const handleDownloadDatasheet = async () => {
+    if (!part?.datasheetUrl) return;
+    setFileBusy(true);
+    setFileError(null);
+    try {
+      await addAttachmentFromUrl(partId, part.datasheetUrl, 'DATASHEET');
+      await refreshAttachments();
+    } catch (err: unknown) {
+      setFileError((err as Error).message);
+    } finally {
+      setFileBusy(false);
+    }
+  };
+
+  const handleDeleteAttachment = async (att: PartAttachment) => {
+    if (!confirm('Remove this file?')) return;
+    try {
+      await deletePartAttachment(partId, att.id);
+      await refreshAttachments();
     } catch (err: unknown) {
       alert((err as Error).message);
     }
@@ -355,7 +416,7 @@ export default function PartDetailPage() {
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const blob = await resp.blob();
         const file = new File([blob], `image-${i}.png`, { type: blob.type || 'image/png' });
-        await uploadPartImage(partId, file);
+        await uploadPartAttachment(partId, file, 'PHOTO');
       } catch (err: unknown) {
         errors.push((err as Error).message);
       }
@@ -363,8 +424,7 @@ export default function PartDetailPage() {
     }
     setAttaching(false);
 
-    const imgs = await getPartImages(partId).catch(() => images);
-    setImages(imgs);
+    await refreshAttachments();
 
     if (errors.length > 0) {
       const succeeded = selectedImageUrls.size - errors.length;
@@ -525,7 +585,7 @@ export default function PartDetailPage() {
             <div className="flex h-52 w-52 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
               {primaryImage ? (
                 <img
-                  src={partImageUrl(partId, primaryImage.id)}
+                  src={attachmentUrl(partId, primaryImage.id)}
                   alt={part.name}
                   className="h-full w-full object-contain"
                 />
@@ -557,7 +617,7 @@ export default function PartDetailPage() {
                       title="Show this photo"
                     >
                       <img
-                        src={partImageUrl(partId, img.id)}
+                        src={attachmentUrl(partId, img.id)}
                         alt=""
                         className={`h-12 w-12 rounded border object-contain ${
                           img.id === primaryImage?.id
@@ -726,6 +786,126 @@ export default function PartDetailPage() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Datasheets & attachments — original files stored as binary on the part */}
+      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-gray-900">
+          <span className="h-5 w-1 rounded-full bg-blue-500" />
+          Documents
+        </h2>
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          {/* Datasheets */}
+          <div>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-blue-700/80">
+              Datasheets
+            </h3>
+            {datasheets.length === 0 ? (
+              <p className="text-sm text-gray-400">No datasheet files stored.</p>
+            ) : (
+              <ul className="space-y-1">
+                {datasheets.map((d) => (
+                  <li key={d.id} className="flex items-center gap-2 text-sm">
+                    <a
+                      href={attachmentUrl(partId, d.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate text-blue-600 hover:underline"
+                    >
+                      📄 {d.filename ?? `datasheet-${d.id}`}
+                    </a>
+                    {canEdit && (
+                      <button
+                        onClick={() => handleDeleteAttachment(d)}
+                        className="shrink-0 text-xs text-red-600 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canEdit && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <input
+                  ref={datasheetInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => handleFileUpload(e, 'DATASHEET')}
+                />
+                <button
+                  onClick={() => datasheetInputRef.current?.click()}
+                  disabled={fileBusy}
+                  className="rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
+                >
+                  + Upload datasheet
+                </button>
+                {part.datasheetUrl && (
+                  <button
+                    onClick={handleDownloadDatasheet}
+                    disabled={fileBusy}
+                    title={`Download from ${part.datasheetUrl}`}
+                    className="rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
+                  >
+                    ⬇ Download from URL
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Generic attachments */}
+          <div>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-blue-700/80">
+              Attachments
+            </h3>
+            {attachments.length === 0 ? (
+              <p className="text-sm text-gray-400">No attachments.</p>
+            ) : (
+              <ul className="space-y-1">
+                {attachments.map((a) => (
+                  <li key={a.id} className="flex items-center gap-2 text-sm">
+                    <a
+                      href={attachmentUrl(partId, a.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="truncate text-blue-600 hover:underline"
+                    >
+                      📎 {a.filename ?? `attachment-${a.id}`}
+                    </a>
+                    {canEdit && (
+                      <button
+                        onClick={() => handleDeleteAttachment(a)}
+                        className="shrink-0 text-xs text-red-600 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canEdit && (
+              <div className="mt-3">
+                <input
+                  ref={attachmentInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => handleFileUpload(e, 'ATTACHMENT')}
+                />
+                <button
+                  onClick={() => attachmentInputRef.current?.click()}
+                  disabled={fileBusy}
+                  className="rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
+                >
+                  + Upload file
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        {fileError && <p className="mt-3 text-sm text-red-600">{fileError}</p>}
       </div>
 
       {/* Specifications — grouped into three columns by major type */}

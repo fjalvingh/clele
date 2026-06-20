@@ -243,10 +243,15 @@ export interface ImageSuggestion {
   description?: string;
 }
 
-export interface PartImage {
+export type AttachmentType = 'PHOTO' | 'DATASHEET' | 'ATTACHMENT';
+
+export interface PartAttachment {
   id: number;
   partId: number;
+  type: AttachmentType;
   displayOrder: number;
+  contentType?: string;
+  filename?: string;
   createdAt: string;
 }
 

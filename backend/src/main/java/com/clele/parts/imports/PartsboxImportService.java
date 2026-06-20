@@ -4,12 +4,13 @@ import com.clele.parts.model.Location;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.StockEntry;
 import com.clele.parts.model.StockMovement;
+import com.clele.parts.model.AttachmentType;
 import com.clele.parts.repository.LocationRepository;
-import com.clele.parts.repository.PartImageRepository;
+import com.clele.parts.repository.PartAttachmentRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.repository.StockEntryRepository;
 import com.clele.parts.repository.StockMovementRepository;
-import com.clele.parts.service.PartImageService;
+import com.clele.parts.service.PartAttachmentService;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,8 +52,8 @@ public class PartsboxImportService {
     private final com.clele.parts.repository.AppUserRepository userRepository;
     private final StockEntryRepository stockEntryRepository;
     private final StockMovementRepository stockMovementRepository;
-    private final PartImageRepository partImageRepository;
-    private final PartImageService partImageService;
+    private final PartAttachmentRepository partAttachmentRepository;
+    private final PartAttachmentService partAttachmentService;
     private final PlatformTransactionManager txManager;
 
     public record ImportSummary(int parts, int movements, int stockEntries, int mergedNames,
@@ -74,7 +75,7 @@ public class PartsboxImportService {
         // Phase 1: parts + stock in a single transaction.
         LoadResult load = new TransactionTemplate(txManager).execute(status -> loadData(parts, storages));
 
-        // Phase 2: download images, each in its own transaction (PartImageService.uploadFromUrl
+        // Phase 2: download images, each in its own transaction (PartAttachmentService.uploadFromUrl
         // is @Transactional), tolerating individual failures.
         int[] imageStats = downloadImages(load.imageUrlsByPartId());
 
@@ -191,7 +192,7 @@ public class PartsboxImportService {
         log.info("Wiping existing part data (keeping categories, spec definitions, locations)");
         stockMovementRepository.deleteAllInBatch();
         stockEntryRepository.deleteAllInBatch();
-        partImageRepository.deleteAllInBatch();
+        partAttachmentRepository.deleteAllInBatch();
         partRepository.deleteAllInBatch();
     }
 
@@ -301,7 +302,7 @@ public class PartsboxImportService {
         for (Map.Entry<Long, List<String>> e : imageUrlsByPartId.entrySet()) {
             for (String url : e.getValue()) {
                 try {
-                    partImageService.uploadFromUrl(e.getKey(), url);
+                    partAttachmentService.uploadFromUrl(e.getKey(), url, AttachmentType.PHOTO);
                     downloaded++;
                 } catch (Exception ex) {
                     failed++;

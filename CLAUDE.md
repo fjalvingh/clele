@@ -33,7 +33,7 @@ backend/src/main/java/com/clele/parts/
                   SecurityConfig (Spring Security filter chain + password encoder)
   controller/     REST controllers — all endpoints use explicit /api/... prefix
   dto/            Request/response DTOs
-  model/          JPA entities: Part, Category, Location, StockEntry, PartImage, SpecDefinition,
+  model/          JPA entities: Part, Category, Location, StockEntry, PartAttachment, SpecDefinition,
                   AppUser; Permissions (authority-string constants)
   repository/     Spring Data JPA repositories
   service/        Business logic
@@ -85,8 +85,12 @@ frontend/src/
     Model below)
   - V18 drops `stock_movement.currency` — the app no longer stores a per-movement currency; it uses a
     single app-wide currency from config (see App Settings below)
+  - V19 generalizes `part_image` into `part_attachment`: renames the table/sequence/index, renames
+    `image_data` → `data`, and adds `type` (`AttachmentType`: PHOTO/DATASHEET/ATTACHMENT),
+    `content_type`, and `filename` (NULL for photos). Existing rows backfill to `PHOTO`/`image/png`.
+    One bytea table now holds photos, datasheets, and user attachments (see Part Attachments below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V19** (CLAUDE.md previously lagged the actual migrations — always check the
+  is **V20** (CLAUDE.md previously lagged the actual migrations — always check the
   `db/migration/` directory for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
@@ -175,15 +179,15 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
     -Dspring-boot.run.arguments=--partsbox.file=../data.txt
   ```
 - **Two phases**: (1) `@Transactional` load — wipe (`stock_movement`, `stock_entry`,
-  `part_image`, `part`; keeps categories/specs/locations) then parts + stock; (2) image
-  download outside that transaction (each `PartImageService.uploadFromUrl` is its own tx),
-  tolerating individual failures. Idempotent / re-runnable.
+  `part_attachment`, `part`; keeps categories/specs/locations) then parts + stock; (2) image
+  download outside that transaction (each `PartAttachmentService.uploadFromUrl(..., PHOTO)` is its
+  own tx), tolerating individual failures. Idempotent / re-runnable.
 - Mapping: `part/name` → unique `part_number` (duplicate names merged into one part);
   `:storage` rows → `location` (find-or-create by name). Enriched fields → `description`
   (part/description → octopart `main-description` fallback), `manufacturer`, `mpn`,
   `footprint`, `octopart_id`, `datasheet_url` (first `:datasheets`), and `specs` JSONB
   (octopart `:specs`, flattening `{v}` / `{minv,maxv}`). Octopart + SnapMagic image URLs are
-  downloaded into `part_image` (≤5). Each `part/stock` transaction → a `stock_movement` row;
+  downloaded into `part_attachment` as PHOTO rows (≤5). Each `part/stock` transaction → a `stock_movement` row;
   `stock_entry` is the per-part/location on-hand aggregate (Σ movements, last positive price).
   Empty strings import as NULL.
 - **Expected results** (current `data.txt`): 1064 parts, 1169 stock movements, 1051 stock
@@ -231,10 +235,36 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - **Bulk cleanup**: `DELETE /api/parts/by-user/{userId}` (`USERS_EDIT`) →
   `PartService.deleteByUser` removes every part that user created plus its stock entries, images and
   movements, and returns the count. `stock_entry` has no `ON DELETE CASCADE`, so it is cleared first
-  (`StockEntryRepository.deleteByPartIdIn`) before the bulk `Part` delete (`part_image` and
+  (`StockEntryRepository.deleteByPartIdIn`) before the bulk `Part` delete (`part_attachment` and
   `stock_movement` cascade at the DB). The Users page exposes a per-row **Delete parts** action.
 - Note: `created_by_id` is a non-null FK with no cascade, so deleting a user who still has parts
   fails at the DB until their parts are removed — same as the existing `location.owner_id` FK.
+
+## Part Attachments
+
+- A single `part_attachment` bytea table (entity `PartAttachment`, V19) stores all per-part binary
+  content, distinguished by `type` (`AttachmentType`: `PHOTO`, `DATASHEET`, `ATTACHMENT`). Columns:
+  `data` (bytea), `type`, `display_order`, `content_type`, `filename` (NULL for photos), `created_at`;
+  `part_id` FK is `ON DELETE CASCADE`.
+- **`PartAttachmentService`** branches by type:
+  - `PHOTO` — PNG-normalized via ImageIO (`convertToPng` / `downloadAndConvertToPng`), `content_type`
+    `image/png`, no filename, **capped at 5 per part** (`countByPartIdAndType(.., PHOTO)`).
+  - `DATASHEET` / `ATTACHMENT` — stored **as-is**: original bytes, original `content_type` and
+    `filename`, **uncapped**. `uploadFromUrl(.., DATASHEET)` downloads the raw file (response
+    content-type preserved, filename derived from the URL path) — used by the Part Detail
+    "Download from URL" button to pull the part's `datasheet_url` PDF into storage.
+  - `delete` re-sequences `display_order` within the same part+type group.
+- **`PartAttachmentController`** (`/api/parts/{partId}/attachments`): `GET` (optional `?type=`),
+  `GET /{id}` serves bytes with the stored content-type (photos render inline with a 7-day cache;
+  datasheets/attachments add `Content-Disposition: attachment; filename=…`), `POST` (multipart
+  `file` + `type`), `POST /from-url` (`{url, type}`), `DELETE /{id}`. Mutations require `PARTS_EDIT`.
+- **`part.datasheet_url` is unchanged** — it remains the canonical URL string; binary `DATASHEET`
+  rows are an additional, optional copy. The Part Detail page has a **Documents** card listing
+  datasheets and attachments (download links) with upload controls + the "Download from URL" action.
+- Frontend API (`api/index.ts`): `getPartAttachments(partId, type?)`,
+  `uploadPartAttachment(partId, file, type)`, `addAttachmentFromUrl(partId, url, type)`,
+  `deletePartAttachment`, `attachmentUrl(partId, id)`. Photos still drive the Part Detail gallery /
+  Quick Add image picker (now uploaded as `PHOTO`).
 
 ## AI Integration
 
@@ -304,7 +334,9 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   - Image picker fetches suggestions via DuckDuckGo, displays through backend proxy, uploads selected images as multipart blobs (client-side fetch + multipart upload to avoid Cloudflare/CORS issues)
   - Shows error feedback if image uploads fail (with link to navigate to saved part)
   - Location field defaults to last used location (persisted in `localStorage` key `quickadd.lastLocationId`)
-- **Part images**: upload/delete photos per part (max 5), stored as PNG BYTEA in DB
+- **Part attachments**: one `part_attachment` bytea table holds three kinds of binary content per
+  part, keyed by `type` (PHOTO/DATASHEET/ATTACHMENT) — see Part Attachments below. Photos: PNG-
+  normalized, max 5. Datasheets & user attachments: original bytes + filename + content-type, uncapped
 - **Spec definitions**: configurable specification fields (text, number, boolean, select) with units; can be associated with categories
   - Each definition has a `jsonName` (the exact key stored inside `part.specs`) separate from its
     human-readable `name`/title. All matching (AI prompt, Quick Add, Parts edit, Part detail) keys off `jsonName`
@@ -347,7 +379,10 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - `GET /parts/octopart/usage` — current user's OctoPart monthly request usage (authenticated)
 - `GET /parts/octopart/search?q=` — OctoPart (Nexar) MPN search, spends one request (requires `PARTS_EDIT`)
 - `POST /parts/octopart/{id}/apply` — apply a chosen OctoPart result to a part, free (requires `PARTS_EDIT`)
-- `GET/POST/DELETE /parts/{id}/images`, `POST /parts/{id}/images/from-url`
+- `GET/POST/DELETE /parts/{id}/attachments` (`?type=` filter on GET; `type` form field on POST,
+  default `PHOTO`), `POST /parts/{id}/attachments/from-url` (`{url, type}`) — photos/datasheets/files
+  (mutations require `PARTS_EDIT`; GET serves bytes with the stored content-type, downloads with
+  filename for datasheets/attachments)
 - `GET/POST /categories`, `GET/PUT/DELETE /categories/{id}`, `GET /categories/tree`
 - `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`
 - `GET/POST /stock-entries`, `GET/PUT/DELETE /stock-entries/{id}`; `POST /stock/reconcile` realigns

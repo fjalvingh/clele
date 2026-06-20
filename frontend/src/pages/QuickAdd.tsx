@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { findLocalParts, getMyLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline, uploadPartImage } from '../api';
+import { findLocalParts, getMyLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline, uploadPartAttachment } from '../api';
 import type { ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 
@@ -347,7 +347,7 @@ export default function QuickAddPage() {
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const blob = await resp.blob();
           const file = new File([blob], `image-${imgIndex}.png`, { type: blob.type || 'image/png' });
-          await uploadPartImage(partId, file);
+          await uploadPartAttachment(partId, file, 'PHOTO');
         } catch (imgErr) {
           imageErrors.push((imgErr as Error).message);
         }

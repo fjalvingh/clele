@@ -15,8 +15,9 @@ import type {
   OctopartCredentialsStatus,
   OctopartResult,
   OctopartUsage,
+  AttachmentType,
   Part,
-  PartImage,
+  PartAttachment,
   PartRequest,
   PartSearchResult,
   QuickAddRequest,
@@ -165,26 +166,29 @@ export const deleteStockEntry = (id: number) =>
 export const getDashboard = () =>
   client.get<Dashboard>('/dashboard').then((r) => r.data);
 
-// Part images
-export const getPartImages = (partId: number) =>
-  client.get<PartImage[]>(`/parts/${partId}/images`).then((r) => r.data);
+// Part attachments (photos, datasheets, user files)
+export const getPartAttachments = (partId: number, type?: AttachmentType) =>
+  client.get<PartAttachment[]>(`/parts/${partId}/attachments`, {
+    params: type ? { type } : undefined,
+  }).then((r) => r.data);
 
-export const uploadPartImage = (partId: number, file: File) => {
+export const uploadPartAttachment = (partId: number, file: File, type: AttachmentType) => {
   const form = new FormData();
   form.append('file', file);
-  return client.post<PartImage>(`/parts/${partId}/images`, form, {
+  form.append('type', type);
+  return client.post<PartAttachment>(`/parts/${partId}/attachments`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   }).then((r) => r.data);
 };
 
-export const deletePartImage = (partId: number, imageId: number) =>
-  client.delete(`/parts/${partId}/images/${imageId}`);
+export const deletePartAttachment = (partId: number, attachmentId: number) =>
+  client.delete(`/parts/${partId}/attachments/${attachmentId}`);
 
-export const partImageUrl = (partId: number, imageId: number) =>
-  `${import.meta.env.BASE_URL}api/parts/${partId}/images/${imageId}`;
+export const attachmentUrl = (partId: number, attachmentId: number) =>
+  `${import.meta.env.BASE_URL}api/parts/${partId}/attachments/${attachmentId}`;
 
-export const addPartImageFromUrl = (partId: number, url: string) =>
-  client.post<PartImage>(`/parts/${partId}/images/from-url`, { url }).then((r) => r.data);
+export const addAttachmentFromUrl = (partId: number, url: string, type: AttachmentType) =>
+  client.post<PartAttachment>(`/parts/${partId}/attachments/from-url`, { url, type }).then((r) => r.data);
 
 // Spec Definitions
 export const getSpecDefinitions = () =>
