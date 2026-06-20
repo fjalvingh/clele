@@ -68,8 +68,14 @@ frontend/src/
   - V13 adds per-user OctoPart (Nexar) credentials (`app_user.octopart_client_id` /
     `octopart_client_secret`) + the `octopart_usage(user_id, period 'YYYY-MM', request_count)`
     monthly request-quota table (see OctoPart Enrichment below)
+  - V14 adds part ownership (`part.created_by_id`, NOT NULL → `app_user`): every part records the
+    user who created it (existing parts backfilled to the bootstrap admin). Lets an admin delete one
+    user's parts without affecting the rest of the catalogue (see Part Ownership below)
+  - V15 enables the `pg_trgm` extension (trusted; `partsuser` can install it) and adds a GIN
+    trigram index on `part.part_number`, backing Quick Add's fuzzy "do we already have this part?"
+    lookup (see Quick Add below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V14** (CLAUDE.md previously lagged the actual migrations — always check the
+  is **V16** (CLAUDE.md previously lagged the actual migrations — always check the
   `db/migration/` directory for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
@@ -175,6 +181,22 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   low-stock, part-detail). `stock_movement` = ledger of individual movements (history).
   The importer writes both; manual stock edits currently only touch `stock_entry`.
 
+## Part Ownership
+
+- Every `part` records its creator in `part.created_by_id` (NOT NULL → `app_user`, added in V14).
+  Set once at creation and never changed by updates. All three creation paths set it:
+  `PartService.create` and `QuickAddService.createPart` use the authenticated user
+  (`CurrentUserService.current()`); the Partsbox importer attributes parts to the bootstrap admin
+  (same owner it uses for imported locations). `PartDTO` exposes `createdById` / `createdByName`
+  (full name, falling back to email); the Part Detail page shows "Added by".
+- **Bulk cleanup**: `DELETE /api/parts/by-user/{userId}` (`USERS_EDIT`) →
+  `PartService.deleteByUser` removes every part that user created plus its stock entries, images and
+  movements, and returns the count. `stock_entry` has no `ON DELETE CASCADE`, so it is cleared first
+  (`StockEntryRepository.deleteByPartIdIn`) before the bulk `Part` delete (`part_image` and
+  `stock_movement` cascade at the DB). The Users page exposes a per-row **Delete parts** action.
+- Note: `created_by_id` is a non-null FK with no cascade, so deleting a user who still has parts
+  fails at the DB until their parts are removed — same as the existing `location.owner_id` FK.
+
 ## AI Integration
 
 - Provider: Anthropic Claude (model configured in `application.yml`, default `claude-haiku-4-5-20251001`)
@@ -233,6 +255,12 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   by category subtree, sortable by part number or manufacturer
 - **Dashboard** with low stock alerts
 - **Quick Add wizard** (3-step): AI part search → select result → confirm details + stock entry
+  - **Local-match first**: before hitting the Internet, the typed term is fuzzy-matched against
+    existing parts by part number (`GET /api/parts/local-match?q=` → `PartRepository.fuzzyByPartNumber`,
+    pg_trgm similarity + substring, top 10). If any local parts match, they're shown with a
+    "Use this · add stock" action that navigates straight to the part detail page (to add stock);
+    only when there's no local match — or the user picks "Search the Internet instead" — does the
+    AI/online search run
   - AI returns specs keyed by each spec definition's `jsonName` → auto-fills spec fields in the confirm step
   - Image picker fetches suggestions via DuckDuckGo, displays through backend proxy, uploads selected images as multipart blobs (client-side fetch + multipart upload to avoid Cloudflare/CORS issues)
   - Shows error feedback if image uploads fail (with link to navigate to saved part)
@@ -268,6 +296,10 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
     `websearch_to_tsquery`); `categoryId` matches the category **and all descendants** (recursive
     CTE over `parent_id`); `sort` is `partNumber` (default) or `manufacturer`. The Parts page only
     fetches results once a search/filter is applied (it does not list the whole catalogue on load).
+- `GET /parts/local-match?q=` — fuzzy-match existing parts by part number (pg_trgm), used by Quick
+  Add to find an already-catalogued part before searching the Internet (authenticated)
+- `DELETE /parts/by-user/{userId}` — delete every part created by a user, with its stock entries,
+  images and movements; returns `{deleted: n}` (requires `USERS_EDIT`)
 - `POST /parts/quick-add` — atomic create part + stock entry (requires `PARTS_EDIT`)
 - `GET /parts/{id}/stock` — on-hand stock entries per location for a part
 - `GET /parts/{id}/movements` — stock movement history for a part (most recent first)

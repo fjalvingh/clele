@@ -2,6 +2,7 @@ package com.clele.parts.repository;
 
 import com.clele.parts.model.Part;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -38,7 +39,34 @@ public interface PartRepository extends JpaRepository<Part, Long> {
             """, nativeQuery = true)
     List<Part> search(@Param("term") String term, @Param("categoryId") Long categoryId);
 
+    /**
+     * Fuzzy-match existing parts by part number, for Quick Add's "do we already have this?" check.
+     * Returns parts whose part_number is trigram-similar to the term (typo/transposition tolerant via
+     * pg_trgm's {@code %} operator) or contains it as a case-insensitive substring, best match first.
+     */
+    @Query(value = """
+            SELECT p.* FROM part p
+            WHERE p.part_number % :term
+               OR p.part_number ILIKE '%' || :term || '%'
+            ORDER BY similarity(p.part_number, :term) DESC, p.part_number
+            LIMIT 10
+            """, nativeQuery = true)
+    List<Part> fuzzyByPartNumber(@Param("term") String term);
+
     List<Part> findByCategoryIsNull();
+
+    /** Ids of every part created by the given user (for bulk cleanup). */
+    @Query("SELECT p.id FROM Part p WHERE p.createdBy.id = :userId")
+    List<Long> findIdsByCreatedById(@Param("userId") Long userId);
+
+    /**
+     * Bulk-delete every part created by the given user. DB-level ON DELETE CASCADE removes the
+     * dependent part_image and stock_movement rows; stock_entry (no cascade) must be cleared first.
+     * Returns the number of parts deleted.
+     */
+    @Modifying
+    @Query("DELETE FROM Part p WHERE p.createdBy.id = :userId")
+    int deleteByCreatedById(@Param("userId") Long userId);
 
     boolean existsByPartNumber(String partNumber);
 

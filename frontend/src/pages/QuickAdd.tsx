@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getMyLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline, uploadPartImage } from '../api';
-import type { ImageSuggestion, Location, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
+import { findLocalParts, getMyLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline, uploadPartImage } from '../api';
+import type { ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -141,6 +141,8 @@ export default function QuickAddPage() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [results, setResults] = useState<PartSearchResult[]>([]);
+  // Existing parts whose part number fuzzy-matches the query — shown before searching the Internet.
+  const [localMatches, setLocalMatches] = useState<Part[]>([]);
 
   // Step 3
   const [form, setForm] = useState<ConfirmForm>({
@@ -211,15 +213,41 @@ export default function QuickAddPage() {
 
   // ── Step 1 handlers ──────────────────────────────────────────────────────
 
+  // Run the online (AI) search and advance to the result-selection step.
+  async function runOnlineSearch() {
+    const data = await searchPartsOnline(query.trim());
+    setResults(data);
+    setLocalMatches([]);
+    setStep(2);
+  }
+
+  // First check whether we already have a matching part in the local catalogue; only fall back to
+  // the (slower, AI) Internet search when there's nothing local to offer.
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
     setSearching(true);
     setSearchError(null);
     try {
-      const data = await searchPartsOnline(query.trim());
-      setResults(data);
-      setStep(2);
+      const local = await findLocalParts(query.trim());
+      if (local.length > 0) {
+        setLocalMatches(local);
+      } else {
+        await runOnlineSearch();
+      }
+    } catch (err: unknown) {
+      setSearchError((err as Error).message ?? 'Search failed. Please try again.');
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  // "None of these — search online" from the local-match panel.
+  async function handleSearchOnlineAnyway() {
+    setSearching(true);
+    setSearchError(null);
+    try {
+      await runOnlineSearch();
     } catch (err: unknown) {
       setSearchError((err as Error).message ?? 'Search failed. Please try again.');
     } finally {
@@ -359,7 +387,7 @@ export default function QuickAddPage() {
       <StepIndicator step={step} />
 
       {/* ── Step 1: Search ── */}
-      {step === 1 && (
+      {step === 1 && localMatches.length === 0 && (
         <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Search for a part (AI-powered)</h2>
           <form onSubmit={handleSearch} className="flex gap-3">
@@ -378,6 +406,78 @@ export default function QuickAddPage() {
               {searching ? 'Searching…' : 'Search'}
             </button>
           </form>
+          <p className="mt-3 text-xs text-gray-400">
+            We'll check your existing catalogue first, then search the Internet if there's no match.
+          </p>
+          {searchError && (
+            <div className="mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+              {searchError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 1b: Existing local matches ── */}
+      {step === 1 && localMatches.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-semibold text-gray-900">
+              You already have {localMatches.length} matching part{localMatches.length !== 1 ? 's' : ''}
+            </h2>
+            <button
+              onClick={() => setLocalMatches([])}
+              className="text-sm text-blue-600 hover:underline"
+            >
+              ← New search
+            </button>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Does one of these match "{query}"? Pick it to go to the part and add stock — otherwise
+            search the Internet for a new part.
+          </p>
+          <div className="space-y-3">
+            {localMatches.map((p) => (
+              <div key={p.id} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <span className="font-mono text-base font-semibold text-gray-900">{p.partNumber}</span>
+                      {p.manufacturer && (
+                        <span className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                          {p.manufacturer}
+                        </span>
+                      )}
+                      {p.categoryName && (
+                        <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                          {p.categoryName}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm font-medium text-gray-700">{p.name}</p>
+                    {p.description && (
+                      <p className="text-sm text-gray-500 mt-1 line-clamp-2">{p.description}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => navigate(`/parts/${p.id}`)}
+                    className="shrink-0 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors"
+                  >
+                    Use this · add stock
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-5 flex items-center justify-between">
+            <span className="text-sm text-gray-500">None of these is the part you want?</span>
+            <button
+              onClick={handleSearchOnlineAnyway}
+              disabled={searching}
+              className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {searching ? 'Searching…' : 'Search the Internet instead'}
+            </button>
+          </div>
           {searchError && (
             <div className="mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
               {searchError}

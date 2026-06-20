@@ -2,6 +2,7 @@ package com.clele.parts.repository;
 
 import com.clele.parts.model.StockEntry;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
@@ -21,6 +22,10 @@ public interface StockEntryRepository extends JpaRepository<StockEntry, Long> {
     java.math.BigDecimal totalStockValue();
 
     void deleteByPartId(Long partId);
+
+    @Modifying
+    @Query("DELETE FROM StockEntry s WHERE s.part.id IN :partIds")
+    void deleteByPartIdIn(List<Long> partIds);
 
     boolean existsByPartIdAndLocationId(Long partId, Long locationId);
 

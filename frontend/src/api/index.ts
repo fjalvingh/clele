@@ -77,6 +77,12 @@ export const updatePart = (id: number, data: PartRequest) =>
 
 export const deletePart = (id: number) => client.delete(`/parts/${id}`);
 
+/** Admin: delete every part created by a user. Resolves to the number of parts removed. */
+export const deletePartsByUser = (userId: number) =>
+  client
+    .delete<{ deleted: number }>(`/parts/by-user/${userId}`)
+    .then((r) => r.data.deleted);
+
 // AI auto-categorization (local Ollama)
 export const startAutoCategorize = (onlyUncategorized = false) =>
   client
@@ -199,6 +205,10 @@ export const getSpecsForCategory = (categoryId: number | null) =>
 // Part search (AI-powered)
 export const searchPartsOnline = (q: string) =>
   client.get<PartSearchResult[]>('/parts-search', { params: { q } }).then((r) => r.data);
+
+/** Quick Add: fuzzy-match existing parts by part number before searching the Internet. */
+export const findLocalParts = (q: string) =>
+  client.get<Part[]>('/parts/local-match', { params: { q } }).then((r) => r.data);
 
 export const quickAddPart = (data: QuickAddRequest) =>
   client.post<QuickAddResponse>('/parts/quick-add', data).then((r) => r.data);

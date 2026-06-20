@@ -52,6 +52,11 @@ public class Part {
     @JoinColumn(name = "category_id")
     private Category category;
 
+    /** The user who created this part. Set once at creation and never changed. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by_id", nullable = false)
+    private AppUser createdBy;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

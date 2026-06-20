@@ -29,6 +29,7 @@ public class PartService {
     private final CategoryRepository categoryRepository;
     private final StockEntryRepository stockEntryRepository;
     private final PartImageRepository partImageRepository;
+    private final CurrentUserService currentUserService;
 
     public List<PartDTO> search(String search, Long categoryId, String sort) {
         String term = (search != null && !search.isBlank()) ? search.trim() : null;
@@ -52,6 +53,20 @@ public class PartService {
         return byPartNumber;
     }
 
+    /**
+     * Fuzzy-match existing parts by part number (used by Quick Add to surface an already-catalogued
+     * part before searching the Internet). Blank terms return no matches.
+     */
+    public List<PartDTO> fuzzyByPartNumber(String q) {
+        String term = (q != null) ? q.trim() : "";
+        if (term.isEmpty()) {
+            return List.of();
+        }
+        return partRepository.fuzzyByPartNumber(term).stream()
+                .map(this::toDTO)
+                .collect(Collectors.toList());
+    }
+
     public PartDTO findById(Long id) {
         Part part = partRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Part not found: " + id));
@@ -65,6 +80,7 @@ public class PartService {
                     "Part number already exists: " + request.getPartNumber());
         }
         Part part = buildPartFromRequest(new Part(), request);
+        part.setCreatedBy(currentUserService.current());
         return toDTO(partRepository.save(part));
     }
 
@@ -120,6 +136,23 @@ public class PartService {
         partRepository.deleteById(id);
     }
 
+    /**
+     * Delete every part created by the given user, along with its stock entries, images and
+     * movement history. Used by an admin to undo one user's contributions (e.g. a bad import)
+     * without affecting parts created by anyone else. Returns the number of parts removed.
+     */
+    @Transactional
+    public int deleteByUser(Long userId) {
+        List<Long> partIds = partRepository.findIdsByCreatedById(userId);
+        if (partIds.isEmpty()) {
+            return 0;
+        }
+        // stock_entry has no ON DELETE CASCADE (part_image and stock_movement do), so clear it
+        // explicitly before removing the parts.
+        stockEntryRepository.deleteByPartIdIn(partIds);
+        return partRepository.deleteByCreatedById(userId);
+    }
+
     public long countAll() {
         return partRepository.countAll();
     }
@@ -167,6 +200,12 @@ public class PartService {
                 .categoryId(part.getCategory() != null ? part.getCategory().getId() : null)
                 .categoryName(part.getCategory() != null ? part.getCategory().getName() : null)
                 .categoryBreadcrumb(buildBreadcrumb(part.getCategory()))
+                .createdById(part.getCreatedBy() != null ? part.getCreatedBy().getId() : null)
+                .createdByName(part.getCreatedBy() != null
+                        ? (part.getCreatedBy().getFullName() != null
+                                ? part.getCreatedBy().getFullName()
+                                : part.getCreatedBy().getEmail())
+                        : null)
                 .createdAt(part.getCreatedAt())
                 .updatedAt(part.getUpdatedAt())
                 .build();

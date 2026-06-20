@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { createUser, deleteUser, getLocations, getUsers, updateUser } from '../api';
+import { createUser, deletePartsByUser, deleteUser, getLocations, getUsers, updateUser } from '../api';
 import { PERMISSIONS, type Location, type User, type UserRequest } from '../api/types';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
@@ -101,6 +101,23 @@ export default function UsersPage() {
     }
   };
 
+  const handleDeleteParts = async (u: User) => {
+    if (
+      !confirm(
+        `Delete every part created by "${u.email}"?\n\n` +
+          'This also removes their stock entries, photos and movement history, and cannot be undone. ' +
+          'Parts created by other users are not affected.',
+      )
+    )
+      return;
+    try {
+      const deleted = await deletePartsByUser(u.id);
+      alert(deleted === 0 ? 'No parts were created by this user.' : `Deleted ${deleted} part(s).`);
+    } catch (e: unknown) {
+      alert((e as Error).message);
+    }
+  };
+
   const columns: Column<User>[] = [
     { key: 'fullName', header: 'Name', render: (u) => u.fullName || '—' },
     { key: 'email', header: 'Email' },
@@ -158,6 +175,13 @@ export default function UsersPage() {
                 className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
               >
                 Edit
+              </button>
+              <button
+                onClick={() => handleDeleteParts(u)}
+                className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                title="Delete every part this user created, with its stock and images"
+              >
+                Delete parts
               </button>
               <button
                 onClick={() => handleDelete(u)}

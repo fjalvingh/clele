@@ -91,6 +91,7 @@ public class QuickAddService {
                     .orElseThrow(() -> new EntityNotFoundException("Category not found: " + request.getCategoryId()));
             part.setCategory(category);
         }
+        part.setCreatedBy(currentUserService.current());
         return partRepository.save(part);
     }
 }

@@ -65,6 +65,8 @@ export interface Part {
   categoryId?: number;
   categoryName?: string;
   categoryBreadcrumb?: string;
+  createdById?: number;
+  createdByName?: string;
   createdAt: string;
   updatedAt: string;
 }

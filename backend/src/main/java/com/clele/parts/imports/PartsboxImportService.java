@@ -87,6 +87,8 @@ public class PartsboxImportService {
     private LoadResult loadData(List<Map<String, Object>> partRows, List<Map<String, Object>> storageRows) {
         wipePartData();
         Map<String, Location> storageById = loadLocations(storageRows);
+        // The import runs without a logged-in user; attribute imported parts to the bootstrap admin.
+        com.clele.parts.model.AppUser importUser = resolveImportUser();
 
         // Dedupe re-sent frames by part id, then group by name (= part_number) to merge duplicates.
         Map<String, Map<String, Object>> byId = new LinkedHashMap<>();
@@ -114,6 +116,7 @@ public class PartsboxImportService {
                 mergedNames++;
             }
             Part part = buildMergedPart(members);
+            part.setCreatedBy(importUser);
             partRepository.save(part);
             partCount++;
 
@@ -192,12 +195,17 @@ public class PartsboxImportService {
         partRepository.deleteAllInBatch();
     }
 
+    /** The user that owns everything created by an import: the bootstrap admin, or any user. */
+    private com.clele.parts.model.AppUser resolveImportUser() {
+        return userRepository.findByEmail("admin@clele.local")
+                .or(() -> userRepository.findAll().stream().findFirst())
+                .orElseThrow(() -> new IllegalStateException("No user to own imported data"));
+    }
+
     private Map<String, Location> loadLocations(List<Map<String, Object>> storageRows) {
         // Imported locations are owned by the bootstrap admin (the import runs without a
         // logged-in user). Locations now require an owner.
-        com.clele.parts.model.AppUser owner = userRepository.findByEmail("admin@clele.local")
-                .or(() -> userRepository.findAll().stream().findFirst())
-                .orElseThrow(() -> new IllegalStateException("No user to own imported locations"));
+        com.clele.parts.model.AppUser owner = resolveImportUser();
         Map<String, Location> byId = new HashMap<>();
         for (Map<String, Object> s : storageRows) {
             String id = str(s, "storage/id");

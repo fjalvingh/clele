@@ -23,6 +23,8 @@ public class PartDTO {
     private Long categoryId;
     private String categoryName;
     private String categoryBreadcrumb;
+    private Long createdById;
+    private String createdByName;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

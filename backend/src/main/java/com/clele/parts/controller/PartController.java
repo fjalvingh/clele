@@ -18,6 +18,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/parts")
@@ -36,6 +37,12 @@ public class PartController {
             @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false, defaultValue = "partNumber") String sort) {
         return partService.search(search, categoryId, sort);
+    }
+
+    @GetMapping("/local-match")
+    @Operation(summary = "Fuzzy-match existing parts by part number (Quick Add: find a part we already have)")
+    public List<PartDTO> localMatch(@RequestParam String q) {
+        return partService.fuzzyByPartNumber(q);
     }
 
     @GetMapping("/{id}")
@@ -76,5 +83,12 @@ public class PartController {
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         partService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/by-user/{userId}")
+    @Operation(summary = "Delete every part created by a user, with its stock and images (admin)")
+    @PreAuthorize("hasAuthority('" + Permissions.USERS_EDIT + "')")
+    public Map<String, Object> deleteByUser(@PathVariable Long userId) {
+        return Map.of("deleted", partService.deleteByUser(userId));
     }
 }

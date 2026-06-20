@@ -38,6 +38,7 @@ import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
+import PrintLabelModal from '../components/PrintLabelModal';
 
 const emptyStockForm = (partId: number): StockEntryRequest => ({
   partId,
@@ -128,6 +129,8 @@ export default function PartDetailPage() {
     {} as Record<OctopartFieldKey, boolean>,
   );
   const [octoApplying, setOctoApplying] = useState(false);
+
+  const [printModalOpen, setPrintModalOpen] = useState(false);
 
   const loadData = () => {
     Promise.all([getPart(partId), getPartStock(partId), getMyLocations(), getPartImages(partId)])
@@ -648,6 +651,13 @@ export default function PartDetailPage() {
                   )
                 )}
                 <button
+                  onClick={() => setPrintModalOpen(true)}
+                  title="Print a label for this part"
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+                >
+                  🏷️ Print label
+                </button>
+                <button
                   onClick={() => navigate(-1)}
                   className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
                 >
@@ -686,6 +696,12 @@ export default function PartDetailPage() {
                 <div>
                   <span className="font-medium text-gray-500">OctoPart:</span>{' '}
                   <span className="font-mono text-gray-800">{part.octopartId}</span>
+                </div>
+              )}
+              {part.createdByName && (
+                <div>
+                  <span className="font-medium text-gray-500">Added by:</span>{' '}
+                  <span className="text-gray-800">{part.createdByName}</span>
                 </div>
               )}
               {part.description && (
@@ -1151,6 +1167,9 @@ export default function PartDetailPage() {
           </>
         )}
       </Modal>
+
+      {/* Print label modal */}
+      <PrintLabelModal open={printModalOpen} onClose={() => setPrintModalOpen(false)} part={part} />
       </div>
     </div>
   );
