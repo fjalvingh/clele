@@ -215,6 +215,7 @@ public class SpecDefinitionService {
         spec.setName(request.getName());
         spec.setDataType(request.getDataType() != null ? request.getDataType() : "TEXT");
         spec.setUnit(request.getUnit());
+        spec.setMetricPrefix(request.isMetricPrefix());
         spec.setDisplayOrder(request.getDisplayOrder());
         spec.setMajorType(request.getMajorType() != null ? request.getMajorType() : "TECHNICAL");
 
@@ -237,6 +238,7 @@ public class SpecDefinitionService {
                 .name(spec.getName())
                 .dataType(spec.getDataType())
                 .unit(spec.getUnit())
+                .metricPrefix(spec.isMetricPrefix())
                 .options(options.isEmpty() ? null : options)
                 .displayOrder(spec.getDisplayOrder())
                 .majorType(spec.getMajorType())

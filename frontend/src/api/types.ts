@@ -11,6 +11,7 @@ export interface SpecDefinition {
   name: string;
   dataType: string; // TEXT | NUMBER | BOOLEAN | SELECT
   unit?: string;
+  metricPrefix?: boolean; // NUMBER + single unit: scale value with metric prefixes
   options?: string[];
   displayOrder: number;
   majorType: string; // DIMENSIONS | TECHNICAL | PHYSICAL
@@ -21,6 +22,7 @@ export interface SpecDefinitionRequest {
   name: string;
   dataType: string;
   unit?: string;
+  metricPrefix?: boolean;
   options?: string[];
   displayOrder: number;
   majorType: string;

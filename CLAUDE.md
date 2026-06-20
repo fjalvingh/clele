@@ -89,8 +89,11 @@ frontend/src/
     `image_data` → `data`, and adds `type` (`AttachmentType`: PHOTO/DATASHEET/ATTACHMENT),
     `content_type`, and `filename` (NULL for photos). Existing rows backfill to `PHOTO`/`image/png`.
     One bytea table now holds photos, datasheets, and user attachments (see Part Attachments below)
+  - V20 adds `spec_definition.metric_prefix` (BOOLEAN, default false): a NUMBER spec whose value is
+    stored in a base SI unit (the `unit` column) is rendered/edited with metric prefixes (0.009 A →
+    "9 mA") — see Spec definitions below
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V20** (CLAUDE.md previously lagged the actual migrations — always check the
+  is **V21** (CLAUDE.md previously lagged the actual migrations — always check the
   `db/migration/` directory for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
@@ -340,6 +343,13 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - **Spec definitions**: configurable specification fields (text, number, boolean, select) with units; can be associated with categories
   - Each definition has a `jsonName` (the exact key stored inside `part.specs`) separate from its
     human-readable `name`/title. All matching (AI prompt, Quick Add, Parts edit, Part detail) keys off `jsonName`
+  - **Metric-prefix scaling** (`metricPrefix` flag, NUMBER + single unit): the stored value is in the
+    base SI unit (the `unit`, e.g. `A`/`V`/`m`); display and edit forms scale it with the appropriate
+    SI prefix (stored `0.009` → shown `9 mA`; the edit field is a mantissa input + prefix dropdown that
+    converts back to the base unit on save). Stored values are unchanged — purely a display layer.
+    Frontend logic lives in `utils/units.ts` + the shared `components/MetricNumberField.tsx`; the
+    Spec Fields form exposes a "Scale with metric prefixes" checkbox. Leave it off for non-scalable
+    units (°C, %, dB, counts). Mutually exclusive with the comma-separated multi-unit selector
   - **"Rescan from parts"** (`POST /api/spec-definitions/rescan`, button on the Spec Definitions page):
     scans every part's `specs` JSON and upserts a definition per distinct key, inferring the data type
     and possible values. Upsert by `jsonName` preserves manually-edited title/unit while refreshing the

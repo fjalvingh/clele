@@ -14,6 +14,7 @@ public class SpecDefinitionDTO {
     private String name;
     private String dataType;
     private String unit;
+    private boolean metricPrefix;
     private List<String> options;
     private int displayOrder;
     private String majorType;

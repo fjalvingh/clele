@@ -18,6 +18,7 @@ const emptyForm = (): SpecDefinitionRequest => ({
   name: '',
   dataType: 'TEXT',
   unit: '',
+  metricPrefix: false,
   options: [],
   displayOrder: 0,
   majorType: 'TECHNICAL',
@@ -38,7 +39,8 @@ function majorTypeLabel(majorType: string): string {
 }
 
 function unitOrOptions(spec: SpecDefinition): string {
-  if (spec.dataType === 'NUMBER' && spec.unit) return spec.unit;
+  if (spec.dataType === 'NUMBER' && spec.unit)
+    return spec.metricPrefix ? `${spec.unit} (metric)` : spec.unit;
   if (spec.dataType === 'SELECT' && spec.options && spec.options.length > 0)
     return spec.options.join(', ');
   return '—';
@@ -81,6 +83,7 @@ export default function SpecDefinitionsPage() {
       name: spec.name,
       dataType: spec.dataType,
       unit: spec.unit ?? '',
+      metricPrefix: spec.metricPrefix ?? false,
       options: spec.options ?? [],
       displayOrder: spec.displayOrder,
       majorType: spec.majorType ?? 'TECHNICAL',
@@ -99,9 +102,13 @@ export default function SpecDefinitionsPage() {
         ? optionsText.split(',').map((s) => s.trim()).filter(Boolean)
         : [];
 
+    const unit = form.dataType === 'NUMBER' ? (form.unit ?? '') : '';
+    // Metric scaling only applies to a NUMBER spec with a single base unit.
+    const isSingleUnit = unit.trim() !== '' && !unit.includes(',');
     const payload: SpecDefinitionRequest = {
       ...form,
-      unit: form.dataType === 'NUMBER' ? (form.unit ?? '') : '',
+      unit,
+      metricPrefix: isSingleUnit ? !!form.metricPrefix : false,
       options: parsedOptions,
     };
 
@@ -284,6 +291,28 @@ export default function SpecDefinitionsPage() {
             placeholder="e.g. V  or  B,KB,MB,GB"
           />
         )}
+
+        {form.dataType === 'NUMBER' &&
+          (form.unit ?? '').trim() !== '' &&
+          !(form.unit ?? '').includes(',') && (
+            <div className="mb-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!form.metricPrefix}
+                  onChange={(e) => setForm({ ...form, metricPrefix: e.target.checked })}
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <span className="text-sm font-medium text-gray-700">
+                  Scale with metric prefixes
+                </span>
+              </label>
+              <p className="mt-1 text-xs text-gray-500">
+                Value is stored in the base unit ({(form.unit ?? '').trim()}); it's shown as e.g.
+                0.009 → 9 m{(form.unit ?? '').trim()}.
+              </p>
+            </div>
+          )}
 
         {form.dataType === 'SELECT' && (
           <div className="mb-4">

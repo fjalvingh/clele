@@ -16,6 +16,7 @@ import { useAuth } from '../auth/AuthContext';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
+import MetricNumberField from '../components/MetricNumberField';
 import Modal from '../components/Modal';
 
 // Hierarchical category selector (same pattern as Categories page)
@@ -94,6 +95,18 @@ function SpecField({
   if (spec.dataType === 'NUMBER') {
     const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
     const isMulti = units.length > 1;
+    if (!isMulti && spec.metricPrefix && units[0]) {
+      return (
+        <MetricNumberField
+          label={spec.name}
+          unit={units[0]}
+          value={value}
+          onChange={onChange}
+          inputClassName="block flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          selectClassName="rounded-md border border-gray-300 px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+      );
+    }
     if (isMulti) {
       const [numPart, unitPart] = parseMultiUnit(value, units);
       return (

@@ -42,6 +42,7 @@ import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
 import PrintLabelModal from '../components/PrintLabelModal';
+import { formatMetric } from '../utils/units';
 
 const emptyStockForm = (partId: number): StockEntryRequest => ({
   partId,
@@ -63,6 +64,8 @@ function formatSpecValue(spec: SpecDefinition, value: string): string {
   }
   if (spec.dataType === 'NUMBER') {
     const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
+    // Metric: scale the base-unit value with a prefix (0.009 A → "9 mA")
+    if (units.length === 1 && spec.metricPrefix) return formatMetric(value, units[0]);
     // Multi-unit: value already contains the chosen unit (e.g. "64 KB") — display as-is
     // Single unit: append the fixed unit suffix
     return units.length > 1 ? value : units[0] ? `${value} ${units[0]}` : value;

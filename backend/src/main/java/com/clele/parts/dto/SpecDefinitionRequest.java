@@ -22,6 +22,9 @@ public class SpecDefinitionRequest {
 
     private String unit;
 
+    /** NUMBER with a single base SI unit: render/edit the value with metric prefixes. */
+    private boolean metricPrefix;
+
     private List<String> options;
 
     private int displayOrder;

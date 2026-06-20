@@ -32,6 +32,10 @@ public class SpecDefinition {
     @Column(length = 20)
     private String unit;
 
+    /** When true (NUMBER with a single base SI unit), display/edit the value with metric prefixes. */
+    @Column(name = "metric_prefix", nullable = false)
+    private boolean metricPrefix;
+
     @Column(columnDefinition = "TEXT")
     private String options;
 

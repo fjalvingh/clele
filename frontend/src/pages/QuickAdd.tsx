@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { findLocalParts, getMyLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline, uploadPartAttachment } from '../api';
 import type { ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import MetricNumberField from '../components/MetricNumberField';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -631,6 +632,22 @@ export default function QuickAddPage() {
                     const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
                     const isMulti = units.length > 1;
                     const currentVal = specValues[spec.jsonName] ?? '';
+                    if (!isMulti && spec.metricPrefix && units[0]) {
+                      return (
+                        <MetricNumberField
+                          key={spec.id}
+                          label={spec.name}
+                          unit={units[0]}
+                          value={currentVal}
+                          onChange={(val) =>
+                            setSpecValues((prev) => ({ ...prev, [spec.jsonName]: val }))
+                          }
+                          labelClassName="block text-sm font-medium text-gray-700 mb-1"
+                          inputClassName="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          selectClassName="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      );
+                    }
                     if (isMulti) {
                       let numPart = currentVal, unitPart = units[0] ?? '';
                       for (const u of units) {
