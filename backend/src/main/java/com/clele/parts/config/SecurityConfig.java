@@ -70,6 +70,7 @@ public class SecurityConfig {
                 .securityContext(c -> c.securityContextRepository(securityContextRepository))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login").permitAll()
+                        .requestMatchers("/api/settings").permitAll()
                         .requestMatchers("/api-docs/**", "/v3/api-docs/**",
                                 "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/**").authenticated()

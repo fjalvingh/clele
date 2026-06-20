@@ -33,9 +33,6 @@ public class StockMovement {
     @Column(name = "unit_price", precision = 10, scale = 2)
     private BigDecimal unitPrice;
 
-    @Column(length = 8)
-    private String currency;
-
     @Column(columnDefinition = "TEXT")
     private String comments;
 

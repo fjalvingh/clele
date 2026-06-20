@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { getDashboard } from '../api';
 import type { Dashboard } from '../api/types';
+import { useSettings } from '../settings/SettingsContext';
 
 const iconProps = {
   className: 'h-8 w-8',
@@ -57,6 +58,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { formatMoney } = useSettings();
 
   useEffect(() => {
     getDashboard()
@@ -90,10 +92,7 @@ export default function DashboardPage() {
           />
           <StatCard
             label="Total Stock Value"
-            value={Number(stats.totalStockValue ?? 0).toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
+            value={formatMoney(stats.totalStockValue)}
             to="/parts"
             color="bg-amber-50 text-amber-900"
             icon="💰"
@@ -145,10 +144,7 @@ export default function DashboardPage() {
                       {u.totalQuantity}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-gray-700">
-                      {Number(u.totalStockValue ?? 0).toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
+                      {formatMoney(u.totalStockValue)}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {u.lowStockCount > 0 ? (

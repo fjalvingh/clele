@@ -98,7 +98,6 @@ public class StockMovementService {
                 .locationName(m.getLocation().getName())
                 .quantity(m.getQuantity())
                 .unitPrice(m.getUnitPrice())
-                .currency(m.getCurrency())
                 .comments(m.getComments())
                 .movedAt(m.getMovedAt())
                 .createdBy(m.getCreatedBy())

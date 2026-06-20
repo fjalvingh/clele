@@ -83,8 +83,10 @@ frontend/src/
     for every (part, location): existing importer movements are tagged `IMPORT`, and each drifted
     aggregate (manual edits made before the funnel existed) gets one reconciling movement (see Stock
     Model below)
+  - V18 drops `stock_movement.currency` — the app no longer stores a per-movement currency; it uses a
+    single app-wide currency from config (see App Settings below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V18** (CLAUDE.md previously lagged the actual migrations — always check the
+  is **V19** (CLAUDE.md previously lagged the actual migrations — always check the
   `db/migration/` directory for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
@@ -118,8 +120,8 @@ frontend/src/
   **7-day sliding idle window** (`server.servlet.session.timeout: 7d`) — each request resets it;
   Spring Session reaps expired rows hourly.
 - **Enforcement**:
-  - All `/api/**` requires an authenticated session **except** `/api/auth/login` (and swagger /
-    api-docs). Static SPA assets + the client-router fallback are public.
+  - All `/api/**` requires an authenticated session **except** `/api/auth/login`, `/api/settings`
+    (and swagger / api-docs). Static SPA assets + the client-router fallback are public.
   - Specific mutations are gated with method security (`@EnableMethodSecurity` +
     `@PreAuthorize("hasAuthority('…')")`): part mutations (create/update/delete, image
     upload/from-url/delete, quick-add, auto-categorize, OctoPart search/apply) require `PARTS_EDIT`;
@@ -205,6 +207,18 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - The Partsbox importer keeps its own dated-movement loop (movements tagged `IMPORT`, entry = Σ) — it
   was already consistent. `POST /api/stock/reconcile` (`PARTS_EDIT`) realigns every aggregate to its
   ledger and returns `{corrected: n}` — a verification/safety-net hook (expect 0 in steady state).
+
+## App Settings
+
+- App-wide (non-user) settings live in config under `app.*` (`config/AppProperties`,
+  `@ConfigurationProperties`) and are exposed to the SPA via **`GET /api/settings`**
+  (`SettingsController`, **public** — permitted in `SecurityConfig`, non-sensitive).
+- Currently just the **currency**: `app.currency.code` (default `EUR`) + `app.currency.symbol`
+  (default `€`). There is a single app-wide currency — prices are not stored with a currency.
+- **Frontend**: `settings/SettingsContext` (`SettingsProvider` in `App.tsx`, wraps the routes) loads
+  `/settings` once on mount with a sensible default (`€`) so prices render before/independent of the
+  fetch. `useSettings()` exposes `settings` + `formatMoney(amount)` ("€ 12.34"); used wherever prices
+  display (Dashboard stock value, Part Detail unit prices + total value, stock movements).
 
 ## Part Ownership
 
@@ -310,8 +324,9 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 
 ## API Endpoints (all under /api)
 
-- `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` — session auth (login is the only
-  unauthenticated `/api` endpoint); `/auth/me` includes `hasOctopartCredentials`
+- `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` — session auth (`/auth/login` and
+  `/settings` are the only unauthenticated `/api` endpoints); `/auth/me` includes `hasOctopartCredentials`
+- `GET /settings` — app-wide settings (currency); **public** (see App Settings)
 - `GET/PUT /profile/octopart` — self-service: current user's OctoPart (Nexar) credentials
   (authenticated; secret never returned)
 - `GET/POST /users`, `GET/PUT/DELETE /users/{id}` — user management (requires `USERS_EDIT`)

@@ -151,7 +151,6 @@ public class PartsboxImportService {
                             .location(location)
                             .quantity(quantity)
                             .unitPrice(price)
-                            .currency(str(stock, "stock/currency"))
                             .comments(str(stock, "stock/comments"))
                             .movedAt(toLocalDateTime(ts))
                             .createdBy(str(stock, "stock/user"))

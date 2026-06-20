@@ -147,11 +147,17 @@ export interface StockMovement {
   locationName: string;
   quantity: number;
   unitPrice?: number | null;
-  currency?: string | null;
   comments?: string | null;
   movedAt: string;
   createdBy?: string | null;
   type?: string | null;
+}
+
+// Currency was removed from movements — the app uses a single app-wide currency (AppSettings).
+
+export interface AppSettings {
+  currencyCode: string;
+  currencySymbol: string;
 }
 
 export interface StockEntryRequest {

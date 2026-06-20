@@ -1,5 +1,6 @@
 import client from './client';
 import type {
+  AppSettings,
   AuthUser,
   CategorizationStatus,
   Category,
@@ -120,6 +121,10 @@ export const logout = () => client.post('/auth/logout');
 
 export const getMe = () =>
   client.get<AuthUser>('/auth/me').then((r) => r.data);
+
+// App-wide settings
+export const getSettings = () =>
+  client.get<AppSettings>('/settings').then((r) => r.data);
 
 // Users
 export const getUsers = () =>

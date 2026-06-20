@@ -33,6 +33,7 @@ import type {
 } from '../api/types';
 import { MAJOR_TYPES } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import { useSettings } from '../settings/SettingsContext';
 import Badge from '../components/Badge';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
@@ -83,6 +84,7 @@ export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user, hasPermission } = useAuth();
+  const { formatMoney } = useSettings();
   const canEdit = hasPermission('PARTS_EDIT');
   const partId = Number(id);
 
@@ -396,7 +398,7 @@ export default function PartDetailPage() {
       header: 'Unit Price',
       render: (row) =>
         row.unitPrice != null ? (
-          <span className="font-mono text-sm">{Number(row.unitPrice).toFixed(2)}</span>
+          <span className="font-mono text-sm">{formatMoney(row.unitPrice)}</span>
         ) : (
           <span className="text-gray-400">—</span>
         ),
@@ -442,8 +444,7 @@ export default function PartDetailPage() {
       render: (m) =>
         m.unitPrice != null ? (
           <span className="whitespace-nowrap font-mono text-sm">
-            {Number(m.unitPrice).toFixed(2)}
-            {m.currency ? ` ${m.currency}` : ''}
+            {formatMoney(m.unitPrice)}
           </span>
         ) : (
           <span className="text-gray-400">—</span>
@@ -799,7 +800,7 @@ export default function PartDetailPage() {
                     Total stock value
                   </div>
                   <div className="mt-1 font-mono text-2xl font-semibold text-gray-900">
-                    {total.toFixed(2)}
+                    {formatMoney(total)}
                   </div>
                   {partial && (
                     <div className="text-xs text-gray-400">some locations have no price</div>

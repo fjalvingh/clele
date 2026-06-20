@@ -16,7 +16,6 @@ public class StockMovementDTO {
     private String locationName;
     private Integer quantity;
     private BigDecimal unitPrice;
-    private String currency;
     private String comments;
     private LocalDateTime movedAt;
     private String createdBy;
