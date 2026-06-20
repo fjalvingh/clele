@@ -1,0 +1,29 @@
+# Production profile (activate with SPRING_PROFILES_ACTIVE=prod). Overrides only what differs from
+# the dev application.yml; secrets come from the environment (systemd EnvironmentFile), never the jar.
+server:
+  servlet:
+    # Served under https://<host>/clele behind the Apache reverse proxy.
+    context-path: /clele
+    session:
+      cookie:
+        secure: true        # cookie only sent over TLS (Apache terminates TLS)
+        same-site: lax
+        http-only: true
+  # Honour X-Forwarded-* from Apache so the app knows the real scheme/host (secure cookies, redirects).
+  forward-headers-strategy: framework
+  error:
+    include-stacktrace: never
+    include-message: never
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/partsdb}
+    username: ${DB_USER:partsuser}
+    password: ${DB_PASSWORD}
+
+# Don't expose the API schema / Swagger UI on the public server.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

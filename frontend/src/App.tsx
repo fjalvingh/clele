@@ -30,9 +30,12 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
   return children;
 }
 
+// Router basename derived from Vite's base ('/clele/' → '/clele'; '/' → '/').
+const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
+
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />

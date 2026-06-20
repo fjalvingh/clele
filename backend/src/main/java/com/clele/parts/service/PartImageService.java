@@ -109,16 +109,15 @@ public class PartImageService {
 
     private byte[] downloadAndConvertToPng(String url) {
         log.info("Downloading image from URL: {}", url);
+        // Reject non-HTTP(S) URLs and any host resolving to a private/loopback/metadata address (SSRF).
+        var uri = com.clele.parts.util.UrlSafety.validateExternalHttpUrl(url);
         byte[] imageBytes;
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0");
             headers.set("Accept", "image/*, */*;q=0.8");
             headers.set("Accept-Language", "en-US,en;q=0.5");
-            try {
-                var uri = new java.net.URI(url);
-                headers.set("Referer", uri.getScheme() + "://" + uri.getHost() + "/");
-            } catch (Exception ignored) {}
+            headers.set("Referer", uri.getScheme() + "://" + uri.getHost() + "/");
             HttpEntity<Void> entity = new HttpEntity<>(headers);
             ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, entity, byte[].class);
             imageBytes = response.getBody();

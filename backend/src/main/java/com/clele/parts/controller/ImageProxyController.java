@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.clele.parts.util.UrlSafety;
+
 import java.net.URI;
 
 /**
@@ -24,16 +26,8 @@ public class ImageProxyController {
 
     @GetMapping("/api/image-proxy")
     public ResponseEntity<byte[]> proxy(@RequestParam String url) {
-        URI uri;
-        try {
-            uri = URI.create(url);
-        } catch (IllegalArgumentException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid URL");
-        }
-
-        if (!"https".equals(uri.getScheme()) && !"http".equals(uri.getScheme())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only HTTP(S) URLs allowed");
-        }
+        // Reject non-HTTP(S) URLs and any host resolving to a private/loopback/metadata address (SSRF).
+        URI uri = UrlSafety.validateExternalHttpUrl(url);
 
         HttpHeaders outgoing = new HttpHeaders();
         outgoing.set("User-Agent",

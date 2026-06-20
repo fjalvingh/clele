@@ -176,7 +176,7 @@ export const deletePartImage = (partId: number, imageId: number) =>
   client.delete(`/parts/${partId}/images/${imageId}`);
 
 export const partImageUrl = (partId: number, imageId: number) =>
-  `/api/parts/${partId}/images/${imageId}`;
+  `${import.meta.env.BASE_URL}api/parts/${partId}/images/${imageId}`;
 
 export const addPartImageFromUrl = (partId: number, url: string) =>
   client.post<PartImage>(`/parts/${partId}/images/from-url`, { url }).then((r) => r.data);

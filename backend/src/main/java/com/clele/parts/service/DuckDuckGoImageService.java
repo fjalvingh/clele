@@ -4,8 +4,10 @@ import com.clele.parts.dto.ImageSuggestionDTO;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.URLEncoder;
@@ -23,6 +25,7 @@ import java.util.regex.Pattern;
  *  2. GET duckduckgo.com/i.js?q=…&vqd=…  to retrieve image results as JSON.
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class DuckDuckGoImageService {
 
@@ -37,9 +40,23 @@ public class DuckDuckGoImageService {
     public List<ImageSuggestionDTO> search(String query) {
         try {
             String vqd = fetchVqd(query);
-            if (vqd == null || vqd.isBlank()) return List.of();
-            return fetchImages(query, vqd);
+            if (vqd == null || vqd.isBlank()) {
+                log.warn("DuckDuckGo image search for '{}' found no VQD token (blocked or markup changed?)",
+                        query);
+                return List.of();
+            }
+            List<ImageSuggestionDTO> results = fetchImages(query, vqd);
+            if (results.isEmpty()) {
+                log.warn("DuckDuckGo image search for '{}' returned no usable results", query);
+            } else {
+                log.debug("DuckDuckGo image search for '{}' returned {} result(s)", query, results.size());
+            }
+            return results;
+        } catch (RestClientException e) {
+            log.warn("DuckDuckGo image search for '{}' failed: HTTP/network error: {}", query, e.toString());
+            return List.of();
         } catch (Exception e) {
+            log.warn("DuckDuckGo image search for '{}' failed", query, e);
             return List.of();
         }
     }
@@ -51,6 +68,9 @@ public class DuckDuckGoImageService {
         ResponseEntity<String> resp = restTemplate.exchange(
                 url, HttpMethod.GET, new HttpEntity<>(browserHeaders(null)), String.class);
 
+        if (!resp.getStatusCode().is2xxSuccessful()) {
+            log.warn("DuckDuckGo VQD request returned HTTP {} for '{}'", resp.getStatusCode(), query);
+        }
         String body = resp.getBody();
         if (body == null) return null;
 
@@ -72,6 +92,9 @@ public class DuckDuckGoImageService {
         ResponseEntity<String> resp = restTemplate.exchange(
                 url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
 
+        if (!resp.getStatusCode().is2xxSuccessful()) {
+            log.warn("DuckDuckGo i.js request returned HTTP {} for '{}'", resp.getStatusCode(), query);
+        }
         return parseResults(resp.getBody());
     }
 

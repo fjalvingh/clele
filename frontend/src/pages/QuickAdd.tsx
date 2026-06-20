@@ -126,7 +126,7 @@ function displayUrl(img: { url: string; thumbnailUrl?: string }) {
   const src = img.thumbnailUrl ?? img.url;
   // Proxy all external images through our backend to avoid CORS / tainted canvas
   // issues and Cloudflare bot-protection blocking server-side downloads.
-  return `/api/image-proxy?url=${encodeURIComponent(src)}`;
+  return `${import.meta.env.BASE_URL}api/image-proxy?url=${encodeURIComponent(src)}`;
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
@@ -342,7 +342,7 @@ export default function QuickAddPage() {
       for (const originalUrl of selectedImageUrls) {
         try {
           const suggestion = imageSuggestions.find((s) => s.url === originalUrl);
-          const proxyUrl = suggestion ? displayUrl(suggestion) : `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+          const proxyUrl = suggestion ? displayUrl(suggestion) : `${import.meta.env.BASE_URL}api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
           const resp = await fetch(proxyUrl);
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const blob = await resp.blob();

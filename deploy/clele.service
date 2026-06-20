@@ -1,0 +1,25 @@
+[Unit]
+Description=Clele Parts Inventory
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=clele
+Group=clele
+EnvironmentFile=/etc/clele/clele.env
+WorkingDirectory=/opt/clele
+ExecStart=/opt/java/21/bin/java -jar /opt/clele/parts-0.0.1-SNAPSHOT.jar
+# Spring Boot returns 143 (128+SIGTERM) on a clean shutdown.
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

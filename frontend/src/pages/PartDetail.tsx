@@ -50,7 +50,7 @@ const emptyStockForm = (partId: number): StockEntryRequest => ({
 // Proxy external images through our backend to avoid CORS / Cloudflare bot-protection issues.
 function displayUrl(img: { url: string; thumbnailUrl?: string }) {
   const src = img.thumbnailUrl ?? img.url;
-  return `/api/image-proxy?url=${encodeURIComponent(src)}`;
+  return `${import.meta.env.BASE_URL}api/image-proxy?url=${encodeURIComponent(src)}`;
 }
 
 // Render a spec value as a display string for a table cell.
@@ -348,7 +348,7 @@ export default function PartDetailPage() {
         const suggestion = imageSuggestions.find((s) => s.url === originalUrl);
         const proxyUrl = suggestion
           ? displayUrl(suggestion)
-          : `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
+          : `${import.meta.env.BASE_URL}api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
         const resp = await fetch(proxyUrl);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const blob = await resp.blob();
