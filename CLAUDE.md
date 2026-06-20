@@ -74,8 +74,12 @@ frontend/src/
   - V15 enables the `pg_trgm` extension (trusted; `partsuser` can install it) and adds a GIN
     trigram index on `part.part_number`, backing Quick Add's fuzzy "do we already have this part?"
     lookup (see Quick Add below)
+  - V16 adds the Spring Session JDBC tables (`spring_session` + `spring_session_attributes`,
+    canonical PostgreSQL schema) so HTTP sessions persist in the DB and logins survive an app
+    restart (see Authentication below). These tables are not JPA-mapped, so their `CHAR(36)`
+    columns are exempt from `ddl-auto: validate`
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V16** (CLAUDE.md previously lagged the actual migrations — always check the
+  is **V17** (CLAUDE.md previously lagged the actual migrations — always check the
   `db/migration/` directory for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
@@ -103,6 +107,11 @@ frontend/src/
   `SecurityContext` to the HTTP session via `HttpSessionSecurityContextRepository`, returns the
   `UserDTO`. `POST /api/auth/logout` invalidates the session. `GET /api/auth/me` returns the current
   user (401 if anonymous). Auth is loaded by `AppUserDetailsService` (find by email → authorities).
+- **Session persistence**: sessions are stored in PostgreSQL via `spring-session-jdbc`
+  (`spring.session.store-type: jdbc`, schema owned by Flyway V16 with
+  `spring.session.jdbc.initialize-schema: never`), so logins survive an app restart. The timeout is a
+  **7-day sliding idle window** (`server.servlet.session.timeout: 7d`) — each request resets it;
+  Spring Session reaps expired rows hourly.
 - **Enforcement**:
   - All `/api/**` requires an authenticated session **except** `/api/auth/login` (and swagger /
     api-docs). Static SPA assets + the client-router fallback are public.
