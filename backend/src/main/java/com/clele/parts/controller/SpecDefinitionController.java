@@ -1,7 +1,10 @@
 package com.clele.parts.controller;
 
+import com.clele.parts.dto.ConvertToNumberRequest;
+import com.clele.parts.dto.ConvertToNumberResult;
 import com.clele.parts.dto.SpecDefinitionDTO;
 import com.clele.parts.dto.SpecDefinitionRequest;
+import com.clele.parts.model.Permissions;
 import com.clele.parts.service.SpecDefinitionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -9,6 +12,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -50,6 +54,15 @@ public class SpecDefinitionController {
     @Operation(summary = "Scan all parts and upsert spec definitions from their specs JSON")
     public List<SpecDefinitionDTO> rescan() {
         return specService.rescanFromParts();
+    }
+
+    @PostMapping("/{id}/convert-to-number")
+    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
+    @Operation(summary = "Convert a TEXT spec to NUMBER, parsing part values into a base unit "
+            + "(dry-run unless commit=true)")
+    public ConvertToNumberResult convertToNumber(@PathVariable Long id,
+                                                 @RequestBody ConvertToNumberRequest request) {
+        return specService.convertToNumber(id, request);
     }
 
     @GetMapping("/for-category/{catId}")

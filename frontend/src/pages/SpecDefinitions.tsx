@@ -8,6 +8,7 @@ import {
 } from '../api';
 import type { SpecDefinition, SpecDefinitionRequest } from '../api/types';
 import { MAJOR_TYPES } from '../api/types';
+import ConvertToNumberModal from '../components/ConvertToNumberModal';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
 
@@ -38,6 +39,17 @@ function majorTypeLabel(majorType: string): string {
   return MAJOR_TYPES.find((t) => t.key === majorType)?.label ?? majorType;
 }
 
+// Sort by major type (in MAJOR_TYPES display order), then by json name.
+function majorTypeRank(majorType: string): number {
+  const i = MAJOR_TYPES.findIndex((t) => t.key === majorType);
+  return i === -1 ? MAJOR_TYPES.length : i;
+}
+
+function compareSpecs(a: SpecDefinition, b: SpecDefinition): number {
+  const byType = majorTypeRank(a.majorType) - majorTypeRank(b.majorType);
+  return byType !== 0 ? byType : a.jsonName.localeCompare(b.jsonName);
+}
+
 function unitOrOptions(spec: SpecDefinition): string {
   if (spec.dataType === 'NUMBER' && spec.unit)
     return spec.metricPrefix ? `${spec.unit} (metric)` : spec.unit;
@@ -57,6 +69,7 @@ export default function SpecDefinitionsPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [rescanning, setRescanning] = useState(false);
+  const [converting, setConverting] = useState<SpecDefinition | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -205,7 +218,7 @@ export default function SpecDefinitionsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {specs.map((spec) => (
+                {[...specs].sort(compareSpecs).map((spec) => (
                   <tr key={spec.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{spec.jsonName}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{spec.name}</td>
@@ -219,6 +232,15 @@ export default function SpecDefinitionsPage() {
                     <td className="px-4 py-3 text-gray-500">{spec.displayOrder}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
+                        {spec.dataType === 'TEXT' && (
+                          <button
+                            onClick={() => setConverting(spec)}
+                            className="rounded px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50"
+                            title="Convert this text field to a numeric field"
+                          >
+                            → Number
+                          </button>
+                        )}
                         <button
                           onClick={() => openEdit(spec)}
                           className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
@@ -354,6 +376,17 @@ export default function SpecDefinitionsPage() {
           </button>
         </div>
       </Modal>
+
+      {converting && (
+        <ConvertToNumberModal
+          spec={converting}
+          onClose={() => setConverting(null)}
+          onConverted={() => {
+            setConverting(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }

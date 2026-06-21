@@ -16,6 +16,8 @@ import type {
   OctopartResult,
   OctopartUsage,
   AttachmentType,
+  ConvertToNumberRequest,
+  ConvertToNumberResult,
   Part,
   PartAttachment,
   PartRequest,
@@ -205,6 +207,11 @@ export const deleteSpecDefinition = (id: number) =>
 
 export const rescanSpecDefinitions = () =>
   client.post<SpecDefinition[]>('/spec-definitions/rescan').then((r) => r.data);
+
+export const convertSpecToNumber = (id: number, body: ConvertToNumberRequest) =>
+  client
+    .post<ConvertToNumberResult>(`/spec-definitions/${id}/convert-to-number`, body)
+    .then((r) => r.data);
 
 export const getSpecsForCategory = (categoryId: number | null) =>
   categoryId != null

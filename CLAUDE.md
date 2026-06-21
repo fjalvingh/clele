@@ -350,6 +350,20 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
     Frontend logic lives in `utils/units.ts` + the shared `components/MetricNumberField.tsx`; the
     Spec Fields form exposes a "Scale with metric prefixes" checkbox. Leave it off for non-scalable
     units (°C, %, dB, counts). Mutually exclusive with the comma-separated multi-unit selector
+  - **Convert TEXT → NUMBER** (`POST /api/spec-definitions/{id}/convert-to-number`, `PARTS_EDIT`; "→
+    Number" row action on TEXT specs): parses every part's value for the spec — `<number>[<prefix>]<unit>`
+    strings like `"9 mA"`/`"3.3V"`/`"100nF"` — into a chosen **principal (base) unit** (`"9 mA"` → `0.009`
+    in base `A`) and rewrites `part.specs`. The request carries `{unit, metricPrefix, overrides, commit}`;
+    a **dry-run** (`commit:false`) returns `{total, converted, suggestedUnit, failures:[{value,count}]}`
+    (failures grouped by distinct value); `overrides` (original value → replacement) let the user fix
+    unparseable values, and **commit is blocked server-side until 0 failures**. On commit it sets the spec
+    to NUMBER + `unit` + `metricPrefix`. A half-open Partsbox range with no lower bound (`null..X`)
+    auto-collapses to its single value `X`; other ranges (`X..Y`, `X..null`) stay failures to fix by hand.
+    A blank unit scan only suggests a unit (no failures reported). Java parsing lives in
+    `service/MetricUnitParser.java`, which
+    **mirrors the prefix table in `frontend/src/utils/units.ts`** (keep the two in sync). UI: the
+    `components/ConvertToNumberModal.tsx` modal (unit field pre-filled from `suggestedUnit`, editable
+    failures list, Scan/Rescan/Convert)
   - **"Rescan from parts"** (`POST /api/spec-definitions/rescan`, button on the Spec Definitions page):
     scans every part's `specs` JSON and upserts a definition per distinct key, inferring the data type
     and possible values. Upsert by `jsonName` preserves manually-edited title/unit while refreshing the
@@ -401,5 +415,7 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - `GET /parts-search?q=` — AI part search
 - `GET /parts-search/images?q=` — image suggestions
 - `GET /image-proxy?url=` — external image proxy
-- `GET/POST /spec-definitions`, `PUT/DELETE /spec-definitions/{id}`, `POST /spec-definitions/rescan`
+- `GET/POST /spec-definitions`, `PUT/DELETE /spec-definitions/{id}`, `POST /spec-definitions/rescan`;
+  `POST /spec-definitions/{id}/convert-to-number` converts a TEXT spec to NUMBER, parsing part values into
+  a base unit (dry-run unless `commit:true`; requires `PARTS_EDIT`)
 - Swagger UI at `http://localhost:8080/swagger-ui.html`

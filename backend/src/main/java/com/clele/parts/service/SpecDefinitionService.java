@@ -1,5 +1,7 @@
 package com.clele.parts.service;
 
+import com.clele.parts.dto.ConvertToNumberRequest;
+import com.clele.parts.dto.ConvertToNumberResult;
 import com.clele.parts.dto.SpecDefinitionDTO;
 import com.clele.parts.dto.SpecDefinitionRequest;
 import com.clele.parts.model.Category;
@@ -13,14 +15,17 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -122,6 +127,106 @@ public class SpecDefinitionService {
 
         specRepo.saveAll(toSave);
         return findAll();
+    }
+
+    /**
+     * Converts a TEXT spec definition to NUMBER by parsing every part's value for this spec into a chosen
+     * base unit (e.g. "9 mA" -> "0.009" in base "A"). Dry-run (commit=false) scans and reports how many
+     * parse and which distinct values fail; commit=true requires zero failures (after applying the
+     * caller's overrides), rewrites the matched part values, and flips the definition to NUMBER.
+     */
+    @Transactional
+    public ConvertToNumberResult convertToNumber(Long id, ConvertToNumberRequest req) {
+        SpecDefinition def = specRepo.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("SpecDefinition not found: " + id));
+
+        String jsonName = def.getJsonName();
+        String unit = req.getUnit() == null ? "" : req.getUnit().trim();
+        Map<String, String> overrides = req.getOverrides() == null ? Map.of() : req.getOverrides();
+
+        // Collect every part that has a non-blank value for this spec.
+        List<Part> parts = partRepository.findAll();
+        List<Part> matched = new ArrayList<>();
+        List<String> rawValues = new ArrayList<>();
+        for (Part part : parts) {
+            Map<String, Object> specs = part.getSpecs();
+            if (specs == null || !specs.containsKey(jsonName)) continue;
+            Object value = specs.get(jsonName);
+            if (value == null) continue;
+            String str = String.valueOf(value);
+            if (str.isBlank()) continue;
+            matched.add(part);
+            rawValues.add(str);
+        }
+
+        // Blank unit: only suggest one — without a base unit we can't tell which values parse, so
+        // report no failures (an empty unit must not flag every value as unparseable).
+        if (unit.isEmpty()) {
+            return ConvertToNumberResult.builder()
+                    .total(matched.size())
+                    .converted(0)
+                    .suggestedUnit(MetricUnitParser.suggestUnit(rawValues))
+                    .failures(List.of())
+                    .build();
+        }
+
+        // Parse each value (after applying any override for its original text).
+        int converted = 0;
+        Map<Part, String> resolved = new LinkedHashMap<>();
+        for (int i = 0; i < matched.size(); i++) {
+            String raw = rawValues.get(i);
+            String effective = overrides.getOrDefault(raw, raw);
+            Optional<String> base = MetricUnitParser.parseToBase(effective, unit);
+            if (base.isPresent()) {
+                converted++;
+                resolved.put(matched.get(i), base.get());
+            }
+        }
+        List<ConvertToNumberResult.Failure> failures = groupFailures(rawValues, overrides, unit);
+
+        if (!req.isCommit()) {
+            return ConvertToNumberResult.builder()
+                    .total(matched.size())
+                    .converted(converted)
+                    .failures(failures)
+                    .build();
+        }
+
+        // Commit guard: every value must parse.
+        if (!failures.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Cannot convert: " + failures.size() + " value(s) still fail to parse");
+        }
+
+        resolved.forEach((part, base) -> part.getSpecs().put(jsonName, base));
+        partRepository.saveAll(resolved.keySet());
+
+        def.setDataType("NUMBER");
+        def.setUnit(unit);
+        def.setMetricPrefix(req.isMetricPrefix());
+        def.setOptions(null);
+        specRepo.save(def);
+
+        return ConvertToNumberResult.builder()
+                .total(matched.size())
+                .converted(converted)
+                .failures(List.of())
+                .definition(toDTO(def))
+                .build();
+    }
+
+    /** Distinct values that fail to parse into {@code unit} (after overrides), with occurrence counts. */
+    private List<ConvertToNumberResult.Failure> groupFailures(
+            List<String> rawValues, Map<String, String> overrides, String unit) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (String raw : rawValues) {
+            String effective = overrides.getOrDefault(raw, raw);
+            boolean ok = !unit.isEmpty() && MetricUnitParser.parseToBase(effective, unit).isPresent();
+            if (!ok) counts.merge(raw, 1, Integer::sum);
+        }
+        return counts.entrySet().stream()
+                .map(e -> new ConvertToNumberResult.Failure(e.getKey(), e.getValue()))
+                .collect(Collectors.toList());
     }
 
     private String writeOptions(Set<String> values) {

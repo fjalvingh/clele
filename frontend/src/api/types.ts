@@ -28,6 +28,21 @@ export interface SpecDefinitionRequest {
   majorType: string;
 }
 
+export interface ConvertToNumberRequest {
+  unit: string;
+  metricPrefix: boolean;
+  overrides: Record<string, string>;
+  commit: boolean;
+}
+
+export interface ConvertToNumberResult {
+  total: number;
+  converted: number;
+  suggestedUnit?: string;
+  failures: { value: string; count: number }[];
+  definition?: SpecDefinition;
+}
+
 export interface Category {
   id: number;
   name: string;
