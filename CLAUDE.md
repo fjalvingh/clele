@@ -107,6 +107,9 @@ frontend/src/
 - **Flyway**: `flyway-core` alone handles PostgreSQL in Flyway 9.x — do not add `flyway-database-postgresql` (not managed by Spring Boot 3.2 BOM)
 - **Multipart upload limit**: 10MB configured in `application.yml`
 - **Image proxy** (`/api/image-proxy?url=`): proxies external images through the backend with browser-like headers. Accepts any HTTP(S) host. Used by Quick Add to avoid CORS and Cloudflare bot-protection issues.
+- **Icons**: always use inline SVG icons in the UI, never Unicode/emoji glyphs (📄, 📎, ⬇, …) — they
+  render as empty boxes when the platform font lacks the glyph. Use a `currentColor` stroke SVG so it
+  inherits the surrounding text color.
 
 ## Authentication & Authorization
 

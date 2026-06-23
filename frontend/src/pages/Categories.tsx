@@ -84,7 +84,10 @@ function buildParentOptions(
   const options: ParentOption[] = [];
   for (const node of nodes) {
     if (node.id === excludeId) continue;
-    options.push({ id: node.id, label: '  '.repeat(depth) + node.name });
+    // Indent with non-breaking spaces — <option> collapses normal leading whitespace,
+    // which would otherwise flatten the visible hierarchy. A marker hints at nesting.
+    const prefix = depth > 0 ? '  '.repeat(depth) + '└ ' : '';
+    options.push({ id: node.id, label: prefix + node.name });
     options.push(...buildParentOptions(node.children, excludeId, depth + 1));
   }
   return options;

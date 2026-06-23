@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   addAttachmentFromUrl,
   applyOctopart,
@@ -88,6 +88,10 @@ type OctopartFieldKey = (typeof OCTOPART_FIELDS)[number]['key'];
 export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  // Where the breadcrumb's "Parts" link returns to — back to the originating search results
+  // (carried in navigation state) when we arrived from the Parts page, else the bare list.
+  const partsListUrl = (routeLocation.state as { from?: string } | null)?.from ?? '/parts';
   const { user, hasPermission } = useAuth();
   const { formatMoney } = useSettings();
   const canEdit = hasPermission('PARTS_EDIT');
@@ -573,7 +577,7 @@ export default function PartDetailPage() {
       <div className="mx-auto max-w-6xl">
       {/* Breadcrumb */}
       <nav className="mb-4 text-sm text-gray-500">
-        <Link to="/parts" className="hover:underline">
+        <Link to={partsListUrl} className="hover:underline">
           Parts
         </Link>{' '}
         / <span className="text-gray-800 font-medium">{part.name}</span>
@@ -809,13 +813,28 @@ export default function PartDetailPage() {
               <ul className="space-y-1">
                 {datasheets.map((d) => (
                   <li key={d.id} className="flex items-center gap-2 text-sm">
+                    <svg
+                      className="h-4 w-4 shrink-0 text-blue-600"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.8}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                      <path d="M14 3v5h5" />
+                      <path d="M9 13h6" />
+                      <path d="M9 17h6" />
+                    </svg>
                     <a
                       href={attachmentUrl(partId, d.id)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="truncate text-blue-600 hover:underline"
                     >
-                      📄 {d.filename ?? `datasheet-${d.id}`}
+                      {d.filename ?? `datasheet-${d.id}`}
                     </a>
                     {canEdit && (
                       <button
@@ -849,9 +868,23 @@ export default function PartDetailPage() {
                     onClick={handleDownloadDatasheet}
                     disabled={fileBusy}
                     title={`Download from ${part.datasheetUrl}`}
-                    className="rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
                   >
-                    ⬇ Download from URL
+                    <svg
+                      className="h-3.5 w-3.5 shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.8}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 3v12" />
+                      <path d="M7 10l5 5 5-5" />
+                      <path d="M5 21h14" />
+                    </svg>
+                    Download from URL
                   </button>
                 )}
               </div>
@@ -869,13 +902,25 @@ export default function PartDetailPage() {
               <ul className="space-y-1">
                 {attachments.map((a) => (
                   <li key={a.id} className="flex items-center gap-2 text-sm">
+                    <svg
+                      className="h-4 w-4 shrink-0 text-blue-600"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.8}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                    </svg>
                     <a
                       href={attachmentUrl(partId, a.id)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="truncate text-blue-600 hover:underline"
                     >
-                      📎 {a.filename ?? `attachment-${a.id}`}
+                      {a.filename ?? `attachment-${a.id}`}
                     </a>
                     {canEdit && (
                       <button

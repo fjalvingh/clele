@@ -24,7 +24,10 @@ interface CatOption { id: number; label: string }
 function buildCatOptions(nodes: CategoryTree[], depth = 0): CatOption[] {
   const opts: CatOption[] = [];
   for (const node of nodes) {
-    opts.push({ id: node.id, label: '  '.repeat(depth) + node.name });
+    // Indent with non-breaking spaces — <option> collapses normal leading whitespace,
+    // which would otherwise flatten the visible hierarchy. A marker hints at nesting.
+    const prefix = depth > 0 ? '  '.repeat(depth) + '└ ' : '';
+    opts.push({ id: node.id, label: prefix + node.name });
     opts.push(...buildCatOptions(node.children, depth + 1));
   }
   return opts;
@@ -380,7 +383,13 @@ export default function PartsPage() {
       key: 'partNumber',
       header: 'Part #',
       render: (row) => (
-        <Link to={`/parts/${row.id}`} className="font-mono text-blue-600 hover:underline">
+        <Link
+          to={`/parts/${row.id}`}
+          // Pass the current search query so the part page's breadcrumb can return to
+          // these exact results instead of an empty Parts page.
+          state={{ from: searchParams.toString() ? `/parts?${searchParams.toString()}` : '/parts' }}
+          className="font-mono text-blue-600 hover:underline"
+        >
           {row.partNumber}
         </Link>
       ),

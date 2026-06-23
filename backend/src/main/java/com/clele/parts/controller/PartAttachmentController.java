@@ -36,18 +36,31 @@ public class PartAttachmentController {
     @GetMapping("/{attachmentId}")
     public ResponseEntity<byte[]> get(@PathVariable Long partId, @PathVariable Long attachmentId) {
         AttachmentContent content = partAttachmentService.getContent(partId, attachmentId);
-        MediaType mediaType = parseMediaType(content.contentType());
+        MediaType mediaType = effectiveMediaType(content.contentType(), content.filename());
 
-        ResponseEntity.BodyBuilder builder = ResponseEntity.ok()
-                .contentType(mediaType)
-                .cacheControl(CacheControl.maxAge(7, TimeUnit.DAYS));
+        ResponseEntity.BodyBuilder builder = ResponseEntity.ok().contentType(mediaType);
 
-        // Photos render inline; datasheets/attachments download with their original filename.
+        // Photos render inline (no filename). For datasheets/attachments, let browser-viewable
+        // types (PDFs, images) open inline in a new tab and force a download for everything else.
         if (content.filename() != null && !content.filename().isBlank()) {
-            builder.header(HttpHeaders.CONTENT_DISPOSITION,
-                    ContentDisposition.attachment().filename(content.filename()).build().toString());
+            ContentDisposition disposition = isInlineViewable(mediaType)
+                    ? ContentDisposition.inline().filename(content.filename()).build()
+                    : ContentDisposition.attachment().filename(content.filename()).build();
+            builder.header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString());
+            // Datasheets/attachments must revalidate so a changed server response (e.g. a fix to the
+            // disposition/content-type) takes effect instead of being pinned by a long browser cache.
+            builder.cacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic().mustRevalidate());
+        } else {
+            // Photos never change in place — keep them long and immutable.
+            builder.cacheControl(CacheControl.maxAge(7, TimeUnit.DAYS));
         }
         return builder.body(content.data());
+    }
+
+    /** Content types browsers can render directly, so they should open in-tab rather than download. */
+    private static boolean isInlineViewable(MediaType mediaType) {
+        return MediaType.APPLICATION_PDF.includes(mediaType)
+                || new MediaType("image").includes(mediaType);
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -72,6 +85,23 @@ public class PartAttachmentController {
     @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
     public void delete(@PathVariable Long partId, @PathVariable Long attachmentId) {
         partAttachmentService.delete(partId, attachmentId);
+    }
+
+    /**
+     * Resolve the media type to serve. Many sources hand back PDFs as a generic
+     * {@code application/octet-stream}, which makes browsers download them; recover the real type
+     * from the filename extension so they open inline instead.
+     */
+    private static MediaType effectiveMediaType(String contentType, String filename) {
+        MediaType parsed = parseMediaType(contentType);
+        if (parsed.equalsTypeAndSubtype(MediaType.APPLICATION_OCTET_STREAM) && filename != null) {
+            String lower = filename.toLowerCase();
+            if (lower.endsWith(".pdf")) return MediaType.APPLICATION_PDF;
+            if (lower.endsWith(".png")) return MediaType.IMAGE_PNG;
+            if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return MediaType.IMAGE_JPEG;
+            if (lower.endsWith(".gif")) return MediaType.IMAGE_GIF;
+        }
+        return parsed;
     }
 
     private static MediaType parseMediaType(String contentType) {
