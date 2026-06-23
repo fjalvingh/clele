@@ -2,8 +2,7 @@
 # the dev application.yml; secrets come from the environment (systemd EnvironmentFile), never the jar.
 server:
   servlet:
-    # Served under https://<host>/clele behind the Apache reverse proxy.
-    context-path: /clele
+    # Served at the host root behind the Apache reverse proxy.
     session:
       cookie:
         secure: true        # cookie only sent over TLS (Apache terminates TLS)

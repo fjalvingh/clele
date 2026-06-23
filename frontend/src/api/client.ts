@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// BASE_URL is injected by Vite from `base` (always trailing-slashed): '/' in dev, '/clele/' in prod.
+// BASE_URL is injected by Vite from `base` (always trailing-slashed): '/' unless built with a subpath.
 const loginPath = `${import.meta.env.BASE_URL}login`;
 
 const client = axios.create({

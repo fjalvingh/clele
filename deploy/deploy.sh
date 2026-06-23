@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Build Clele and deploy it to a server as a systemd service, served under /clele.
+# Build Clele and deploy it to a server as a systemd service, served at the host root.
 #
-#   1. builds the jar locally with the /clele subpath baked into the frontend
+#   1. builds the jar locally
 #   2. ships the jar + systemd unit + env template to the server over ssh/scp
 #   3. (re)starts the clele service
 #
@@ -21,7 +21,7 @@ SERVICE_USER="${SERVICE_USER:-clele}"               # dedicated system user the 
 SERVICE_NAME="${SERVICE_NAME:-clele}"
 JAVA_BIN="${JAVA_BIN:-/opt/java/21/bin/java}"        # must match ExecStart in clele.service
 JAR="${JAR:-parts-0.0.1-SNAPSHOT.jar}"
-BASE_PATH="${BASE_PATH:-/clele/}"                    # Vite base (trailing slash) = the subpath
+BASE_PATH="${BASE_PATH:-/}"                          # Vite base (trailing slash) = the subpath ('/' = root)
 # ----------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,7 +37,7 @@ TARGET="${DEPLOY_USER}@${DEPLOY_HOST}"
 SSH="ssh -p ${SSH_PORT} ${TARGET}"
 echo "==> Deploying to ${TARGET} (dir ${DEPLOY_DIR}, service ${SERVICE_NAME})"
 
-# 1. Build the jar with the /clele subpath baked into the frontend bundle.
+# 1. Build the jar (VITE_BASE bakes the subpath, if any, into the frontend bundle).
 echo "==> Building (VITE_BASE=${BASE_PATH}) ..."
 ( cd "$REPO_DIR/backend" && VITE_BASE="$BASE_PATH" mvn21 clean package )
 
@@ -53,23 +53,12 @@ echo "==> Installing & restarting ..."
 $SSH "sudo bash -s" <<EOF
 set -euo pipefail
 sudo install -o "${SERVICE_USER}" -g "${SERVICE_USER}" -m 644 "/tmp/$JAR" "${DEPLOY_DIR}/$JAR"
-sudo install -m 644 /tmp/clele.service /etc/systemd/system/${SERVICE_NAME}.service
-# Install the env template; never clobber a real, already-configured env file.
-if [[ ! -f "${ENV_DIR}/clele.env" ]]; then
-  sudo install -o root -g "${SERVICE_USER}" -m 640 /tmp/clele.env.example "${ENV_DIR}/clele.env"
-  echo "NOTE: created ${ENV_DIR}/clele.env from the template — edit it and set DB_PASSWORD / ANTHROPIC_API_KEY."
-fi
-if grep -q 'change-me' "${ENV_DIR}/clele.env"; then
-  echo "WARNING: ${ENV_DIR}/clele.env still contains 'change-me' — the app will not start correctly until you fix it."
-fi
-rm -f "/tmp/$JAR" /tmp/clele.service /tmp/clele.env.example
 sudo systemctl daemon-reload
-sudo systemctl enable --now ${SERVICE_NAME}
 sudo systemctl restart ${SERVICE_NAME}
 sleep 2
 sudo systemctl --no-pager --full status ${SERVICE_NAME} || true
 echo "==> Local health check (expect HTTP 200/302 or a redirect to login):"
-curl -s -o /dev/null -w '  GET /clele/ -> %{http_code}\n' http://127.0.0.1:8080/clele/ || true
+curl -s -o /dev/null -w '  GET / -> %{http_code}\n' http://127.0.0.1:8080/ || true
 EOF
 
 echo "==> Done. Remember: add the Apache snippet (deploy/clele-apache.conf), reload Apache,"

@@ -1,13 +1,12 @@
-# Deploying Clele under `https://qd.ax/clele`
+# Deploying Clele under `https://qd.ax/`
 
 Clele builds as a single Spring Boot jar that serves both the React SPA and the `/api`. In
-production it runs behind an Apache reverse proxy under the `/clele` subpath, as a systemd service
+production it runs behind an Apache reverse proxy at the host root, as a systemd service
 owned by a dedicated `clele` system user, talking to a local PostgreSQL.
 
-The subpath is wired with Spring's `server.servlet.context-path=/clele` (prod profile) and the
-frontend's Vite `base=/clele/` (set at build time via `VITE_BASE`). The browser, Apache, and Spring
-all use the `/clele` prefix, so the session cookie auto-scopes to `/clele` and no path rewriting is
-needed in Apache.
+The app is served at the root, so no path rewriting is needed in Apache. To instead serve it under
+a subpath, build with `VITE_BASE=/<sub>/` (the deploy script's `BASE_PATH`) and set Spring's
+`server.servlet.context-path=/<sub>` in the prod profile, then point Apache's `ProxyPass` at it.
 
 ## One-time server setup
 
@@ -42,7 +41,7 @@ DEPLOY_HOST=qd.ax DEPLOY_USER=<your-ssh-user> ./deploy/deploy.sh
 ```
 
 The script:
-1. builds the jar locally with `VITE_BASE=/clele/ mvn21 clean package`,
+1. builds the jar locally with `mvn21 clean package` (root base; override with `BASE_PATH`),
 2. creates the `clele` system user + `/opt/clele` and `/etc/clele` (idempotent),
 3. uploads the jar, the systemd unit, and the env template,
 4. runs `systemctl enable --now clele` / `restart`, then prints status + a local health check.
@@ -51,7 +50,7 @@ The SSH user needs passwordless (or interactive) `sudo` on the server.
 
 ## After deploying
 
-- Browse `https://qd.ax/clele/` and **change the bootstrap admin password** immediately
+- Browse `https://qd.ax/` and **change the bootstrap admin password** immediately
   (`admin@clele.local` / `admin`, seeded by Flyway V10) via the Users screen.
 - Logs: `journalctl -u clele -f`.
 
