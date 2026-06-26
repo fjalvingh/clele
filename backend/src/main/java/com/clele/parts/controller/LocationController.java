@@ -2,6 +2,7 @@ package com.clele.parts.controller;
 
 import com.clele.parts.dto.LocationDTO;
 import com.clele.parts.dto.LocationRequest;
+import com.clele.parts.dto.LocationTreeDTO;
 import com.clele.parts.service.LocationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,6 +26,12 @@ public class LocationController {
     @Operation(summary = "List all locations")
     public List<LocationDTO> listAll() {
         return locationService.findAll();
+    }
+
+    @GetMapping("/tree")
+    @Operation(summary = "Get the full location hierarchy as a nested tree")
+    public List<LocationTreeDTO> getTree() {
+        return locationService.getTree();
     }
 
     @GetMapping("/mine")

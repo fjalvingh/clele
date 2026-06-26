@@ -142,6 +142,7 @@ public class StockEntryService {
                 .partNumber(entry.getPart().getPartNumber())
                 .locationId(entry.getLocation().getId())
                 .locationName(entry.getLocation().getName())
+                .locationBreadcrumb(entry.getLocation().breadcrumb())
                 .ownerName(owner != null ? (owner.getFullName() != null ? owner.getFullName() : owner.getEmail()) : null)
                 .quantity(entry.getQuantity())
                 .minimumQuantity(entry.getMinimumQuantity())

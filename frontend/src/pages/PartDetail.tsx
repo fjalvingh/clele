@@ -297,7 +297,7 @@ export default function PartDetailPage() {
   };
 
   const handleDeleteStock = async (entry: StockEntry) => {
-    if (!confirm(`Remove stock at "${entry.locationName}"?`)) return;
+    if (!confirm(`Remove stock at "${entry.locationBreadcrumb || entry.locationName}"?`)) return;
     try {
       await deleteStockEntry(entry.id);
       loadData();
@@ -448,7 +448,7 @@ export default function PartDetailPage() {
 
   const stockColumns: Column<StockEntry>[] = [
     { key: 'ownerName', header: 'Owner', render: (row) => row.ownerName ?? '—' },
-    { key: 'locationName', header: 'Location' },
+    { key: 'locationName', header: 'Location', render: (row) => row.locationBreadcrumb || row.locationName },
     {
       key: 'quantity',
       header: 'Quantity',
@@ -504,7 +504,7 @@ export default function PartDetailPage() {
           <span className="text-gray-400">—</span>
         ),
     },
-    { key: 'locationName', header: 'Location', render: (m) => m.locationName ?? '—' },
+    { key: 'locationName', header: 'Location', render: (m) => m.locationBreadcrumb || m.locationName || '—' },
     {
       key: 'unitPrice',
       header: 'Unit Price',
@@ -1109,11 +1109,13 @@ export default function PartDetailPage() {
           }
         >
           <option value="">— Select location —</option>
-          {locations.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
+          {[...locations]
+            .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb))
+            .map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.breadcrumb || l.name}
+              </option>
+            ))}
         </FormField>
         <FormField
           label="Quantity *"

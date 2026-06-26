@@ -102,13 +102,27 @@ export interface Location {
   id: number;
   name: string;
   description?: string;
+  parentId?: number;
+  parentName?: string;
+  breadcrumb: string; // full path, e.g. "Building A > Room B > Cupboard C"
   ownerId?: number;
   ownerName?: string;
+}
+
+export interface LocationTree {
+  id: number;
+  name: string;
+  description?: string;
+  parentId?: number;
+  ownerId?: number;
+  ownerName?: string;
+  children: LocationTree[];
 }
 
 export interface LocationRequest {
   name: string;
   description?: string;
+  parentId?: number | null;
   ownerId?: number; // admin-only: reassign the location to another user
 }
 
@@ -150,6 +164,7 @@ export interface StockEntry {
   partNumber: string;
   locationId: number;
   locationName: string;
+  locationBreadcrumb: string;
   ownerName?: string;
   quantity: number;
   minimumQuantity: number;
@@ -162,6 +177,7 @@ export interface StockMovement {
   partId: number;
   locationId: number;
   locationName: string;
+  locationBreadcrumb: string;
   quantity: number;
   unitPrice?: number | null;
   comments?: string | null;

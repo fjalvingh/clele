@@ -14,6 +14,7 @@ public class StockMovementDTO {
     private Long partId;
     private Long locationId;
     private String locationName;
+    private String locationBreadcrumb;
     private Integer quantity;
     private BigDecimal unitPrice;
     private String comments;

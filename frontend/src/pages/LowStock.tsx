@@ -29,7 +29,7 @@ export default function LowStockPage() {
       ),
     },
     { key: 'partName', header: 'Part Name' },
-    { key: 'locationName', header: 'Location' },
+    { key: 'locationName', header: 'Location', render: (row) => row.locationBreadcrumb || row.locationName },
     {
       key: 'quantity',
       header: 'Quantity',

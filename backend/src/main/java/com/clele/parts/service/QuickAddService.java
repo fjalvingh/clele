@@ -60,6 +60,7 @@ public class QuickAddService {
                 .partNumber(part.getPartNumber())
                 .locationId(location.getId())
                 .locationName(location.getName())
+                .locationBreadcrumb(location.breadcrumb())
                 .quantity(saved.getQuantity())
                 .minimumQuantity(saved.getMinimumQuantity())
                 .lowStock(saved.getQuantity() < saved.getMinimumQuantity())

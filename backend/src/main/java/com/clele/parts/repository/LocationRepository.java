@@ -14,9 +14,24 @@ public interface LocationRepository extends JpaRepository<Location, Long> {
 
     List<Location> findByOwnerIdOrderByName(Long ownerId);
 
-    boolean existsByOwnerIdAndName(Long ownerId, String name);
+    List<Location> findByParentIsNull();
 
-    boolean existsByOwnerIdAndNameAndIdNot(Long ownerId, String name, Long id);
+    List<Location> findByParentId(Long parentId);
+
+    boolean existsByParentId(Long parentId);
+
+    /**
+     * Sibling-name uniqueness: an owner may not have two locations with the same name under the
+     * same parent (NULL parent = root level). {@code excludeId} skips the row being updated
+     * (pass null on create). Null-safe parent comparison handles the root level.
+     */
+    @Query("""
+            SELECT COUNT(l) > 0 FROM Location l
+            WHERE l.owner.id = :ownerId AND l.name = :name
+              AND ((:parentId IS NULL AND l.parent IS NULL) OR l.parent.id = :parentId)
+              AND (:excludeId IS NULL OR l.id <> :excludeId)
+            """)
+    boolean existsSibling(Long ownerId, String name, Long parentId, Long excludeId);
 
     /**
      * Per-owner roll-up of the stock held in the locations each user owns: location count,

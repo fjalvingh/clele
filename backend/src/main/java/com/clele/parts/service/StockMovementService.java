@@ -96,6 +96,7 @@ public class StockMovementService {
                 .partId(m.getPart().getId())
                 .locationId(m.getLocation().getId())
                 .locationName(m.getLocation().getName())
+                .locationBreadcrumb(m.getLocation().breadcrumb())
                 .quantity(m.getQuantity())
                 .unitPrice(m.getUnitPrice())
                 .comments(m.getComments())

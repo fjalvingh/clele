@@ -240,7 +240,7 @@ export default function UsersPage() {
             {ownedLocations.length === 0 && <option value="">— No locations —</option>}
             {ownedLocations.map((l) => (
               <option key={l.id} value={l.id}>
-                {l.name}
+                {l.breadcrumb || l.name}
               </option>
             ))}
           </FormField>

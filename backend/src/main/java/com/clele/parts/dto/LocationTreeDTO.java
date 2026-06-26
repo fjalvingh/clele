@@ -2,18 +2,18 @@ package com.clele.parts.dto;
 
 import lombok.*;
 
+import java.util.List;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class LocationDTO {
+public class LocationTreeDTO {
     private Long id;
     private String name;
     private String description;
     private Long parentId;
-    private String parentName;
-    /** Full path from the root, e.g. "Building A > Room B > Cupboard C". */
-    private String breadcrumb;
     private Long ownerId;
     private String ownerName;
+    private List<LocationTreeDTO> children;
 }

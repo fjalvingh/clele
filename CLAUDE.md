@@ -92,8 +92,11 @@ frontend/src/
   - V20 adds `spec_definition.metric_prefix` (BOOLEAN, default false): a NUMBER spec whose value is
     stored in a base SI unit (the `unit` column) is rendered/edited with metric prefixes (0.009 A →
     "9 mA") — see Spec definitions below
+  - V21 adds `location.parent_id` (self-FK, nullable, indexed): locations are now hierarchical
+    (Building A > Room B > Cupboard C). NULL parent = root. Parts can be stored at any level (stock
+    entries reference a location id regardless of depth) — see Locations below
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V21** (CLAUDE.md previously lagged the actual migrations — always check the
+  is **V22** (CLAUDE.md previously lagged the actual migrations — always check the
   `db/migration/` directory for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
@@ -229,6 +232,31 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   `/settings` once on mount with a sensible default (`€`) so prices render before/independent of the
   fetch. `useSettings()` exposes `settings` + `formatMoney(amount)` ("€ 12.34"); used wherever prices
   display (Dashboard stock value, Part Detail unit prices + total value, stock movements).
+
+## Locations
+
+- Locations are **per-user** (`location.owner_id`, V12) **and hierarchical** (`location.parent_id`,
+  self-FK, V21) — mirroring the Category tree pattern. A part can be stored at any level (Building A,
+  or Room B inside it, or Cupboard C inside that); `stock_entry`/`stock_movement` just reference a
+  `location_id` regardless of depth.
+- **Invariant**: a child shares its parent's owner. `LocationService.resolveParent` enforces that a
+  chosen parent is owned by the location's owner; `update` rejects an owner reassignment on a location
+  that still has children (would break the invariant). Self-parenting and cycles are rejected
+  (`isDescendant` walks the parent chain). `delete` refuses a location with sub-locations.
+- **Sibling-name uniqueness**: an owner may not have two locations with the same name under the same
+  parent (`LocationRepository.existsSibling`, null-safe parent match for the root level). Names *may*
+  repeat across different parents (two "Cupboard C"s in different rooms are fine — the breadcrumb
+  disambiguates).
+- `LocationDTO` carries `parentId`/`parentName`/`breadcrumb` ("Building A > Room B > Cupboard C", built
+  by walking the parent chain). `GET /api/locations/tree` returns the nested `LocationTreeDTO` forest
+  (all owners). The **Locations page** renders the tree (expand/collapse, per-node "+ Sub"/Edit/Delete
+  gated by `canManage`) with a hierarchical parent `<select>` filtered to the effective owner's
+  locations minus the edited subtree. Stock-add pickers (Quick Add, Part Detail) show `breadcrumb`
+  instead of the bare name.
+- **Breadcrumb everywhere a location is shown**: `Location.breadcrumb()` (entity method, walks the
+  parent chain) is the single source. `StockEntryDTO`/`StockMovementDTO` carry both `locationName`
+  (leaf) and `locationBreadcrumb` (full path); the Part Detail stock + movement tables, the Low Stock
+  table, and the "Remove stock at …" confirm all render the breadcrumb (falling back to the leaf).
 
 ## Part Ownership
 
@@ -411,7 +439,8 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   (mutations require `PARTS_EDIT`; GET serves bytes with the stored content-type, downloads with
   filename for datasheets/attachments)
 - `GET/POST /categories`, `GET/PUT/DELETE /categories/{id}`, `GET /categories/tree`
-- `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`
+- `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`, `GET /locations/tree` (nested hierarchy),
+  `GET /locations/mine` (current user's own, for stock pickers)
 - `GET/POST /stock-entries`, `GET/PUT/DELETE /stock-entries/{id}`; `POST /stock/reconcile` realigns
   every stock entry to its ledger sum (requires `PARTS_EDIT`)
 - `GET /dashboard`

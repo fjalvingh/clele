@@ -728,11 +728,13 @@ export default function QuickAddPage() {
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   >
                     <option value="">Select location…</option>
-                    {locations.map((loc) => (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.name}
-                      </option>
-                    ))}
+                    {[...locations]
+                      .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb))
+                      .map((loc) => (
+                        <option key={loc.id} value={loc.id}>
+                          {loc.breadcrumb || loc.name}
+                        </option>
+                      ))}
                   </select>
                 )}
               </div>

@@ -2,6 +2,7 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.LocationDTO;
 import com.clele.parts.dto.LocationRequest;
+import com.clele.parts.dto.LocationTreeDTO;
 import com.clele.parts.model.AppUser;
 import com.clele.parts.model.Location;
 import com.clele.parts.repository.AppUserRepository;
@@ -43,6 +44,13 @@ public class LocationService {
                 .collect(Collectors.toList());
     }
 
+    /** Full location hierarchy as a nested tree (all owners), roots first. */
+    public List<LocationTreeDTO> getTree() {
+        return locationRepository.findByParentIsNull().stream()
+                .map(this::toTreeDTO)
+                .collect(Collectors.toList());
+    }
+
     public LocationDTO findById(Long id) {
         return toDTO(getOrThrow(id));
     }
@@ -50,13 +58,16 @@ public class LocationService {
     @Transactional
     public LocationDTO create(LocationRequest request) {
         AppUser owner = currentUserService.current();
-        if (locationRepository.existsByOwnerIdAndName(owner.getId(), request.getName())) {
+        Location parent = resolveParent(request.getParentId(), owner);
+        if (locationRepository.existsSibling(owner.getId(), request.getName(),
+                parent != null ? parent.getId() : null, null)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "You already have a location named: " + request.getName());
+                    "You already have a location named \"" + request.getName() + "\" here");
         }
         Location location = Location.builder()
                 .name(request.getName())
                 .description(request.getDescription())
+                .parent(parent)
                 .owner(owner)
                 .build();
         return toDTO(locationRepository.save(location));
@@ -79,15 +90,32 @@ public class LocationService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "This location is a user's default location and cannot be reassigned");
             }
+            // Children share their parent's owner; reassigning a parent would break that invariant.
+            if (locationRepository.existsByParentId(id)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Cannot change the owner of a location that has sub-locations");
+            }
             targetOwner = userRepository.findById(requestedOwnerId)
                     .orElseThrow(() -> new EntityNotFoundException("User not found: " + requestedOwnerId));
             location.setOwner(targetOwner);
         }
 
-        if (locationRepository.existsByOwnerIdAndNameAndIdNot(targetOwner.getId(), request.getName(), id)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "That owner already has a location named: " + request.getName());
+        Location parent = resolveParent(request.getParentId(), targetOwner);
+        if (parent != null) {
+            if (parent.getId().equals(id)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A location cannot be its own parent");
+            }
+            if (isDescendant(parent, id)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "A location cannot be moved under one of its own descendants");
+            }
         }
+        if (locationRepository.existsSibling(targetOwner.getId(), request.getName(),
+                parent != null ? parent.getId() : null, id)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "That owner already has a location named \"" + request.getName() + "\" here");
+        }
+        location.setParent(parent);
         location.setName(request.getName());
         location.setDescription(request.getDescription());
         return toDTO(locationRepository.save(location));
@@ -97,6 +125,10 @@ public class LocationService {
     public void delete(Long id) {
         Location location = getOrThrow(id);
         requireManagePermission(location);
+        if (locationRepository.existsByParentId(id)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Cannot delete a location that has sub-locations. Delete or move them first.");
+        }
         if (userRepository.existsByDefaultLocationId(id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "This location is a user's default location and cannot be deleted");
@@ -122,6 +154,48 @@ public class LocationService {
                 .orElseThrow(() -> new EntityNotFoundException("Location not found: " + id));
     }
 
+    /** Resolve and validate the requested parent: it must exist and be owned by {@code owner}. */
+    private Location resolveParent(Long parentId, AppUser owner) {
+        if (parentId == null) {
+            return null;
+        }
+        Location parent = locationRepository.findById(parentId)
+                .orElseThrow(() -> new EntityNotFoundException("Parent location not found: " + parentId));
+        if (parent.getOwner() == null || !parent.getOwner().getId().equals(owner.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A location's parent must belong to the same owner");
+        }
+        return parent;
+    }
+
+    /** True if {@code ancestorId} appears anywhere on the parent chain above {@code node}. */
+    private boolean isDescendant(Location node, Long ancestorId) {
+        Location current = node.getParent();
+        while (current != null) {
+            if (current.getId().equals(ancestorId)) {
+                return true;
+            }
+            current = current.getParent();
+        }
+        return false;
+    }
+
+    private LocationTreeDTO toTreeDTO(Location location) {
+        AppUser owner = location.getOwner();
+        List<LocationTreeDTO> childDTOs = location.getChildren().stream()
+                .map(this::toTreeDTO)
+                .collect(Collectors.toList());
+        return LocationTreeDTO.builder()
+                .id(location.getId())
+                .name(location.getName())
+                .description(location.getDescription())
+                .parentId(location.getParent() != null ? location.getParent().getId() : null)
+                .ownerId(owner != null ? owner.getId() : null)
+                .ownerName(owner != null ? (owner.getFullName() != null ? owner.getFullName() : owner.getEmail()) : null)
+                .children(childDTOs)
+                .build();
+    }
+
     /** A location may be managed by its owner or by an admin (USERS_EDIT). */
     private void requireManagePermission(Location location) {
         AppUser me = currentUserService.current();
@@ -134,10 +208,14 @@ public class LocationService {
 
     private LocationDTO toDTO(Location location) {
         AppUser owner = location.getOwner();
+        Location parent = location.getParent();
         return LocationDTO.builder()
                 .id(location.getId())
                 .name(location.getName())
                 .description(location.getDescription())
+                .parentId(parent != null ? parent.getId() : null)
+                .parentName(parent != null ? parent.getName() : null)
+                .breadcrumb(location.breadcrumb())
                 .ownerId(owner != null ? owner.getId() : null)
                 .ownerName(owner != null ? (owner.getFullName() != null ? owner.getFullName() : owner.getEmail()) : null)
                 .build();

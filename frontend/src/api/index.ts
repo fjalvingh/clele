@@ -10,6 +10,7 @@ import type {
   ImageSuggestion,
   Location,
   LocationRequest,
+  LocationTree,
   OctopartApplyRequest,
   OctopartCredentialsRequest,
   OctopartCredentialsStatus,
@@ -99,6 +100,9 @@ export const getAutoCategorizeStatus = () =>
 // Locations
 export const getLocations = () =>
   client.get<Location[]>('/locations').then((r) => r.data);
+
+export const getLocationTree = () =>
+  client.get<LocationTree[]>('/locations/tree').then((r) => r.data);
 
 // Locations owned by the current user (for stock-add pickers)
 export const getMyLocations = () =>
