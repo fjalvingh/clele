@@ -13,6 +13,8 @@ public enum MovementType {
     ADJUST,
     /** First movement that establishes an entry's starting quantity. */
     INITIAL,
+    /** Transfer of stock between two locations (one negative leg, one positive leg). */
+    MOVE,
     /** Written by the Partsbox importer replaying historical transactions. */
     IMPORT
 }

@@ -46,7 +46,16 @@ public class StockMovementService {
     public StockEntry apply(Part part, Location location, int deltaQty, BigDecimal unitPrice,
                             String comments, MovementType type) {
         requireOwnLocation(location);
+        return applyNoOwnershipCheck(part, location, deltaQty, unitPrice, comments, type);
+    }
 
+    /**
+     * Same as {@link #apply} but skips the own-location guard. Used for the <em>destination</em> leg
+     * of a stock move, where the target may belong to another user.
+     */
+    @Transactional
+    public StockEntry applyNoOwnershipCheck(Part part, Location location, int deltaQty,
+                                            BigDecimal unitPrice, String comments, MovementType type) {
         StockEntry entry = stockEntryRepository
                 .findByPartIdAndLocationId(part.getId(), location.getId())
                 .orElseGet(() -> StockEntry.builder()

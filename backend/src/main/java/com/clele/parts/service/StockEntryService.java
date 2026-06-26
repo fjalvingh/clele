@@ -1,7 +1,9 @@
 package com.clele.parts.service;
 
+import com.clele.parts.dto.StockAdjustRequest;
 import com.clele.parts.dto.StockEntryDTO;
 import com.clele.parts.dto.StockEntryRequest;
+import com.clele.parts.dto.StockMoveRequest;
 import com.clele.parts.model.AppUser;
 import com.clele.parts.model.Location;
 import com.clele.parts.model.MovementType;
@@ -83,6 +85,74 @@ public class StockEntryService {
         return dto;
     }
 
+    /**
+     * Add a (positive) quantity of stock at a location, creating the entry if needed. Also (re)sets
+     * the low-stock threshold and unit price when supplied. Records a {@code PURCHASE} movement.
+     */
+    @Transactional
+    public StockEntryDTO addStock(StockAdjustRequest request) {
+        Part part = requirePart(request.getPartId());
+        Location location = requireLocation(request.getLocationId());
+        StockEntry entry = stockMovementService.apply(part, location, request.getQuantity(),
+                request.getUnitPrice(), request.getComments(), MovementType.PURCHASE);
+        if (request.getMinimumQuantity() != null) {
+            entry.setMinimumQuantity(request.getMinimumQuantity());
+        }
+        StockEntryDTO dto = toDTO(stockEntryRepository.save(entry));
+        currentUserService.rememberLastLocation(location);
+        return dto;
+    }
+
+    /** Take a (positive) quantity of stock from a location. Records a {@code CONSUME} movement. */
+    @Transactional
+    public StockEntryDTO takeStock(StockAdjustRequest request) {
+        Part part = requirePart(request.getPartId());
+        Location location = requireLocation(request.getLocationId());
+        StockEntry entry = stockMovementService.apply(part, location, -request.getQuantity(),
+                null, request.getComments(), MovementType.CONSUME);
+        return toDTO(stockEntryRepository.save(entry));
+    }
+
+    /**
+     * Move stock from one location to another. The source must be owned by the current user; the
+     * destination may belong to any user. Leaves a clear trace: two {@code MOVE} movements whose
+     * comments name the other location.
+     */
+    @Transactional
+    public void move(StockMoveRequest request) {
+        if (request.getFromLocationId().equals(request.getToLocationId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Source and destination locations must be different");
+        }
+        Part part = requirePart(request.getPartId());
+        Location from = requireLocation(request.getFromLocationId());
+        Location to = requireLocation(request.getToLocationId());
+        int qty = request.getQuantity();
+        String note = request.getComments();
+        String suffix = (note != null && !note.isBlank()) ? " — " + note.trim() : "";
+        // Carry the source entry's unit price over to the moved stock.
+        java.math.BigDecimal price = stockEntryRepository
+                .findByPartIdAndLocationId(part.getId(), from.getId())
+                .map(StockEntry::getUnitPrice)
+                .orElse(null);
+        // Debit the source (checked against the current user's ownership; rejects negative stock).
+        stockMovementService.apply(part, from, -qty, null,
+                "Moved to " + to.breadcrumb() + suffix, MovementType.MOVE);
+        // Credit the destination — may be another user's location, so skip the ownership guard.
+        stockMovementService.applyNoOwnershipCheck(part, to, qty, price,
+                "Moved from " + from.breadcrumb() + suffix, MovementType.MOVE);
+    }
+
+    private Part requirePart(Long id) {
+        return partRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Part not found: " + id));
+    }
+
+    private Location requireLocation(Long id) {
+        return locationRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Location not found: " + id));
+    }
+
     @Transactional
     public StockEntryDTO update(Long id, StockEntryRequest request) {
         StockEntry entry = stockEntryRepository.findById(id)
@@ -146,6 +216,7 @@ public class StockEntryService {
                 .locationId(entry.getLocation().getId())
                 .locationName(entry.getLocation().getName())
                 .locationBreadcrumb(entry.getLocation().breadcrumb())
+                .ownerId(owner != null ? owner.getId() : null)
                 .ownerName(owner != null ? (owner.getFullName() != null ? owner.getFullName() : owner.getEmail()) : null)
                 .quantity(entry.getQuantity())
                 .minimumQuantity(entry.getMinimumQuantity())

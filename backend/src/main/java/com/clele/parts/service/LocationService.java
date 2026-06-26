@@ -5,6 +5,7 @@ import com.clele.parts.dto.LocationRequest;
 import com.clele.parts.dto.LocationTreeDTO;
 import com.clele.parts.model.AppUser;
 import com.clele.parts.model.Location;
+import com.clele.parts.model.StockEntry;
 import com.clele.parts.repository.AppUserRepository;
 import com.clele.parts.repository.LocationRepository;
 import com.clele.parts.repository.StockEntryRepository;
@@ -132,6 +133,54 @@ public class LocationService {
                     "This location has stock or stock history and cannot be deleted");
         }
         locationRepository.delete(location);
+    }
+
+    /**
+     * Merge {@code sourceId} into {@code targetId}: fold the source location's on-hand stock into the
+     * target and re-point its entire ledger to the target (preserving the full movement history),
+     * then delete the source location. The source must be manageable by the current user (its owner
+     * or an admin); the target may belong to any user.
+     */
+    @Transactional
+    public void merge(Long sourceId, Long targetId) {
+        if (sourceId.equals(targetId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Cannot merge a location into itself");
+        }
+        Location source = getOrThrow(sourceId);
+        Location target = getOrThrow(targetId);
+        requireManagePermission(source);
+        // Children would be orphaned by deleting their parent — merge/move them first.
+        if (locationRepository.existsByParentId(sourceId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Cannot merge a location that has sub-locations. Merge or move them first.");
+        }
+        // Fold each part's on-hand aggregate into the target (find-or-create, carrying price). The
+        // ledger is preserved by re-pointing below, so the aggregate is adjusted directly here
+        // rather than by writing new movements (which would double-count the re-pointed history).
+        for (StockEntry src : stockEntryRepository.findByLocationId(sourceId)) {
+            StockEntry tgt = stockEntryRepository
+                    .findByPartIdAndLocationId(src.getPart().getId(), targetId)
+                    .orElseGet(() -> StockEntry.builder()
+                            .part(src.getPart())
+                            .location(target)
+                            .quantity(0)
+                            .minimumQuantity(src.getMinimumQuantity())
+                            .build());
+            tgt.setQuantity(tgt.getQuantity() + src.getQuantity());
+            if (src.getUnitPrice() != null) {
+                tgt.setUnitPrice(src.getUnitPrice());
+            }
+            stockEntryRepository.save(tgt);
+        }
+        // Preserve history: re-point the source's ledger to the target so every movement (with its
+        // original type, price, date and author) lives on under the target location. This keeps the
+        // invariant Σ(target movements) == target on-hand for each part. The FK to location has no
+        // cascade, so re-pointing also frees the source for deletion. Drop the now-empty source
+        // aggregates, then delete the source location.
+        stockMovementRepository.repointLocation(target, sourceId);
+        stockEntryRepository.deleteByLocationId(sourceId);
+        locationRepository.delete(source);
     }
 
     public long countAll() {

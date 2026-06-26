@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   addAttachmentFromUrl,
+  addStock,
   applyOctopart,
   attachmentUrl,
-  createStockEntry,
   deletePartAttachment,
   deleteStockEntry,
+  getLocations,
   getMyLocations,
   getOctopartUsage,
   getPart,
@@ -14,9 +15,10 @@ import {
   getPartMovements,
   getPartStock,
   getSpecDefinitions,
+  moveStock,
   searchOctopart,
   searchPartImages,
-  updateStockEntry,
+  takeStock,
   uploadPartAttachment,
 } from '../api';
 import type {
@@ -30,7 +32,6 @@ import type {
   PartAttachment,
   SpecDefinition,
   StockEntry,
-  StockEntryRequest,
   StockMovement,
 } from '../api/types';
 import { MAJOR_TYPES } from '../api/types';
@@ -44,12 +45,26 @@ import Modal from '../components/Modal';
 import PrintLabelModal from '../components/PrintLabelModal';
 import { formatMetric } from '../utils/units';
 
-const emptyStockForm = (partId: number): StockEntryRequest => ({
-  partId,
+// The three stock operations offered per location, plus the top-level "add".
+type StockOp = 'add' | 'take' | 'move';
+
+interface StockOpForm {
+  locationId: number; // add (top-level): target; take/move: source (fixed to the line)
+  destLocationId: number; // move: destination (may belong to any user)
+  quantity: number;
+  unitPrice: number | null;
+  minimumQuantity: number;
+  comment: string;
+}
+
+const emptyOpForm: StockOpForm = {
   locationId: 0,
+  destLocationId: 0,
   quantity: 0,
+  unitPrice: null,
   minimumQuantity: 0,
-});
+  comment: '',
+};
 
 // Proxy external images through our backend to avoid CORS / Cloudflare bot-protection issues.
 function displayUrl(img: { url: string; thumbnailUrl?: string }) {
@@ -102,6 +117,7 @@ export default function PartDetailPage() {
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [movementsOpen, setMovementsOpen] = useState(false);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [allLocations, setAllLocations] = useState<Location[]>([]);
   const [images, setImages] = useState<PartAttachment[]>([]);
   const [datasheets, setDatasheets] = useState<PartAttachment[]>([]);
   const [attachments, setAttachments] = useState<PartAttachment[]>([]);
@@ -110,9 +126,10 @@ export default function PartDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [stockModalOpen, setStockModalOpen] = useState(false);
-  const [editingStock, setEditingStock] = useState<StockEntry | null>(null);
-  const [stockForm, setStockForm] = useState<StockEntryRequest>(emptyStockForm(partId));
+  // Stock operation modal: which op, on which line (null = top-level add), and the form.
+  const [stockOp, setStockOp] = useState<StockOp | null>(null);
+  const [opEntry, setOpEntry] = useState<StockEntry | null>(null);
+  const [opForm, setOpForm] = useState<StockOpForm>(emptyOpForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -161,11 +178,18 @@ export default function PartDetailPage() {
     getPartAttachments(partId).then(splitAttachments).catch(() => {});
 
   const loadData = () => {
-    Promise.all([getPart(partId), getPartStock(partId), getMyLocations(), getPartAttachments(partId)])
-      .then(([p, s, l, atts]) => {
+    Promise.all([
+      getPart(partId),
+      getPartStock(partId),
+      getMyLocations(),
+      getLocations(),
+      getPartAttachments(partId),
+    ])
+      .then(([p, s, l, all, atts]) => {
         setPart(p);
         setStock(s);
         setLocations(l);
+        setAllLocations(all);
         splitAttachments(atts);
         // Movement history is supplementary — load best-effort, don't fail the page
         getPartMovements(partId)
@@ -253,43 +277,71 @@ export default function PartDetailPage() {
     }
   };
 
-  const openAddStock = () => {
-    setEditingStock(null);
-    // Pre-select the location the user last added stock to, when it is one of their own.
+  // Open the "add stock" modal. With an entry the target location is fixed to that line; without
+  // one (top-level button) the user picks a location, pre-selecting their last-used one.
+  const openAddStock = (entry?: StockEntry) => {
     const defaultLoc =
       user?.lastLocationId && locations.some((l) => l.id === user.lastLocationId)
         ? user.lastLocationId
         : 0;
-    setStockForm({ ...emptyStockForm(partId), locationId: defaultLoc });
-    setFormError(null);
-    setStockModalOpen(true);
-  };
-
-  const openEditStock = (entry: StockEntry) => {
-    setEditingStock(entry);
-    setStockForm({
-      partId,
-      locationId: entry.locationId,
-      quantity: entry.quantity,
-      minimumQuantity: entry.minimumQuantity,
-      unitPrice: entry.unitPrice,
+    setOpEntry(entry ?? null);
+    setOpForm({
+      ...emptyOpForm,
+      locationId: entry ? entry.locationId : defaultLoc,
+      unitPrice: entry?.unitPrice ?? null,
+      minimumQuantity: entry?.minimumQuantity ?? 0,
     });
     setFormError(null);
-    setStockModalOpen(true);
+    setStockOp('add');
   };
 
-  const handleSaveStock = async () => {
+  const openTakeStock = (entry: StockEntry) => {
+    setOpEntry(entry);
+    setOpForm({ ...emptyOpForm, locationId: entry.locationId });
+    setFormError(null);
+    setStockOp('take');
+  };
+
+  const openMoveStock = (entry: StockEntry) => {
+    setOpEntry(entry);
+    setOpForm({ ...emptyOpForm, locationId: entry.locationId });
+    setFormError(null);
+    setStockOp('move');
+  };
+
+  const handleSubmitStockOp = async () => {
+    if (!stockOp) return;
     setSaving(true);
     setFormError(null);
     try {
-      if (editingStock) {
-        await updateStockEntry(editingStock.id, stockForm);
-      } else {
-        await createStockEntry(stockForm);
+      if (stockOp === 'add') {
+        await addStock({
+          partId,
+          locationId: opEntry ? opEntry.locationId : opForm.locationId,
+          quantity: opForm.quantity,
+          unitPrice: opForm.unitPrice,
+          minimumQuantity: opForm.minimumQuantity,
+          comments: opForm.comment || null,
+        });
         // Adding stock updates the user's last-used location; refresh so it pre-selects next time.
         refresh();
+      } else if (stockOp === 'take') {
+        await takeStock({
+          partId,
+          locationId: opForm.locationId,
+          quantity: opForm.quantity,
+          comments: opForm.comment || null,
+        });
+      } else {
+        await moveStock({
+          partId,
+          fromLocationId: opForm.locationId,
+          toLocationId: opForm.destLocationId,
+          quantity: opForm.quantity,
+          comments: opForm.comment || null,
+        });
       }
-      setStockModalOpen(false);
+      setStockOp(null);
       loadData();
     } catch (e: unknown) {
       setFormError((e as Error).message);
@@ -999,12 +1051,14 @@ export default function PartDetailPage() {
             <span className="h-5 w-1 rounded-full bg-blue-500" />
             Stock Locations
           </h2>
-          <button
-            onClick={openAddStock}
-            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            + Add Stock
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => openAddStock()}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              + Add Stock
+            </button>
+          )}
         </div>
         {stock.length > 0 && (
           <div className="mb-5 grid grid-cols-2 gap-3 sm:max-w-md">
@@ -1046,22 +1100,39 @@ export default function PartDetailPage() {
           data={stock}
           keyExtractor={(s) => s.id}
           emptyMessage="No stock entries. Add this part to a location."
-          actions={(entry) => (
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => openEditStock(entry)}
-                className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => handleDeleteStock(entry)}
-                className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-              >
-                Remove
-              </button>
-            </div>
-          )}
+          actions={(entry) =>
+            // Only the owner of a location can change the stock held there.
+            canEdit && user && entry.ownerId === user.id ? (
+              <div className="flex justify-end gap-1">
+                <button
+                  onClick={() => openAddStock(entry)}
+                  className="rounded px-2 py-1 text-xs text-green-700 hover:bg-green-50"
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => openTakeStock(entry)}
+                  disabled={entry.quantity <= 0}
+                  className="rounded px-2 py-1 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-40"
+                >
+                  Take
+                </button>
+                <button
+                  onClick={() => openMoveStock(entry)}
+                  disabled={entry.quantity <= 0}
+                  className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 disabled:opacity-40"
+                >
+                  Move
+                </button>
+                <button
+                  onClick={() => handleDeleteStock(entry)}
+                  className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : null
+          }
         />
       </div>
 
@@ -1096,88 +1167,166 @@ export default function PartDetailPage() {
         )}
       </div>
 
-      {/* Stock entry modal */}
+      {/* Stock operation modal (add / take / move) */}
       <Modal
-        open={stockModalOpen}
-        onClose={() => setStockModalOpen(false)}
-        title={editingStock ? 'Edit Stock Entry' : 'Add Stock Entry'}
+        open={stockOp !== null}
+        onClose={() => setStockOp(null)}
+        title={
+          stockOp === 'add'
+            ? 'Add stock'
+            : stockOp === 'take'
+              ? 'Take stock'
+              : stockOp === 'move'
+                ? 'Move stock'
+                : ''
+        }
       >
-        <FormField
-          as="select"
-          label="Location *"
-          value={stockForm.locationId || ''}
-          onChange={(e) =>
-            setStockForm({ ...stockForm, locationId: Number(e.target.value) })
-          }
-        >
-          <option value="">— Select location —</option>
-          {[...locations]
-            .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb))
-            .map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.breadcrumb || l.name}
-              </option>
-            ))}
-        </FormField>
-        <FormField
-          label="Quantity *"
-          type="number"
-          min={0}
-          value={stockForm.quantity}
-          onChange={(e) =>
-            setStockForm({ ...stockForm, quantity: Number(e.target.value) })
-          }
-        />
-        <FormField
-          label="Minimum Quantity"
-          type="number"
-          min={0}
-          value={stockForm.minimumQuantity}
-          onChange={(e) =>
-            setStockForm({ ...stockForm, minimumQuantity: Number(e.target.value) })
-          }
-        />
-        <FormField
-          label="Unit Price"
-          type="number"
-          min={0}
-          step={0.01}
-          placeholder="Optional"
-          value={stockForm.unitPrice ?? ''}
-          onChange={(e) =>
-            setStockForm({
-              ...stockForm,
-              unitPrice: e.target.value !== '' ? Number(e.target.value) : null,
-            })
-          }
-        />
-        <FormField
-          label="Comment"
-          placeholder="Optional note for the stock movement"
-          value={stockForm.comments ?? ''}
-          onChange={(e) =>
-            setStockForm({
-              ...stockForm,
-              comments: e.target.value !== '' ? e.target.value : null,
-            })
-          }
-        />
-        {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
-        <div className="flex justify-end gap-3">
-          <button
-            onClick={() => setStockModalOpen(false)}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSaveStock}
-            disabled={saving || !stockForm.locationId}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
+        {stockOp && (
+          <>
+            {/* Source / target location: a fixed line when operating on an existing entry. */}
+            {opEntry ? (
+              <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                  {stockOp === 'move' ? 'From' : 'Location'}
+                </div>
+                <div className="font-medium text-gray-800">
+                  {opEntry.locationBreadcrumb || opEntry.locationName}
+                </div>
+                <div className="text-xs text-gray-500">On hand: {opEntry.quantity}</div>
+              </div>
+            ) : (
+              <FormField
+                as="select"
+                label="Location *"
+                value={opForm.locationId || ''}
+                onChange={(e) => {
+                  // If the chosen location already holds stock, carry its threshold/price so a
+                  // top-level add doesn't reset them.
+                  const locId = Number(e.target.value);
+                  const existing = stock.find((s) => s.locationId === locId);
+                  setOpForm({
+                    ...opForm,
+                    locationId: locId,
+                    minimumQuantity: existing?.minimumQuantity ?? 0,
+                    unitPrice: existing?.unitPrice ?? null,
+                  });
+                }}
+              >
+                <option value="">— Select location —</option>
+                {[...locations]
+                  .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb))
+                  .map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.breadcrumb || l.name}
+                    </option>
+                  ))}
+              </FormField>
+            )}
+
+            {/* Destination picker — any user's location — for moves. */}
+            {stockOp === 'move' && (
+              <FormField
+                as="select"
+                label="To *"
+                value={opForm.destLocationId || ''}
+                onChange={(e) =>
+                  setOpForm({ ...opForm, destLocationId: Number(e.target.value) })
+                }
+              >
+                <option value="">— Select destination —</option>
+                {[...allLocations]
+                  .filter((l) => l.id !== opForm.locationId)
+                  .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb))
+                  .map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {(l.breadcrumb || l.name) + (l.ownerName ? ` · ${l.ownerName}` : '')}
+                    </option>
+                  ))}
+              </FormField>
+            )}
+
+            <FormField
+              label={
+                stockOp === 'add'
+                  ? 'Quantity to add *'
+                  : stockOp === 'take'
+                    ? 'Quantity to take *'
+                    : 'Quantity to move *'
+              }
+              type="number"
+              min={1}
+              max={stockOp === 'add' ? undefined : opEntry?.quantity}
+              value={opForm.quantity || ''}
+              onChange={(e) => setOpForm({ ...opForm, quantity: Number(e.target.value) })}
+            />
+
+            {/* Threshold + price only make sense when adding. */}
+            {stockOp === 'add' && (
+              <>
+                <FormField
+                  label="Minimum Quantity"
+                  type="number"
+                  min={0}
+                  value={opForm.minimumQuantity}
+                  onChange={(e) =>
+                    setOpForm({ ...opForm, minimumQuantity: Number(e.target.value) })
+                  }
+                />
+                <FormField
+                  label="Unit Price"
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  placeholder="Optional"
+                  value={opForm.unitPrice ?? ''}
+                  onChange={(e) =>
+                    setOpForm({
+                      ...opForm,
+                      unitPrice: e.target.value !== '' ? Number(e.target.value) : null,
+                    })
+                  }
+                />
+              </>
+            )}
+
+            <FormField
+              label="Comment"
+              placeholder="Optional note for the stock movement"
+              value={opForm.comment}
+              onChange={(e) => setOpForm({ ...opForm, comment: e.target.value })}
+            />
+
+            {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setStockOp(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitStockOp}
+                disabled={
+                  saving ||
+                  opForm.quantity < 1 ||
+                  (stockOp === 'add' && !opEntry && !opForm.locationId) ||
+                  (stockOp === 'move' && !opForm.destLocationId) ||
+                  (stockOp !== 'add' && !!opEntry && opForm.quantity > opEntry.quantity)
+                }
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {saving
+                  ? 'Saving…'
+                  : stockOp === 'add'
+                    ? 'Add stock'
+                    : stockOp === 'take'
+                      ? 'Take stock'
+                      : 'Move stock'}
+              </button>
+            </div>
+          </>
+        )}
       </Modal>
 
       {/* Find image modal */}

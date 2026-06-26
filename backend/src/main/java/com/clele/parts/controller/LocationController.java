@@ -1,6 +1,7 @@
 package com.clele.parts.controller;
 
 import com.clele.parts.dto.LocationDTO;
+import com.clele.parts.dto.LocationMergeRequest;
 import com.clele.parts.dto.LocationRequest;
 import com.clele.parts.dto.LocationTreeDTO;
 import com.clele.parts.service.LocationService;
@@ -56,6 +57,13 @@ public class LocationController {
     @Operation(summary = "Update a location")
     public LocationDTO update(@PathVariable Long id, @Valid @RequestBody LocationRequest request) {
         return locationService.update(id, request);
+    }
+
+    @PostMapping("/{id}/merge")
+    @Operation(summary = "Merge a location into another, moving its stock, then delete the source")
+    public ResponseEntity<Void> merge(@PathVariable Long id, @Valid @RequestBody LocationMergeRequest request) {
+        locationService.merge(id, request.getTargetId());
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")

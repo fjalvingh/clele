@@ -1,7 +1,9 @@
 package com.clele.parts.controller;
 
+import com.clele.parts.dto.StockAdjustRequest;
 import com.clele.parts.dto.StockEntryDTO;
 import com.clele.parts.dto.StockEntryRequest;
+import com.clele.parts.dto.StockMoveRequest;
 import com.clele.parts.service.StockEntryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -51,6 +53,25 @@ public class StockEntryController {
     @Operation(summary = "Update a stock entry")
     public StockEntryDTO update(@PathVariable Long id, @Valid @RequestBody StockEntryRequest request) {
         return stockEntryService.update(id, request);
+    }
+
+    @PostMapping("/add")
+    @Operation(summary = "Add a quantity of stock at a location (creates the entry if needed)")
+    public StockEntryDTO add(@Valid @RequestBody StockAdjustRequest request) {
+        return stockEntryService.addStock(request);
+    }
+
+    @PostMapping("/take")
+    @Operation(summary = "Take a quantity of stock from a location")
+    public StockEntryDTO take(@Valid @RequestBody StockAdjustRequest request) {
+        return stockEntryService.takeStock(request);
+    }
+
+    @PostMapping("/move")
+    @Operation(summary = "Move a quantity of stock from one location to another (destination may belong to any user)")
+    public ResponseEntity<Void> move(@Valid @RequestBody StockMoveRequest request) {
+        stockEntryService.move(request);
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/{id}")

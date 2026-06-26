@@ -27,8 +27,10 @@ import type {
   QuickAddResponse,
   SpecDefinition,
   SpecDefinitionRequest,
+  StockAdjustRequest,
   StockEntry,
   StockEntryRequest,
+  StockMoveRequest,
   StockMovement,
   User,
   UserRequest,
@@ -120,6 +122,10 @@ export const updateLocation = (id: number, data: LocationRequest) =>
 export const deleteLocation = (id: number) =>
   client.delete(`/locations/${id}`);
 
+// Merge a location into another: its stock moves to the target, then the source is deleted.
+export const mergeLocation = (id: number, targetId: number) =>
+  client.post(`/locations/${id}/merge`, { targetId });
+
 // Auth
 export const login = (email: string, password: string) =>
   client.post<AuthUser>('/auth/login', { email, password }).then((r) => r.data);
@@ -167,6 +173,18 @@ export const updateStockEntry = (id: number, data: StockEntryRequest) =>
 
 export const deleteStockEntry = (id: number) =>
   client.delete(`/stock/${id}`);
+
+// Add a quantity of stock at a location (creates the entry if needed).
+export const addStock = (data: StockAdjustRequest) =>
+  client.post<StockEntry>('/stock/add', data).then((r) => r.data);
+
+// Take a quantity of stock from a location.
+export const takeStock = (data: StockAdjustRequest) =>
+  client.post<StockEntry>('/stock/take', data).then((r) => r.data);
+
+// Move a quantity of stock from one location to another (destination may belong to any user).
+export const moveStock = (data: StockMoveRequest) =>
+  client.post('/stock/move', data);
 
 // Dashboard
 export const getDashboard = () =>

@@ -78,7 +78,7 @@ frontend/src/
     canonical PostgreSQL schema) so HTTP sessions persist in the DB and logins survive an app
     restart (see Authentication below). These tables are not JPA-mapped, so their `CHAR(36)`
     columns are exempt from `ddl-auto: validate`
-  - V17 adds `stock_movement.type` (`MovementType`: PURCHASE/CONSUME/ADJUST/INITIAL/IMPORT) and
+  - V17 adds `stock_movement.type` (`MovementType`: PURCHASE/CONSUME/ADJUST/INITIAL/MOVE/IMPORT) and
     backfills the ledger so the invariant `stock_entry.quantity == Σ stock_movement.quantity` holds
     for every (part, location): existing importer movements are tagged `IMPORT`, and each drifted
     aggregate (manual edits made before the funnel existed) gets one reconciling movement (see Stock
@@ -221,7 +221,17 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   stock negative. All manual paths route through it: `StockEntryService.create` (delta `+qty`,
   `INITIAL`), `update` (delta `new−old`, `ADJUST`; a min-qty/price-only edit writes no movement),
   `delete` (delta `−qty`, `ADJUST`, then drops the row); `QuickAddService` (delta `+qty`, `INITIAL`).
-  The UI keeps the absolute "set quantity to N" form — the backend derives the delta.
+- **Part detail stock operations** are the explicit user-facing verbs (no "Edit" — adjusting an
+  absolute quantity was unclear): `StockEntryService.addStock` (delta `+qty`, `PURCHASE`, find-or-
+  create, also (re)sets the threshold/price), `takeStock` (delta `−qty`, `CONSUME`), and `move`
+  (transfer between two locations). Each is a `POST /api/stock/{add,take,move}`. **Move** writes two
+  `MOVE` movements — a negative leg at the source and a positive leg at the destination, each with a
+  comment naming the other location ("Moved to …" / "Moved from …") for a clear trace — and carries
+  the source entry's unit price to the moved stock. The source must be owned by the current user, but
+  the **destination may belong to any user**: the source leg goes through `apply` (own-location
+  guard) while the destination leg uses `StockMovementService.applyNoOwnershipCheck` (no guard).
+  `StockEntryDTO.ownerId` lets the Part Detail page show add/take/move/remove only on the current
+  user's own stock lines.
 - The Partsbox importer keeps its own dated-movement loop (movements tagged `IMPORT`, entry = Σ) — it
   was already consistent. `POST /api/stock/reconcile` (`PARTS_EDIT`) realigns every aggregate to its
   ledger and returns `{corrected: n}` — a verification/safety-net hook (expect 0 in steady state).
@@ -262,6 +272,19 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   parent chain) is the single source. `StockEntryDTO`/`StockMovementDTO` carry both `locationName`
   (leaf) and `locationBreadcrumb` (full path); the Part Detail stock + movement tables, the Low Stock
   table, and the "Remove stock at …" confirm all render the breadcrumb (falling back to the leaf).
+- **Merge into** (`POST /api/locations/{id}/merge` `{targetId}` → `LocationService.merge`): folds a
+  location into another, then deletes the source. The source must be manageable by the caller (its
+  owner or an admin); the **target may belong to any user**. **History is preserved**: each source
+  `stock_entry`'s on-hand qty is folded into the target's aggregate (find-or-create, carrying price),
+  and the source's whole ledger is **re-pointed** to the target
+  (`StockMovementRepository.repointLocation`) so every movement keeps its original type, price, date
+  and author under the target location — no new movements are written (that would double-count the
+  re-pointed history). The re-point also frees the source of `stock_movement` references (the
+  `location` FK has no cascade); the now-empty source `stock_entry` rows are dropped and the location
+  deleted. Folding-the-aggregate + re-pointing-the-ledger keeps the invariant `Σ(target movements) ==
+  target on-hand` per part. Rejects self-merge and a source with sub-locations. The Locations page
+  exposes a per-node "Merge into" action (gated by `canManage`) opening a modal that picks any
+  location as the target.
 - **Last-used location** (replaces the old "default location", V22): `app_user.last_location_id` (FK,
   `ON DELETE SET NULL`) records the location a user most recently added stock to. It is **not** a
   managed account field — `CurrentUserService.rememberLastLocation(location)` updates it inside the
@@ -456,9 +479,12 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   filename for datasheets/attachments)
 - `GET/POST /categories`, `GET/PUT/DELETE /categories/{id}`, `GET /categories/tree`
 - `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`, `GET /locations/tree` (nested hierarchy),
-  `GET /locations/mine` (current user's own, for stock pickers)
-- `GET/POST /stock-entries`, `GET/PUT/DELETE /stock-entries/{id}`; `POST /stock/reconcile` realigns
-  every stock entry to its ledger sum (requires `PARTS_EDIT`)
+  `GET /locations/mine` (current user's own, for stock pickers); `POST /locations/{id}/merge`
+  (`{targetId}`) moves the location's stock into another location and deletes the source
+- `GET/POST /stock-entries`, `GET/PUT/DELETE /stock-entries/{id}`; `POST /stock/{add,take,move}` are
+  the Part Detail stock verbs (add / take / move-between-locations, move's destination may be any
+  user's location); `POST /stock/reconcile` realigns every stock entry to its ledger sum (requires
+  `PARTS_EDIT`)
 - `GET /dashboard`
 - `GET /parts-search?q=` — AI part search
 - `GET /parts-search/images?q=` — image suggestions

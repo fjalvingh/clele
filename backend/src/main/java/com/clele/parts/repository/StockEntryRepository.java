@@ -16,6 +16,11 @@ public interface StockEntryRepository extends JpaRepository<StockEntry, Long> {
     @Query("SELECT s FROM StockEntry s JOIN FETCH s.part JOIN FETCH s.location WHERE s.part.id = :partId AND s.location.id = :locationId")
     Optional<StockEntry> findByPartIdAndLocationId(Long partId, Long locationId);
 
+    @Query("SELECT s FROM StockEntry s JOIN FETCH s.part JOIN FETCH s.location WHERE s.location.id = :locationId")
+    List<StockEntry> findByLocationId(Long locationId);
+
+    void deleteByLocationId(Long locationId);
+
     @Query("SELECT s FROM StockEntry s JOIN FETCH s.part JOIN FETCH s.location WHERE s.quantity < s.minimumQuantity")
     List<StockEntry> findLowStock();
 

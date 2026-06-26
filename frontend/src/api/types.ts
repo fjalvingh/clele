@@ -164,11 +164,31 @@ export interface StockEntry {
   locationId: number;
   locationName: string;
   locationBreadcrumb: string;
+  ownerId?: number;
   ownerName?: string;
   quantity: number;
   minimumQuantity: number;
   lowStock: boolean;
   unitPrice?: number | null;
+}
+
+/** Add or take a quantity of stock at a single location. */
+export interface StockAdjustRequest {
+  partId: number;
+  locationId: number;
+  quantity: number;
+  unitPrice?: number | null;
+  minimumQuantity?: number;
+  comments?: string | null;
+}
+
+/** Move a quantity of stock from one location to another (destination may belong to any user). */
+export interface StockMoveRequest {
+  partId: number;
+  fromLocationId: number;
+  toLocationId: number;
+  quantity: number;
+  comments?: string | null;
 }
 
 export interface StockMovement {

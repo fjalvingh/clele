@@ -5,6 +5,7 @@ import {
   getLocations,
   getLocationTree,
   getUsers,
+  mergeLocation,
   updateLocation,
 } from '../api';
 import type { Location, LocationRequest, LocationTree, User } from '../api/types';
@@ -17,12 +18,13 @@ interface TreeNodeProps {
   node: LocationTree;
   onEdit: (loc: Location) => void;
   onDelete: (loc: Location) => void;
+  onMerge: (loc: Location) => void;
   onAddChild: (parentId: number) => void;
   canManage: (loc: Location) => boolean;
   locations: Location[];
 }
 
-function TreeNode({ node, onEdit, onDelete, onAddChild, canManage, locations }: TreeNodeProps) {
+function TreeNode({ node, onEdit, onDelete, onMerge, onAddChild, canManage, locations }: TreeNodeProps) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children && node.children.length > 0;
   const fullLoc = locations.find((l) => l.id === node.id);
@@ -65,6 +67,14 @@ function TreeNode({ node, onEdit, onDelete, onAddChild, canManage, locations }: 
           )}
           {manageable && fullLoc && (
             <button
+              onClick={() => onMerge(fullLoc)}
+              className="rounded px-2 py-0.5 text-xs text-amber-600 hover:bg-amber-50"
+            >
+              Merge into
+            </button>
+          )}
+          {manageable && fullLoc && (
+            <button
               onClick={() => onDelete(fullLoc)}
               className="rounded px-2 py-0.5 text-xs text-red-600 hover:bg-red-50"
             >
@@ -81,6 +91,7 @@ function TreeNode({ node, onEdit, onDelete, onAddChild, canManage, locations }: 
               node={child}
               onEdit={onEdit}
               onDelete={onDelete}
+              onMerge={onMerge}
               onAddChild={onAddChild}
               canManage={canManage}
               locations={locations}
@@ -135,6 +146,10 @@ export default function LocationsPage() {
   const [form, setForm] = useState<LocationRequest>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [mergeSource, setMergeSource] = useState<Location | null>(null);
+  const [mergeTarget, setMergeTarget] = useState<number | ''>('');
+  const [merging, setMerging] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -202,6 +217,35 @@ export default function LocationsPage() {
     }
   };
 
+  const openMerge = (loc: Location) => {
+    setMergeSource(loc);
+    setMergeTarget('');
+    setMergeError(null);
+  };
+
+  const handleMerge = async () => {
+    if (!mergeSource || !mergeTarget) return;
+    setMerging(true);
+    setMergeError(null);
+    try {
+      await mergeLocation(mergeSource.id, Number(mergeTarget));
+      setMergeSource(null);
+      load();
+    } catch (e: unknown) {
+      setMergeError((e as Error).message);
+    } finally {
+      setMerging(false);
+    }
+  };
+
+  // Merge targets: every other location (any owner), labelled with its full path + owner.
+  const mergeTargets = locations
+    .filter((l) => l.id !== mergeSource?.id)
+    .sort((a, b) =>
+      (a.ownerName ?? '').localeCompare(b.ownerName ?? '') ||
+      a.breadcrumb.localeCompare(b.breadcrumb)
+    );
+
   // Parent candidates: locations owned by the effective owner (the editing location's owner, which
   // an admin may reassign, or the current user when creating), minus the edited node's subtree.
   const effectiveOwnerId = editing ? form.ownerId : user?.id;
@@ -233,6 +277,7 @@ export default function LocationsPage() {
                 node={root}
                 onEdit={openEdit}
                 onDelete={handleDelete}
+                onMerge={openMerge}
                 onAddChild={(parentId) => openCreate(parentId)}
                 canManage={canManage}
                 locations={locations}
@@ -311,6 +356,48 @@ export default function LocationsPage() {
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={mergeSource !== null}
+        onClose={() => setMergeSource(null)}
+        title={`Merge "${mergeSource?.name ?? ''}" into…`}
+      >
+        <p className="mb-4 text-sm text-gray-600">
+          All stock in <span className="font-medium">{mergeSource?.breadcrumb}</span> will be moved
+          to the selected location (recorded in stock movements), and this location will then be
+          deleted.
+        </p>
+        <FormField
+          as="select"
+          label="Target Location *"
+          value={mergeTarget}
+          onChange={(e) => setMergeTarget(e.target.value ? Number(e.target.value) : '')}
+        >
+          <option value="">— Select a location —</option>
+          {mergeTargets.map((loc) => (
+            <option key={loc.id} value={loc.id}>
+              {loc.breadcrumb}
+              {loc.ownerName ? ` (${loc.ownerName})` : ''}
+            </option>
+          ))}
+        </FormField>
+        {mergeError && <p className="mb-3 text-sm text-red-600">{mergeError}</p>}
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={() => setMergeSource(null)}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleMerge}
+            disabled={merging || !mergeTarget}
+            className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {merging ? 'Merging…' : 'Merge'}
           </button>
         </div>
       </Modal>
