@@ -167,6 +167,9 @@ export default function QuickAddPage() {
   // Spec fields (no category for quick-add; show all definitions)
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
   const [specValues, setSpecValues] = useState<Record<string, string>>({});
+  // jsonNames of the spec fields currently shown on the form. Starts with the specs
+  // pre-filled by the lookup; the user adds more via the "Add specification" combobox.
+  const [visibleSpecs, setVisibleSpecs] = useState<Set<string>>(new Set());
 
   // Image suggestions
   const [imageSuggestions, setImageSuggestions] = useState<ImageSuggestion[]>([]);
@@ -203,10 +206,15 @@ export default function QuickAddPage() {
           }
         }
         const prefilled: Record<string, string> = {};
+        const filled = new Set<string>();
         for (const def of defs) {
-          prefilled[def.jsonName] = aiSpecs[def.jsonName] ?? '';
+          const v = aiSpecs[def.jsonName] ?? '';
+          prefilled[def.jsonName] = v;
+          if (v !== '') filled.add(def.jsonName);
         }
         setSpecValues(prefilled);
+        // Initially only show specs the lookup actually filled in.
+        setVisibleSpecs(filled);
       })
       .finally(() => setLocLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -277,6 +285,7 @@ export default function QuickAddPage() {
     setImageSuggestions([]);
     setImageQuery(result.mpn);
     setSpecValues({});
+    setVisibleSpecs(new Set());
     setStep(3);
 
     // Kick off image search in the background so results are ready by the time the user submits
@@ -310,9 +319,10 @@ export default function QuickAddPage() {
     setSaving(true);
     setSaveError(null);
 
-    // Only include spec values that match a definition and are non-empty
+    // Only include spec values that are shown on the form and are non-empty
     const specs: Record<string, string> = {};
     for (const def of specDefs) {
+      if (!visibleSpecs.has(def.jsonName)) continue;
       const v = specValues[def.jsonName];
       if (v !== undefined && v !== '') {
         specs[def.jsonName] = v;
@@ -376,6 +386,127 @@ export default function QuickAddPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // Render the input control for one spec definition (label + field), matching its data type.
+  function renderSpecField(spec: SpecDefinition) {
+    if (spec.dataType === 'BOOLEAN') {
+      return (
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={specValues[spec.jsonName] === 'true'}
+            onChange={(e) =>
+              setSpecValues((prev) => ({
+                ...prev,
+                [spec.jsonName]: e.target.checked ? 'true' : 'false',
+              }))
+            }
+            className="rounded border-gray-300 text-blue-600"
+          />
+          <span className="text-sm font-medium text-gray-700">{spec.name}</span>
+        </label>
+      );
+    }
+    if (spec.dataType === 'SELECT' && spec.options && spec.options.length > 0) {
+      return (
+        <>
+          <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
+          <select
+            value={specValues[spec.jsonName] ?? ''}
+            onChange={(e) =>
+              setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
+            }
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">— Select —</option>
+            {spec.options.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </>
+      );
+    }
+    if (spec.dataType === 'NUMBER') {
+      const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
+      const isMulti = units.length > 1;
+      const currentVal = specValues[spec.jsonName] ?? '';
+      if (!isMulti && spec.metricPrefix && units[0]) {
+        return (
+          <MetricNumberField
+            label={spec.name}
+            unit={units[0]}
+            value={currentVal}
+            onChange={(val) =>
+              setSpecValues((prev) => ({ ...prev, [spec.jsonName]: val }))
+            }
+            labelClassName="block text-sm font-medium text-gray-700 mb-1"
+            inputClassName="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            selectClassName="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        );
+      }
+      if (isMulti) {
+        let numPart = currentVal, unitPart = units[0] ?? '';
+        for (const u of units) {
+          if (currentVal.endsWith(' ' + u)) { numPart = currentVal.slice(0, -(u.length + 1)); unitPart = u; break; }
+        }
+        return (
+          <>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                step="any"
+                value={numPart}
+                onChange={(e) =>
+                  setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value ? e.target.value + ' ' + unitPart : '' }))
+                }
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <select
+                value={unitPart}
+                onChange={(e) =>
+                  setSpecValues((prev) => ({ ...prev, [spec.jsonName]: numPart ? numPart + ' ' + e.target.value : '' }))
+                }
+                className="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {units.map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+          </>
+        );
+      }
+      return (
+        <>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            {spec.name}{units[0] ? ` (${units[0]})` : ''}
+          </label>
+          <input
+            type="number"
+            step="any"
+            value={currentVal}
+            onChange={(e) =>
+              setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
+            }
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </>
+      );
+    }
+    return (
+      <>
+        <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
+        <input
+          type="text"
+          value={specValues[spec.jsonName] ?? ''}
+          onChange={(e) =>
+            setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
+          }
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+      </>
+    );
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -578,142 +709,6 @@ export default function QuickAddPage() {
             </div>
           </div>
 
-          {/* Spec fields */}
-          {!locLoading && specDefs.length > 0 && (
-            <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">Specifications</h2>
-              <p className="text-xs text-gray-400 mb-4">
-                Pre-filled from AI search results where names match. No category assigned yet.
-              </p>
-              <div className="grid grid-cols-2 gap-x-4">
-                {specDefs.map((spec) => {
-                  if (spec.dataType === 'BOOLEAN') {
-                    return (
-                      <div key={spec.id} className="mb-4">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={specValues[spec.jsonName] === 'true'}
-                            onChange={(e) =>
-                              setSpecValues((prev) => ({
-                                ...prev,
-                                [spec.jsonName]: e.target.checked ? 'true' : 'false',
-                              }))
-                            }
-                            className="rounded border-gray-300 text-blue-600"
-                          />
-                          <span className="text-sm font-medium text-gray-700">{spec.name}</span>
-                        </label>
-                      </div>
-                    );
-                  }
-                  if (spec.dataType === 'SELECT' && spec.options && spec.options.length > 0) {
-                    return (
-                      <div key={spec.id} className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {spec.name}
-                        </label>
-                        <select
-                          value={specValues[spec.jsonName] ?? ''}
-                          onChange={(e) =>
-                            setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
-                          }
-                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        >
-                          <option value="">— Select —</option>
-                          {spec.options.map((opt) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      </div>
-                    );
-                  }
-                  if (spec.dataType === 'NUMBER') {
-                    const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
-                    const isMulti = units.length > 1;
-                    const currentVal = specValues[spec.jsonName] ?? '';
-                    if (!isMulti && spec.metricPrefix && units[0]) {
-                      return (
-                        <MetricNumberField
-                          key={spec.id}
-                          label={spec.name}
-                          unit={units[0]}
-                          value={currentVal}
-                          onChange={(val) =>
-                            setSpecValues((prev) => ({ ...prev, [spec.jsonName]: val }))
-                          }
-                          labelClassName="block text-sm font-medium text-gray-700 mb-1"
-                          inputClassName="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          selectClassName="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                      );
-                    }
-                    if (isMulti) {
-                      let numPart = currentVal, unitPart = units[0] ?? '';
-                      for (const u of units) {
-                        if (currentVal.endsWith(' ' + u)) { numPart = currentVal.slice(0, -(u.length + 1)); unitPart = u; break; }
-                      }
-                      return (
-                        <div key={spec.id} className="mb-4">
-                          <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
-                          <div className="flex gap-2">
-                            <input
-                              type="number"
-                              step="any"
-                              value={numPart}
-                              onChange={(e) =>
-                                setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value ? e.target.value + ' ' + unitPart : '' }))
-                              }
-                              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            />
-                            <select
-                              value={unitPart}
-                              onChange={(e) =>
-                                setSpecValues((prev) => ({ ...prev, [spec.jsonName]: numPart ? numPart + ' ' + e.target.value : '' }))
-                              }
-                              className="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            >
-                              {units.map((u) => <option key={u} value={u}>{u}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                      );
-                    }
-                    return (
-                      <div key={spec.id} className="mb-4">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          {spec.name}{units[0] ? ` (${units[0]})` : ''}
-                        </label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={currentVal}
-                          onChange={(e) =>
-                            setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
-                          }
-                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        />
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={spec.id} className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
-                      <input
-                        type="text"
-                        value={specValues[spec.jsonName] ?? ''}
-                        onChange={(e) =>
-                          setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
-                        }
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* Stock details */}
           <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Stock details</h2>
@@ -886,6 +881,68 @@ export default function QuickAddPage() {
             );
           })()}
 
+          {/* Spec fields — at the bottom. Shows only specs the lookup filled in; more can be
+              added on demand via the combobox. */}
+          {!locLoading && specDefs.length > 0 && (() => {
+            const shownDefs = specDefs.filter((d) => visibleSpecs.has(d.jsonName));
+            const availableDefs = specDefs.filter((d) => !visibleSpecs.has(d.jsonName));
+            return (
+              <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+                <h2 className="text-lg font-semibold text-gray-900 mb-1">Specifications</h2>
+                <p className="text-xs text-gray-400 mb-4">
+                  Pre-filled from AI search results where names match. Add more fields below.
+                </p>
+                {shownDefs.length > 0 && (
+                  <div className="grid grid-cols-2 gap-x-4">
+                    {shownDefs.map((spec) => (
+                      <div key={spec.id} className="mb-4 flex items-start gap-2">
+                        <div className="min-w-0 flex-1">{renderSpecField(spec)}</div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setVisibleSpecs((prev) => {
+                              const next = new Set(prev);
+                              next.delete(spec.jsonName);
+                              return next;
+                            })
+                          }
+                          title="Remove this specification"
+                          aria-label={`Remove ${spec.name}`}
+                          className="mt-7 shrink-0 text-gray-400 hover:text-red-600"
+                        >
+                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {availableDefs.length > 0 && (
+                  <div className="max-w-xs">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Add a specification
+                    </label>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const jsonName = e.target.value;
+                        if (!jsonName) return;
+                        setVisibleSpecs((prev) => new Set(prev).add(jsonName));
+                      }}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="">— Select a specification… —</option>
+                      {availableDefs.map((d) => (
+                        <option key={d.id} value={d.jsonName}>{d.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {saveError && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
