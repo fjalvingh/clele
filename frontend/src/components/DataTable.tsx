@@ -14,6 +14,8 @@ interface DataTableProps<T> {
   emptyMessage?: string;
   /** Size the table to its content (columns take their natural width) instead of filling the row. */
   autoWidth?: boolean;
+  /** Called when a row is clicked; adds cursor-pointer to rows. */
+  onRowClick?: (row: T) => void;
 }
 
 export default function DataTable<T>({
@@ -23,6 +25,7 @@ export default function DataTable<T>({
   actions,
   emptyMessage = 'No data found.',
   autoWidth = false,
+  onRowClick,
 }: DataTableProps<T>) {
   return (
     <div
@@ -64,7 +67,11 @@ export default function DataTable<T>({
             </tr>
           ) : (
             data.map((row) => (
-              <tr key={keyExtractor(row)} className="transition-colors hover:bg-blue-50/40">
+              <tr
+                key={keyExtractor(row)}
+                className={`transition-colors hover:bg-blue-50/40${onRowClick ? ' cursor-pointer' : ''}`}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+              >
                 {columns.map((col) => (
                   <td key={col.key} className="px-4 py-3 text-gray-700">
                     {col.render

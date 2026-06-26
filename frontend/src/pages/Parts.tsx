@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createPart,
   deletePart,
@@ -169,6 +169,7 @@ type SortKey = 'partNumber' | 'manufacturer';
 export default function PartsPage() {
   const { hasPermission } = useAuth();
   const canEdit = hasPermission('PARTS_EDIT');
+  const navigate = useNavigate();
   // Search criteria are mirrored in the URL query string so navigating into a part and back
   // (or reloading) restores the same results instead of showing an empty list.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -383,15 +384,7 @@ export default function PartsPage() {
       key: 'partNumber',
       header: 'Part #',
       render: (row) => (
-        <Link
-          to={`/parts/${row.id}`}
-          // Pass the current search query so the part page's breadcrumb can return to
-          // these exact results instead of an empty Parts page.
-          state={{ from: searchParams.toString() ? `/parts?${searchParams.toString()}` : '/parts' }}
-          className="font-mono text-blue-600 hover:underline"
-        >
-          {row.partNumber}
-        </Link>
+        <span className="font-mono text-blue-600">{row.partNumber}</span>
       ),
     },
     { key: 'description', header: 'Description', render: (r) => r.description ?? '—' },
@@ -535,10 +528,15 @@ export default function PartsPage() {
           columns={columns}
           data={parts}
           keyExtractor={(p) => p.id}
+          onRowClick={(part) =>
+            navigate(`/parts/${part.id}`, {
+              state: { from: searchParams.toString() ? `/parts?${searchParams.toString()}` : '/parts' },
+            })
+          }
           actions={
             canEdit
               ? (part) => (
-                  <div className="flex justify-end gap-2">
+                  <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={() => openEdit(part)}
                       className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
