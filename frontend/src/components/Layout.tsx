@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { getUnreadChanges, markChangesRead } from '../api';
 import { useAuth } from '../auth/AuthContext';
+import ChangesPanel from './ChangesPanel';
 
 // Shared stroke style for the nav glyphs — matches the icons on the Dashboard
 // so the whole app speaks one visual language instead of mixing emoji in.
@@ -110,6 +112,23 @@ const BrandMark = (
 export default function Layout() {
   const { user, hasPermission, logout } = useAuth();
   const navigate = useNavigate();
+  const [changesPanel, setChangesPanel] = useState<{ html: string; latestDate: string } | null>(null);
+
+  useEffect(() => {
+    getUnreadChanges()
+      .then((data) => {
+        if (data.count > 0 && data.latestDate) {
+          setChangesPanel({ html: data.html, latestDate: data.latestDate });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleMarkRead = async () => {
+    if (!changesPanel) return;
+    await markChangesRead(changesPanel.latestDate).catch(() => {});
+    setChangesPanel(null);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -199,6 +218,15 @@ export default function Layout() {
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
+
+      {changesPanel && (
+        <ChangesPanel
+          html={changesPanel.html}
+          latestDate={changesPanel.latestDate}
+          onMarkRead={handleMarkRead}
+          onClose={() => setChangesPanel(null)}
+        />
+      )}
     </div>
   );
 }

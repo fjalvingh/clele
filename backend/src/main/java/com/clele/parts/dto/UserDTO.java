@@ -20,4 +20,6 @@ public class UserDTO {
     private String lastLocationName;
     /** Whether the user has OctoPart (Nexar) credentials configured. Used to gate the UI. */
     private boolean hasOctopartCredentials;
+    /** 8-digit date of the last changelog entry the user acknowledged. Null if never read. */
+    private String lastReadChanges;
 }

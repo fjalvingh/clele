@@ -44,6 +44,10 @@ public class AppUser {
     @JoinColumn(name = "last_location_id")
     private Location lastLocation;
 
+    /** 8-digit date string of the last changelog entry the user acknowledged (e.g. "20260623"). */
+    @Column(name = "last_read_changes", length = 8)
+    private String lastReadChanges;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "app_user_permission", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "permission", nullable = false)

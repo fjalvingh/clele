@@ -136,6 +136,14 @@ export interface User {
   lastLocationId?: number;
   lastLocationName?: string;
   hasOctopartCredentials?: boolean;
+  /** 8-digit date of the last changelog entry the user acknowledged, e.g. "20260623". */
+  lastReadChanges?: string;
+}
+
+export interface UnreadChanges {
+  html: string;
+  latestDate?: string;
+  count: number;
 }
 
 export interface UserRequest {

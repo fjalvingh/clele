@@ -32,6 +32,7 @@ import type {
   StockEntryRequest,
   StockMoveRequest,
   StockMovement,
+  UnreadChanges,
   User,
   UserRequest,
 } from './types';
@@ -269,3 +270,10 @@ export const getOctopartCredentials = () =>
 
 export const updateOctopartCredentials = (data: OctopartCredentialsRequest) =>
   client.put<OctopartCredentialsStatus>('/profile/octopart', data).then((r) => r.data);
+
+// Changelog
+export const getUnreadChanges = () =>
+  client.get<UnreadChanges>('/changes/unread').then((r) => r.data);
+
+export const markChangesRead = (date: string) =>
+  client.post('/changes/mark-read', { date });

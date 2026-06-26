@@ -14,6 +14,7 @@ import org.springframework.stereotype.Component;
 public class AppProperties {
 
     private final Currency currency = new Currency();
+    private final Changes changes = new Changes();
 
     /** The single currency the whole app reports prices in. */
     @Data
@@ -22,5 +23,12 @@ public class AppProperties {
         private String code = "EUR";
         /** Symbol used for display, e.g. {@code €}. */
         private String symbol = "€";
+    }
+
+    /** Changelog notification settings. */
+    @Data
+    public static class Changes {
+        /** Directory containing {@code YYYYMMDD.html} changelog entries and their images. */
+        private String dir = "./changes";
     }
 }

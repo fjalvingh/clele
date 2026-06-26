@@ -27,6 +27,7 @@ public class UserService {
     private final AppUserRepository userRepository;
     private final LocationRepository locationRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ChangesService changesService;
 
     public List<UserDTO> findAll() {
         return userRepository.findAll().stream()
@@ -65,6 +66,7 @@ public class UserService {
                 .owner(user)
                 .build());
         user.setLastLocation(initialLocation);
+        user.setLastReadChanges(changesService.getLatestDate());
         return toDTO(userRepository.save(user));
     }
 
@@ -125,6 +127,7 @@ public class UserService {
                 .hasOctopartCredentials(
                         user.getOctopartClientId() != null && !user.getOctopartClientId().isBlank()
                         && user.getOctopartClientSecret() != null && !user.getOctopartClientSecret().isBlank())
+                .lastReadChanges(user.getLastReadChanges())
                 .build();
     }
 }
