@@ -86,10 +86,6 @@ public class LocationService {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "Only admins can reassign a location to another user");
             }
-            if (userRepository.existsByDefaultLocationId(id)) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "This location is a user's default location and cannot be reassigned");
-            }
             // Children share their parent's owner; reassigning a parent would break that invariant.
             if (locationRepository.existsByParentId(id)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -129,10 +125,8 @@ public class LocationService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Cannot delete a location that has sub-locations. Delete or move them first.");
         }
-        if (userRepository.existsByDefaultLocationId(id)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "This location is a user's default location and cannot be deleted");
-        }
+        // A user's last-used pointer (app_user.last_location_id) is cleared automatically on
+        // delete (ON DELETE SET NULL), so it does not block deletion.
         if (stockEntryRepository.existsByLocationId(id) || stockMovementRepository.existsByLocationId(id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "This location has stock or stock history and cannot be deleted");

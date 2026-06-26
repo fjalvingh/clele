@@ -134,7 +134,7 @@ function displayUrl(img: { url: string; thumbnailUrl?: string }) {
 
 export default function QuickAddPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const [step, setStep] = useState(1);
 
   // Step 1
@@ -185,14 +185,14 @@ export default function QuickAddPage() {
     Promise.all([getMyLocations(), getSpecDefinitions()])
       .then(([locs, defs]) => {
         setLocations(locs);
-        // Resolve the selected location: keep the remembered one if it's still one of the
-        // user's own locations, otherwise fall back to the user's default location.
+        // Resolve the selected location: keep the current choice if it's still one of the user's
+        // own locations, otherwise fall back to the location they last added stock to.
         const savedLocId = form.locationId;
         const validSaved = savedLocId && locs.some((l: Location) => String(l.id) === savedLocId);
         if (!validSaved) {
           const fallback =
-            user?.defaultLocationId && locs.some((l: Location) => l.id === user.defaultLocationId)
-              ? String(user.defaultLocationId)
+            user?.lastLocationId && locs.some((l: Location) => l.id === user.lastLocationId)
+              ? String(user.lastLocationId)
               : '';
           setForm((prev) => ({ ...prev, locationId: fallback }));
         }
@@ -273,7 +273,7 @@ export default function QuickAddPage() {
       description: result.shortDescription ?? '',
       manufacturer: result.manufacturer ?? '',
       datasheetUrl: result.datasheetUrl ?? '',
-      locationId: localStorage.getItem('quickadd.lastLocationId') ?? '',
+      locationId: '', // resolved to the last-used location when step 3 loads the user's locations
       quantity: '1',
       minimumQuantity: '1',
       unitPrice: '',
@@ -316,6 +316,10 @@ export default function QuickAddPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!form.locationId) {
+      setSaveError('Please select a location.');
+      return;
+    }
     setSaving(true);
     setSaveError(null);
 
@@ -344,7 +348,9 @@ export default function QuickAddPage() {
 
     try {
       const response = await quickAddPart(payload);
-      localStorage.setItem('quickadd.lastLocationId', form.locationId);
+      // The backend now remembers this as the user's last-used location; refresh so the next
+      // Quick Add pre-selects it.
+      refresh();
       const partId = response.part.id;
 
       // Upload selected images: fetch via our same-origin proxy, then upload as multipart.
@@ -971,7 +977,7 @@ export default function QuickAddPage() {
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || !form.locationId}
               className="rounded-lg bg-green-600 px-6 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
             >
               {saving ? 'Saving…' : 'Add to stock'}

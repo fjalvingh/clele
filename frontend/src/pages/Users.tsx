@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { createUser, deletePartsByUser, deleteUser, getLocations, getUsers, updateUser } from '../api';
-import { PERMISSIONS, type Location, type User, type UserRequest } from '../api/types';
+import { createUser, deletePartsByUser, deleteUser, getUsers, updateUser } from '../api';
+import { PERMISSIONS, type User, type UserRequest } from '../api/types';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
@@ -12,7 +12,7 @@ const emptyForm = (): UserRequest => ({
   fullName: '',
   phone: '',
   permissions: [],
-  defaultLocationName: '',
+  initialLocationName: '',
 });
 
 const permLabel = (key: string) =>
@@ -20,7 +20,6 @@ const permLabel = (key: string) =>
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
-  const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -35,10 +34,6 @@ export default function UsersPage() {
       .then(setUsers)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-    // Used to populate the default-location picker on the edit form.
-    getLocations()
-      .then(setLocations)
-      .catch(() => setLocations([]));
   };
 
   useEffect(load, []);
@@ -58,7 +53,6 @@ export default function UsersPage() {
       fullName: u.fullName ?? '',
       phone: u.phone ?? '',
       permissions: [...u.permissions],
-      defaultLocationId: u.defaultLocationId,
     });
     setFormError(null);
     setModalOpen(true);
@@ -123,11 +117,6 @@ export default function UsersPage() {
     { key: 'email', header: 'Email' },
     { key: 'phone', header: 'Phone', render: (u) => u.phone || '—' },
     {
-      key: 'defaultLocationName',
-      header: 'Default location',
-      render: (u) => u.defaultLocationName || '—',
-    },
-    {
       key: 'permissions',
       header: 'Permissions',
       render: (u) =>
@@ -135,18 +124,13 @@ export default function UsersPage() {
     },
   ];
 
-  // Locations owned by the user being edited (for the default-location picker).
-  const ownedLocations = editing
-    ? locations.filter((l) => l.ownerId === editing.id)
-    : [];
-
-  // On create the password and a default-location name are required; on edit the password
-  // is optional (blank keeps current) and the default location is picked from owned ones.
+  // On create the password and an initial-location name are required; on edit the password
+  // is optional (blank keeps current).
   const saveDisabled =
     saving ||
     !form.email.trim() ||
     (!editing && !(form.password ?? '').trim()) ||
-    (!editing && !(form.defaultLocationName ?? '').trim());
+    (!editing && !(form.initialLocationName ?? '').trim());
 
   return (
     <div className="p-8">
@@ -225,30 +209,11 @@ export default function UsersPage() {
           placeholder={editing ? 'Leave blank to keep current password' : ''}
         />
 
-        {editing ? (
+        {!editing && (
           <FormField
-            as="select"
-            label="Default location"
-            value={form.defaultLocationId ?? ''}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                defaultLocationId: e.target.value ? Number(e.target.value) : undefined,
-              })
-            }
-          >
-            {ownedLocations.length === 0 && <option value="">— No locations —</option>}
-            {ownedLocations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.breadcrumb || l.name}
-              </option>
-            ))}
-          </FormField>
-        ) : (
-          <FormField
-            label="Default location name *"
-            value={form.defaultLocationName ?? ''}
-            onChange={(e) => setForm({ ...form, defaultLocationName: e.target.value })}
+            label="Initial location name *"
+            value={form.initialLocationName ?? ''}
+            onChange={(e) => setForm({ ...form, initialLocationName: e.target.value })}
             placeholder="e.g. Bench drawer"
           />
         )}

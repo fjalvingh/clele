@@ -39,10 +39,10 @@ public class AppUser {
     @Column(name = "octopart_client_secret")
     private String octopartClientSecret;
 
-    /** The user's mandatory default location (always set after creation). */
+    /** The location this user most recently added stock to; pre-selects the next add. Optional. */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "default_location_id")
-    private Location defaultLocation;
+    @JoinColumn(name = "last_location_id")
+    private Location lastLocation;
 
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "app_user_permission", joinColumns = @JoinColumn(name = "user_id"))

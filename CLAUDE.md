@@ -95,8 +95,13 @@ frontend/src/
   - V21 adds `location.parent_id` (self-FK, nullable, indexed): locations are now hierarchical
     (Building A > Room B > Cupboard C). NULL parent = root. Parts can be stored at any level (stock
     entries reference a location id regardless of depth) — see Locations below
+  - V22 renames `app_user.default_location_id` → `last_location_id` (FK recreated with `ON DELETE
+    SET NULL`) — the per-user location pointer is now the *last-used* location, updated automatically
+    on every stock add, not a managed account setting. Also drops the stale `location_owner_name_key`
+    unique constraint (per-owner global name uniqueness) left over from before V21: names may now
+    repeat under different parents; sibling uniqueness is enforced in the service — see Locations below
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V22** (CLAUDE.md previously lagged the actual migrations — always check the
+  is **V23** (CLAUDE.md previously lagged the actual migrations — always check the
   `db/migration/` directory for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
@@ -257,6 +262,15 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   parent chain) is the single source. `StockEntryDTO`/`StockMovementDTO` carry both `locationName`
   (leaf) and `locationBreadcrumb` (full path); the Part Detail stock + movement tables, the Low Stock
   table, and the "Remove stock at …" confirm all render the breadcrumb (falling back to the leaf).
+- **Last-used location** (replaces the old "default location", V22): `app_user.last_location_id` (FK,
+  `ON DELETE SET NULL`) records the location a user most recently added stock to. It is **not** a
+  managed account field — `CurrentUserService.rememberLastLocation(location)` updates it inside the
+  add transaction from both add paths (`QuickAddService.quickAdd`, `StockEntryService.create`).
+  `UserDTO`/`AuthUser` expose `lastLocationId`/`lastLocationName` (breadcrumb); the Quick Add and Part
+  Detail location pickers pre-select it (and require a location — submit is disabled otherwise). A new
+  user is still seeded with one **initial** location (`UserRequest.initialLocationName`, required on
+  create) which becomes their first `lastLocation`; the Users screen no longer has a default-location
+  column or picker. Deleting a location simply nulls it from any user that last used it.
 
 ## Part Ownership
 
@@ -367,7 +381,9 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   - AI returns specs keyed by each spec definition's `jsonName` → auto-fills spec fields in the confirm step
   - Image picker fetches suggestions via DuckDuckGo, displays through backend proxy, uploads selected images as multipart blobs (client-side fetch + multipart upload to avoid Cloudflare/CORS issues)
   - Shows error feedback if image uploads fail (with link to navigate to saved part)
-  - Location field defaults to last used location (persisted in `localStorage` key `quickadd.lastLocationId`)
+  - Location is **required** (the submit button is disabled until one is picked) and pre-selects the
+    user's last-used location (`AuthUser.lastLocationId`); after a successful add the backend records
+    the chosen location as the new last-used and the SPA calls `useAuth().refresh()` — see Locations
 - **Part attachments**: one `part_attachment` bytea table holds three kinds of binary content per
   part, keyed by `type` (PHOTO/DATASHEET/ATTACHMENT) — see Part Attachments below. Photos: PNG-
   normalized, max 5. Datasheets & user attachments: original bytes + filename + content-type, uncapped

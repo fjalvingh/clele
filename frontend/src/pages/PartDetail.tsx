@@ -92,7 +92,7 @@ export default function PartDetailPage() {
   // Where the breadcrumb's "Parts" link returns to — back to the originating search results
   // (carried in navigation state) when we arrived from the Parts page, else the bare list.
   const partsListUrl = (routeLocation.state as { from?: string } | null)?.from ?? '/parts';
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, refresh } = useAuth();
   const { formatMoney } = useSettings();
   const canEdit = hasPermission('PARTS_EDIT');
   const partId = Number(id);
@@ -255,10 +255,10 @@ export default function PartDetailPage() {
 
   const openAddStock = () => {
     setEditingStock(null);
-    // Default to the user's default location when it is one of their own locations.
+    // Pre-select the location the user last added stock to, when it is one of their own.
     const defaultLoc =
-      user?.defaultLocationId && locations.some((l) => l.id === user.defaultLocationId)
-        ? user.defaultLocationId
+      user?.lastLocationId && locations.some((l) => l.id === user.lastLocationId)
+        ? user.lastLocationId
         : 0;
     setStockForm({ ...emptyStockForm(partId), locationId: defaultLoc });
     setFormError(null);
@@ -286,6 +286,8 @@ export default function PartDetailPage() {
         await updateStockEntry(editingStock.id, stockForm);
       } else {
         await createStockEntry(stockForm);
+        // Adding stock updates the user's last-used location; refresh so it pre-selects next time.
+        refresh();
       }
       setStockModalOpen(false);
       loadData();

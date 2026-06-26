@@ -52,6 +52,7 @@ public class QuickAddService {
                 request.getUnitPrice(), null, MovementType.INITIAL);
         saved.setMinimumQuantity(request.getMinimumQuantity());
         saved = stockEntryRepository.save(saved);
+        currentUserService.rememberLastLocation(location);
 
         StockEntryDTO stockEntryDTO = StockEntryDTO.builder()
                 .id(saved.getId())

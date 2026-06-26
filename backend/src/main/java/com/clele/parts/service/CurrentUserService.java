@@ -1,6 +1,7 @@
 package com.clele.parts.service;
 
 import com.clele.parts.model.AppUser;
+import com.clele.parts.model.Location;
 import com.clele.parts.model.Permissions;
 import com.clele.parts.repository.AppUserRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -31,6 +32,14 @@ public class CurrentUserService {
         String email = auth.getName().trim().toLowerCase();
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new EntityNotFoundException("User not found: " + email));
+    }
+
+    /** Remember the location the current user just added stock to, to pre-select the next add. */
+    @Transactional
+    public void rememberLastLocation(Location location) {
+        AppUser me = current();
+        me.setLastLocation(location);
+        userRepository.save(me);
     }
 
     /** Whether the current authentication carries the USERS_EDIT authority (admin). */

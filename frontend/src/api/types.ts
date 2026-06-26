@@ -133,8 +133,8 @@ export interface User {
   fullName?: string;
   phone?: string;
   permissions: string[];
-  defaultLocationId?: number;
-  defaultLocationName?: string;
+  lastLocationId?: number;
+  lastLocationName?: string;
   hasOctopartCredentials?: boolean;
 }
 
@@ -144,8 +144,7 @@ export interface UserRequest {
   fullName?: string;
   phone?: string;
   permissions: string[];
-  defaultLocationName?: string; // create: name of the default location to create
-  defaultLocationId?: number; // edit: which owned location is the default
+  initialLocationName?: string; // create: name of the first location to create for the user
 }
 
 /** The currently authenticated user (same shape as User). */

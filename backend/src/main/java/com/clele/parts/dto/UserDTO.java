@@ -15,8 +15,9 @@ public class UserDTO {
     private String fullName;
     private String phone;
     private Set<String> permissions;
-    private Long defaultLocationId;
-    private String defaultLocationName;
+    /** The user's last-used location (pre-selects the next stock add). */
+    private Long lastLocationId;
+    private String lastLocationName;
     /** Whether the user has OctoPart (Nexar) credentials configured. Used to gate the UI. */
     private boolean hasOctopartCredentials;
 }

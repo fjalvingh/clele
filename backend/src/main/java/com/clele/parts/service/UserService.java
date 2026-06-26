@@ -43,8 +43,8 @@ public class UserService {
         if (request.getPassword() == null || request.getPassword().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password is required");
         }
-        if (request.getDefaultLocationName() == null || request.getDefaultLocationName().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A default location name is required");
+        if (request.getInitialLocationName() == null || request.getInitialLocationName().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "An initial location name is required");
         }
         String email = normalizeEmail(request.getEmail());
         if (userRepository.existsByEmail(email)) {
@@ -58,12 +58,13 @@ public class UserService {
                 .permissions(sanitizePermissions(request.getPermissions()))
                 .build();
         user = userRepository.save(user);
-        // Every user must own a default location; create it now and mark it default.
-        Location defaultLocation = locationRepository.save(Location.builder()
-                .name(request.getDefaultLocationName().trim())
+        // Give the user a starting location to own so they can add stock immediately. It also
+        // seeds the last-used location so the first stock add is pre-selected.
+        Location initialLocation = locationRepository.save(Location.builder()
+                .name(request.getInitialLocationName().trim())
                 .owner(user)
                 .build());
-        user.setDefaultLocation(defaultLocation);
+        user.setLastLocation(initialLocation);
         return toDTO(userRepository.save(user));
     }
 
@@ -81,17 +82,6 @@ public class UserService {
         // Only change the password when a new, non-blank one is supplied.
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
-        }
-        // Re-point the default location (must be one the user owns).
-        if (request.getDefaultLocationId() != null) {
-            Location loc = locationRepository.findById(request.getDefaultLocationId())
-                    .orElseThrow(() -> new EntityNotFoundException(
-                            "Location not found: " + request.getDefaultLocationId()));
-            if (loc.getOwner() == null || !loc.getOwner().getId().equals(user.getId())) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "Default location must be one the user owns");
-            }
-            user.setDefaultLocation(loc);
         }
         return toDTO(userRepository.save(user));
     }
@@ -123,15 +113,15 @@ public class UserService {
     }
 
     public UserDTO toDTO(AppUser user) {
-        Location defaultLocation = user.getDefaultLocation();
+        Location lastLocation = user.getLastLocation();
         return UserDTO.builder()
                 .id(user.getId())
                 .email(user.getEmail())
                 .fullName(user.getFullName())
                 .phone(user.getPhone())
                 .permissions(new HashSet<>(user.getPermissions()))
-                .defaultLocationId(defaultLocation != null ? defaultLocation.getId() : null)
-                .defaultLocationName(defaultLocation != null ? defaultLocation.getName() : null)
+                .lastLocationId(lastLocation != null ? lastLocation.getId() : null)
+                .lastLocationName(lastLocation != null ? lastLocation.breadcrumb() : null)
                 .hasOctopartCredentials(
                         user.getOctopartClientId() != null && !user.getOctopartClientId().isBlank()
                         && user.getOctopartClientSecret() != null && !user.getOctopartClientSecret().isBlank())

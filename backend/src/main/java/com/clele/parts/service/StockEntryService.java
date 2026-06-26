@@ -31,6 +31,7 @@ public class StockEntryService {
     private final PartRepository partRepository;
     private final LocationRepository locationRepository;
     private final StockMovementService stockMovementService;
+    private final CurrentUserService currentUserService;
 
     public List<StockEntryDTO> findAll() {
         return stockEntryRepository.findAll().stream()
@@ -77,7 +78,9 @@ public class StockEntryService {
         StockEntry entry = stockMovementService.apply(part, location, request.getQuantity(),
                 request.getUnitPrice(), request.getComments(), MovementType.INITIAL);
         entry.setMinimumQuantity(request.getMinimumQuantity());
-        return toDTO(stockEntryRepository.save(entry));
+        StockEntryDTO dto = toDTO(stockEntryRepository.save(entry));
+        currentUserService.rememberLastLocation(location);
+        return dto;
     }
 
     @Transactional
