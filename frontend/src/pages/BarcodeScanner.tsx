@@ -71,7 +71,7 @@ export default function BarcodeScannerPage() {
   };
 
   const handleScan = useCallback(async (code: string) => {
-    const q = code.trim();
+    const q = code.trim().replace(/[{}]/g, '');
     if (!q) return;
     setSuccess('');
     setError('');
@@ -238,6 +238,9 @@ export default function BarcodeScannerPage() {
               disabled={phase.kind === 'searching' || phase.kind === 'adding'}
               autoFocus
               autoComplete="off"
+              data-1p-ignore
+              data-lpignore="true"
+              data-form-type="other"
               spellCheck={false}
               className="flex-1 rounded-md border border-gray-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
             />
