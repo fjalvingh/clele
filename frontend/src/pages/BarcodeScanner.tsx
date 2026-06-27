@@ -8,10 +8,11 @@ import PrintLabelModal from '../components/PrintLabelModal';
 type Phase =
   | { kind: 'scan' }
   | { kind: 'searching'; step: 'local' | 'online' }
-  | { kind: 'multiple'; parts: Part[] }
-  | { kind: 'found-local'; part: Part }
-  | { kind: 'found-online'; result: PartSearchResult }
+  | { kind: 'multiple'; parts: Part[]; query: string }
+  | { kind: 'found-local'; part: Part; query: string }
+  | { kind: 'found-online'; result: PartSearchResult; query: string }
   | { kind: 'not-found'; query: string }
+  | { kind: 'already-tried'; query: string }
   | { kind: 'adding' };
 
 interface RecentScan {
@@ -27,6 +28,8 @@ let nextId = 0;
 export default function BarcodeScannerPage() {
   const { user, refresh } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchGenRef = useRef(0);
+  const lastQueryRef = useRef('');
 
   const [barcode, setBarcode] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'scan' });
@@ -38,6 +41,8 @@ export default function BarcodeScannerPage() {
   const [success, setSuccess] = useState('');
   const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
   const [labelPart, setLabelPart] = useState<Part | null>(null);
+  // Codes that were searched but not yet acted upon (last 10 unique)
+  const [triedCodes, setTriedCodes] = useState<string[]>([]);
 
   useEffect(() => {
     getMyLocations().then(setLocations).catch(() => {});
@@ -49,12 +54,16 @@ export default function BarcodeScannerPage() {
     }
   }, [user?.lastLocationId]);
 
-  // Re-focus whenever we return to scan phase
+  // Keep scanner input focused at all times
   useEffect(() => {
-    if (phase.kind === 'scan') {
-      inputRef.current?.focus();
-    }
+    inputRef.current?.focus();
   }, [phase.kind]);
+
+  const addToTried = (code: string) =>
+    setTriedCodes((prev) => [code, ...prev.filter((c) => c !== code)].slice(0, 10));
+
+  const removeFromTried = (code: string) =>
+    setTriedCodes((prev) => prev.filter((c) => c !== code));
 
   const resetToScan = useCallback((msg?: string) => {
     setBarcode('');
@@ -65,44 +74,84 @@ export default function BarcodeScannerPage() {
     setPhase({ kind: 'scan' });
   }, []);
 
-  const pushRecentScan = (bc: string, partNumber: string, description?: string, qty = 1) => {
+  const pushRecentScan = (code: string, partNumber: string, description?: string, qty = 1) => {
+    removeFromTried(code);
     setRecentScans((prev) => [
-      { id: nextId++, barcode: bc, partNumber, description, qty },
+      { id: nextId++, barcode: code, partNumber, description, qty },
       ...prev.slice(0, 4),
     ]);
   };
 
+  const searchOnline = useCallback(async (q: string) => {
+    const gen = ++searchGenRef.current;
+    setError('');
+    setPhase({ kind: 'searching', step: 'online' });
+    try {
+      const online = await searchPartsOnline(q);
+      if (gen !== searchGenRef.current) return;
+      if (online.length > 0) {
+        setPhase({ kind: 'found-online', result: online[0], query: q });
+      } else {
+        setPhase({ kind: 'not-found', query: q });
+      }
+    } catch (e) {
+      if (gen !== searchGenRef.current) return;
+      setError((e as Error).message);
+      setPhase({ kind: 'scan' });
+    }
+  }, []);
+
   const handleScan = useCallback(async (code: string) => {
     const q = code.trim().replace(/[{}]/g, '');
     if (!q) return;
+
+    // If this code was already searched without being acted on, say so
+    if (triedCodes.includes(q)) {
+      setBarcode('');
+      setSuccess('');
+      setError('');
+      setPhase({ kind: 'already-tried', query: q });
+      return;
+    }
+
+    lastQueryRef.current = q;
+    const gen = ++searchGenRef.current;
     setSuccess('');
     setError('');
     setPhase({ kind: 'searching', step: 'local' });
 
     try {
       const local = await findLocalParts(q);
+      if (gen !== searchGenRef.current) return;
+      setBarcode('');
+      addToTried(q);
+
       if (local.length === 1) {
-        setPhase({ kind: 'found-local', part: local[0] });
+        setPhase({ kind: 'found-local', part: local[0], query: q });
         return;
       }
       if (local.length > 1) {
-        setPhase({ kind: 'multiple', parts: local });
+        setPhase({ kind: 'multiple', parts: local, query: q });
         return;
       }
 
       setPhase({ kind: 'searching', step: 'online' });
       const online = await searchPartsOnline(q);
+      if (gen !== searchGenRef.current) return;
+
       if (online.length > 0) {
-        setPhase({ kind: 'found-online', result: online[0] });
+        setPhase({ kind: 'found-online', result: online[0], query: q });
         return;
       }
 
       setPhase({ kind: 'not-found', query: q });
     } catch (e) {
+      if (gen !== searchGenRef.current) return;
+      setBarcode('');
       setError((e as Error).message);
       setPhase({ kind: 'scan' });
     }
-  }, []);
+  }, [triedCodes]);
 
   const handleBarcodeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && barcode.trim()) {
@@ -112,6 +161,7 @@ export default function BarcodeScannerPage() {
 
   const handleAddToExisting = async (part: Part, printAfter = false) => {
     if (!locationId) { setError('Select a location first'); return; }
+    const q = lastQueryRef.current;
     setPhase({ kind: 'adding' });
     try {
       await addStock({
@@ -121,7 +171,7 @@ export default function BarcodeScannerPage() {
         unitPrice: unitPrice ? parseFloat(unitPrice) : null,
       });
       await refresh();
-      pushRecentScan(barcode, part.partNumber, part.description, quantity);
+      pushRecentScan(q, part.partNumber, part.description, quantity);
       if (printAfter) {
         setLabelPart(part);
         setBarcode('');
@@ -135,16 +185,16 @@ export default function BarcodeScannerPage() {
       }
     } catch (e) {
       setError((e as Error).message);
-      setPhase({ kind: 'found-local', part });
+      setPhase({ kind: 'found-local', part, query: lastQueryRef.current });
     }
   };
 
-  const handleCreateAndAdd = async (result: PartSearchResult, printAfter = false) => {
+  const handleCreateAndAdd = async (result: PartSearchResult, query: string, printAfter = false) => {
     if (!locationId) { setError('Select a location first'); return; }
     setPhase({ kind: 'adding' });
     try {
       const res = await quickAddPart({
-        partNumber: result.mpn || barcode,
+        partNumber: result.mpn || query,
         description: result.shortDescription,
         manufacturer: result.manufacturer,
         datasheetUrl: result.datasheetUrl,
@@ -153,7 +203,7 @@ export default function BarcodeScannerPage() {
         unitPrice: unitPrice ? parseFloat(unitPrice) : null,
       });
       await refresh();
-      pushRecentScan(barcode, res.part.partNumber, res.part.description, quantity);
+      pushRecentScan(query, res.part.partNumber, res.part.description, quantity);
       if (printAfter) {
         setLabelPart(res.part);
         setBarcode('');
@@ -167,7 +217,7 @@ export default function BarcodeScannerPage() {
       }
     } catch (e) {
       setError((e as Error).message);
-      setPhase({ kind: 'found-online', result });
+      setPhase({ kind: 'found-online', result, query });
     }
   };
 
@@ -204,10 +254,15 @@ export default function BarcodeScannerPage() {
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-500">Quantity</label>
           <input
-            type="number"
-            min={1}
-            value={quantity}
-            onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={quantity || ''}
+            onChange={(e) => {
+              const v = parseInt(e.target.value.replace(/\D/g, ''), 10);
+              setQuantity(isNaN(v) ? 0 : v);
+            }}
+            onBlur={() => setQuantity((q) => Math.max(1, q))}
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
@@ -263,7 +318,7 @@ export default function BarcodeScannerPage() {
           </p>
         </div>
 
-        {/* Scan input — always visible */}
+        {/* Scan input — always visible and always focusable */}
         <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
           <label className="mb-2 block text-sm font-medium text-gray-700">
             Barcode / Part number
@@ -276,18 +331,17 @@ export default function BarcodeScannerPage() {
               onChange={(e) => setBarcode(e.target.value)}
               onKeyDown={handleBarcodeKeyDown}
               placeholder="Scan or type, then press Enter…"
-              disabled={phase.kind === 'searching' || phase.kind === 'adding'}
               autoFocus
               autoComplete="off"
               data-1p-ignore
               data-lpignore="true"
               data-form-type="other"
               spellCheck={false}
-              className="flex-1 rounded-md border border-gray-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
+              className="flex-1 rounded-md border border-gray-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <button
               onClick={() => barcode.trim() && handleScan(barcode)}
-              disabled={!barcode.trim() || phase.kind === 'searching' || phase.kind === 'adding'}
+              disabled={!barcode.trim()}
               className="rounded-md bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Search
@@ -316,18 +370,39 @@ export default function BarcodeScannerPage() {
           </div>
         )}
 
+        {phase.kind === 'already-tried' && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+            <p className="text-sm font-medium text-amber-800">
+              Code <span className="font-mono">{phase.query}</span> already tried
+            </p>
+            <p className="mt-1 text-sm text-amber-700">
+              This code was searched but not added. Scan a different barcode or act on the previous result.
+            </p>
+            <button
+              onClick={() => {
+                removeFromTried(phase.query);
+                setPhase({ kind: 'scan' });
+              }}
+              className="mt-3 text-sm font-medium text-amber-800 underline hover:text-amber-900"
+            >
+              Search again anyway
+            </button>
+          </div>
+        )}
+
         {phase.kind === 'multiple' && (
           <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
             <div className="border-b border-gray-100 px-5 py-3">
               <p className="text-sm font-medium text-gray-700">
-                {phase.parts.length} matching parts found — select one:
+                {phase.parts.length} matching parts found for code{' '}
+                <span className="font-mono text-gray-900">{phase.query}</span> — select one:
               </p>
             </div>
             <ul className="divide-y divide-gray-100">
               {phase.parts.map((p) => (
                 <li key={p.id}>
                   <button
-                    onClick={() => setPhase({ kind: 'found-local', part: p })}
+                    onClick={() => setPhase({ kind: 'found-local', part: p, query: phase.query })}
                     className="flex w-full items-start gap-3 px-5 py-3 text-left hover:bg-gray-50"
                   >
                     <div className="flex-1 min-w-0">
@@ -343,7 +418,13 @@ export default function BarcodeScannerPage() {
                 </li>
               ))}
             </ul>
-            <div className="border-t border-gray-100 px-5 py-3">
+            <div className="border-t border-gray-100 flex items-center justify-between px-5 py-3">
+              <button
+                onClick={() => searchOnline(phase.query)}
+                className="text-sm font-medium text-blue-600 hover:text-blue-800"
+              >
+                Look up on the Internet
+              </button>
               <button
                 onClick={() => resetToScan()}
                 className="text-sm text-gray-500 hover:text-gray-700"
@@ -358,9 +439,14 @@ export default function BarcodeScannerPage() {
           <div className="rounded-xl border border-blue-200 bg-white shadow-sm">
             <div className="border-b border-gray-100 bg-blue-50/50 px-5 py-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wide text-blue-600">
-                  Found in inventory
-                </span>
+                <div>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-blue-600">
+                    Found in existing inventory
+                  </span>
+                  <span className="ml-2 text-xs text-gray-500">
+                    for code <span className="font-mono text-gray-700">{phase.query}</span>
+                  </span>
+                </div>
                 <Link
                   to={`/parts/${phase.part.id}`}
                   className="text-xs text-blue-600 hover:underline"
@@ -389,6 +475,14 @@ export default function BarcodeScannerPage() {
                 onSubmitAndPrint={() => handleAddToExisting(phase.part, true)}
                 submitAndPrintLabel="Add & Print Label"
               />
+              <div className="border-t border-gray-100 pt-3">
+                <button
+                  onClick={() => searchOnline(phase.query)}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-800"
+                >
+                  Not the right part? Look up on the Internet
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -396,14 +490,19 @@ export default function BarcodeScannerPage() {
         {phase.kind === 'found-online' && (
           <div className="rounded-xl border border-emerald-200 bg-white shadow-sm">
             <div className="border-b border-gray-100 bg-emerald-50/50 px-5 py-3">
-              <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
-                New part — found online
-              </span>
+              <div>
+                <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
+                  New part — found online
+                </span>
+                <span className="ml-2 text-xs text-gray-500">
+                  for code <span className="font-mono text-gray-700">{phase.query}</span>
+                </span>
+              </div>
             </div>
             <div className="space-y-4 p-5">
               <div>
                 <p className="text-base font-semibold text-gray-900">
-                  {phase.result.mpn || barcode}
+                  {phase.result.mpn || phase.query}
                 </p>
                 {phase.result.shortDescription && (
                   <p className="mt-0.5 text-sm text-gray-600">{phase.result.shortDescription}</p>
@@ -426,9 +525,9 @@ export default function BarcodeScannerPage() {
                 )}
               </div>
               <StockForm
-                onSubmit={() => handleCreateAndAdd(phase.result)}
+                onSubmit={() => handleCreateAndAdd(phase.result, phase.query)}
                 submitLabel="Create & Add Stock"
-                onSubmitAndPrint={() => handleCreateAndAdd(phase.result, true)}
+                onSubmitAndPrint={() => handleCreateAndAdd(phase.result, phase.query, true)}
                 submitAndPrintLabel="Create, Add & Print Label"
               />
             </div>
@@ -438,7 +537,8 @@ export default function BarcodeScannerPage() {
         {phase.kind === 'not-found' && (
           <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <p className="text-sm font-medium text-gray-700">
-              No part found for <span className="font-mono text-gray-900">{phase.query}</span>
+              No part found for code{' '}
+              <span className="font-mono text-gray-900">{phase.query}</span>
             </p>
             <p className="mt-1 text-sm text-gray-500">
               The barcode was not in the local database or in online search results.
