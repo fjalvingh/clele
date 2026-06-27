@@ -27,4 +27,5 @@ public class PartDTO {
     private String createdByName;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private Long totalQuantity;
 }

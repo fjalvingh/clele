@@ -411,7 +411,7 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Add/Edit BOM entry modal */}
-      <Modal open={showBom} onClose={() => setShowBom(false)} title={editingBomId ? 'Edit BOM Entry' : 'Add Part to BOM'}>
+      <Modal open={showBom} onClose={() => setShowBom(false)} title={editingBomId ? 'Edit BOM Entry' : 'Add Part to BOM'} wide>
         <div className="space-y-4">
           {editingBomId === null && (
             <div>
@@ -425,21 +425,37 @@ export default function ProjectDetailPage() {
               />
               {searchLoading && <p className="text-xs text-gray-400 mt-1">Searching…</p>}
               {searchResults.length > 0 && (
-                <div className="mt-1 max-h-48 overflow-auto rounded-lg border border-gray-200 bg-white shadow-sm">
-                  {searchResults.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        setBomForm((f) => ({ ...f, partId: p.id }));
-                        setPartSearch(p.partNumber);
-                        setSearchResults([]);
-                      }}
-                      className={`flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-blue-50 ${bomForm.partId === p.id ? 'bg-blue-50' : ''}`}
-                    >
-                      <span className="text-sm font-medium text-gray-900">{p.partNumber}</span>
-                      {p.description && <span className="text-sm text-gray-500">{p.description}</span>}
-                    </button>
-                  ))}
+                <div className="mt-1 max-h-64 overflow-auto rounded-lg border border-gray-200 bg-white shadow-sm">
+                  <table className="min-w-full divide-y divide-gray-100">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part #</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">On hand</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {searchResults.map((p) => (
+                        <tr
+                          key={p.id}
+                          onClick={() => {
+                            setBomForm((f) => ({ ...f, partId: p.id }));
+                            setPartSearch(p.partNumber);
+                            setSearchResults([]);
+                          }}
+                          className={`cursor-pointer hover:bg-blue-50 ${bomForm.partId === p.id ? 'bg-blue-50' : ''}`}
+                        >
+                          <td className="px-3 py-2 text-sm font-medium text-gray-900 whitespace-nowrap">{p.partNumber}</td>
+                          <td className="px-3 py-2 text-sm text-gray-500 max-w-xs truncate">{p.description ?? '—'}</td>
+                          <td className="px-3 py-2 text-sm text-right whitespace-nowrap">
+                            <span className={(p.totalQuantity ?? 0) > 0 ? 'text-green-700 font-medium' : 'text-gray-400'}>
+                              {p.totalQuantity ?? 0}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
               {bomForm.partId > 0 && (

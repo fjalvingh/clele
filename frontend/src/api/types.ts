@@ -86,6 +86,7 @@ export interface Part {
   createdByName?: string;
   createdAt: string;
   updatedAt: string;
+  totalQuantity?: number;
 }
 
 export interface PartRequest {

@@ -6,9 +6,10 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  wide?: boolean;
 }
 
-export default function Modal({ open, onClose, title, children }: ModalProps) {
+export default function Modal({ open, onClose, title, children, wide }: ModalProps) {
   return (
     <Dialog open={open} onClose={onClose} className="relative z-50">
       <DialogBackdrop
@@ -18,7 +19,7 @@ export default function Modal({ open, onClose, title, children }: ModalProps) {
       <div className="fixed inset-0 flex items-center justify-center p-4">
         <DialogPanel
           transition
-          className="w-full max-w-lg rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 transition duration-200 ease-out data-[closed]:scale-95 data-[closed]:opacity-0"
+          className={`w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 transition duration-200 ease-out data-[closed]:scale-95 data-[closed]:opacity-0`}
         >
           <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
             <DialogTitle className="text-lg font-semibold text-gray-900">{title}</DialogTitle>

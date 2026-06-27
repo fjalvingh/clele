@@ -35,4 +35,7 @@ public interface StockEntryRepository extends JpaRepository<StockEntry, Long> {
     boolean existsByLocationId(Long locationId);
 
     boolean existsByPartIdAndLocationIdAndIdNot(Long partId, Long locationId, Long id);
+
+    @Query("SELECT s.part.id, SUM(s.quantity) FROM StockEntry s WHERE s.part.id IN :partIds AND s.location.owner.id = :ownerId GROUP BY s.part.id")
+    List<Object[]> sumQuantityByPartIdsAndOwnerId(List<Long> partIds, Long ownerId);
 }

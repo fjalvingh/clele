@@ -17,7 +17,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -34,10 +36,28 @@ public class PartService {
     public List<PartDTO> search(String search, Long categoryId, String sort) {
         String term = (search != null && !search.isBlank()) ? search.trim() : null;
         Comparator<PartDTO> comparator = comparatorFor(sort);
-        return partRepository.search(term, categoryId).stream()
-                .map(this::toDTO)
+        List<Part> parts = partRepository.search(term, categoryId);
+        Map<Long, Long> stockByPart = stockByOwner(parts);
+        return parts.stream()
+                .map(p -> toDTOWithStock(p, stockByPart))
                 .sorted(comparator)
                 .collect(Collectors.toList());
+    }
+
+    private Map<Long, Long> stockByOwner(List<Part> parts) {
+        if (parts.isEmpty()) return Map.of();
+        Long ownerId = currentUserService.current().getId();
+        List<Long> ids = parts.stream().map(Part::getId).collect(Collectors.toList());
+        Map<Long, Long> result = new HashMap<>();
+        stockEntryRepository.sumQuantityByPartIdsAndOwnerId(ids, ownerId)
+                .forEach(row -> result.put((Long) row[0], (Long) row[1]));
+        return result;
+    }
+
+    private PartDTO toDTOWithStock(Part part, Map<Long, Long> stockByPart) {
+        PartDTO dto = toDTO(part);
+        dto.setTotalQuantity(stockByPart.getOrDefault(part.getId(), 0L));
+        return dto;
     }
 
     /** Build the result comparator. Supported sorts: "manufacturer"; anything else → part number. */
