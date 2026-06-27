@@ -116,7 +116,6 @@ public class PartService {
             part.setSpecs(merged);
         }
 
-        if (request.getName() != null) part.setName(request.getName());
         if (request.getDescription() != null) part.setDescription(request.getDescription());
         if (request.getManufacturer() != null) part.setManufacturer(request.getManufacturer());
         if (request.getMpn() != null) part.setMpn(request.getMpn());
@@ -159,8 +158,8 @@ public class PartService {
 
     private Part buildPartFromRequest(Part part, PartRequest request) {
         part.setPartNumber(request.getPartNumber());
-        part.setName(request.getName());
         part.setDescription(request.getDescription());
+        part.setDetails(request.getDetails());
         part.setManufacturer(request.getManufacturer());
         part.setDatasheetUrl(request.getDatasheetUrl());
         part.setSpecs(request.getSpecs());
@@ -189,8 +188,8 @@ public class PartService {
         return PartDTO.builder()
                 .id(part.getId())
                 .partNumber(part.getPartNumber())
-                .name(part.getName())
                 .description(part.getDescription())
+                .details(part.getDetails())
                 .manufacturer(part.getManufacturer())
                 .footprint(part.getFootprint())
                 .mpn(part.getMpn())

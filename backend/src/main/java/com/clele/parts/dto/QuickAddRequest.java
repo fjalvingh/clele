@@ -20,10 +20,8 @@ public class QuickAddRequest {
     @NotBlank(message = "Part number is required")
     private String partNumber;
 
-    @NotBlank(message = "Name is required")
-    private String name;
-
     private String description;
+    private String details;
     private String manufacturer;
     private String datasheetUrl;
     private Map<String, Object> specs;

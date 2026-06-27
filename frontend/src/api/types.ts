@@ -71,8 +71,8 @@ export interface CategoryRequest {
 export interface Part {
   id: number;
   partNumber: string;
-  name: string;
   description?: string;
+  details?: string;
   manufacturer?: string;
   mpn?: string;
   footprint?: string;
@@ -90,8 +90,8 @@ export interface Part {
 
 export interface PartRequest {
   partNumber: string;
-  name: string;
   description?: string;
+  details?: string;
   manufacturer?: string;
   datasheetUrl?: string;
   specs?: Record<string, string>;
@@ -329,8 +329,8 @@ export interface PartSearchResult {
 
 export interface QuickAddRequest {
   partNumber: string;
-  name: string;
   description?: string;
+  details?: string;
   manufacturer?: string;
   datasheetUrl?: string;
   specs?: Record<string, string>;
@@ -365,7 +365,6 @@ export interface OctopartUsage {
 
 export interface OctopartApplyRequest {
   octopartId: string;
-  name?: string;
   description?: string;
   manufacturer?: string;
   mpn?: string;

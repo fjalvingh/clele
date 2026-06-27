@@ -35,8 +35,8 @@ function buildCatOptions(nodes: CategoryTree[], depth = 0): CatOption[] {
 
 const emptyForm = (): PartRequest => ({
   partNumber: '',
-  name: '',
   description: '',
+  details: '',
   manufacturer: '',
   datasheetUrl: '',
   specs: {},
@@ -323,8 +323,8 @@ export default function PartsPage() {
     setEditing(part);
     const f: PartRequest = {
       partNumber: part.partNumber,
-      name: part.name,
       description: part.description ?? '',
+      details: part.details ?? '',
       manufacturer: part.manufacturer ?? '',
       datasheetUrl: part.datasheetUrl ?? '',
       specs: part.specs ?? {},
@@ -368,7 +368,7 @@ export default function PartsPage() {
   };
 
   const handleDelete = async (part: Part) => {
-    if (!confirm(`Delete part "${part.name}"?`)) return;
+    if (!confirm(`Delete part "${part.partNumber}"?`)) return;
     try {
       await deletePart(part.id);
       loadParts(search || undefined, filterCategoryId);
@@ -464,7 +464,7 @@ export default function PartsPage() {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name, part number or description…"
+          placeholder="Search by part number or description…"
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <select
@@ -570,12 +570,6 @@ export default function PartsPage() {
             placeholder="e.g. BC547"
           />
           <FormField
-            label="Name *"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="e.g. NPN General Purpose Transistor"
-          />
-          <FormField
             label="Manufacturer"
             value={form.manufacturer ?? ''}
             onChange={(e) => setForm({ ...form, manufacturer: e.target.value })}
@@ -586,6 +580,13 @@ export default function PartsPage() {
             value={form.description ?? ''}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
             rows={2}
+          />
+          <FormField
+            as="textarea"
+            label="Details"
+            value={form.details ?? ''}
+            onChange={(e) => setForm({ ...form, details: e.target.value })}
+            rows={4}
           />
           <FormField
             label="Datasheet URL"
@@ -640,7 +641,7 @@ export default function PartsPage() {
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !form.partNumber.trim() || !form.name.trim()}
+            disabled={saving || !form.partNumber.trim()}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}

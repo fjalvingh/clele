@@ -27,7 +27,7 @@ public interface StockThresholdRepository extends JpaRepository<StockThreshold, 
               pst.minimum_quantity AS minimumQuantity,
               COALESCE(SUM(se.quantity), 0) AS totalQuantity,
               p.part_number     AS partNumber,
-              p.name            AS partName,
+              p.part_number     AS partName,
               l.name            AS locationName
             FROM part_stock_threshold pst
             JOIN part p ON p.id = pst.part_id
@@ -35,7 +35,7 @@ public interface StockThresholdRepository extends JpaRepository<StockThreshold, 
             LEFT JOIN subtree st ON st.root_id = pst.location_id
             LEFT JOIN stock_entry se ON se.part_id = pst.part_id AND se.location_id = st.loc_id
             GROUP BY pst.id, pst.part_id, pst.location_id, pst.minimum_quantity,
-                     p.part_number, p.name, l.name
+                     p.part_number, l.name
             ORDER BY p.part_number, l.name
             """)
     List<StockThresholdView> findAllWithTotals();
@@ -54,7 +54,7 @@ public interface StockThresholdRepository extends JpaRepository<StockThreshold, 
               pst.minimum_quantity AS minimumQuantity,
               COALESCE(SUM(se.quantity), 0) AS totalQuantity,
               p.part_number     AS partNumber,
-              p.name            AS partName,
+              p.part_number     AS partName,
               l.name            AS locationName
             FROM part_stock_threshold pst
             JOIN part p ON p.id = pst.part_id
@@ -63,7 +63,7 @@ public interface StockThresholdRepository extends JpaRepository<StockThreshold, 
             LEFT JOIN stock_entry se ON se.part_id = pst.part_id AND se.location_id = st.loc_id
             WHERE pst.part_id = :partId
             GROUP BY pst.id, pst.part_id, pst.location_id, pst.minimum_quantity,
-                     p.part_number, p.name, l.name
+                     p.part_number, l.name
             ORDER BY l.name
             """)
     List<StockThresholdView> findByPartIdWithTotals(Long partId);
@@ -82,7 +82,7 @@ public interface StockThresholdRepository extends JpaRepository<StockThreshold, 
               pst.minimum_quantity AS minimumQuantity,
               COALESCE(SUM(se.quantity), 0) AS totalQuantity,
               p.part_number     AS partNumber,
-              p.name            AS partName,
+              p.part_number     AS partName,
               l.name            AS locationName
             FROM part_stock_threshold pst
             JOIN part p ON p.id = pst.part_id
@@ -90,7 +90,7 @@ public interface StockThresholdRepository extends JpaRepository<StockThreshold, 
             LEFT JOIN subtree st ON st.root_id = pst.location_id
             LEFT JOIN stock_entry se ON se.part_id = pst.part_id AND se.location_id = st.loc_id
             GROUP BY pst.id, pst.part_id, pst.location_id, pst.minimum_quantity,
-                     p.part_number, p.name, l.name
+                     p.part_number, l.name
             HAVING COALESCE(SUM(se.quantity), 0) < pst.minimum_quantity
             ORDER BY p.part_number, l.name
             """)

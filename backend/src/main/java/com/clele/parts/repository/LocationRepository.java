@@ -43,12 +43,12 @@ public interface LocationRepository extends JpaRepository<Location, Long> {
                 o.id,
                 COALESCE(o.fullName, o.email),
                 COUNT(DISTINCT l.id),
-                COUNT(DISTINCT s.part.id),
+                (SELECT COUNT(p) FROM Part p WHERE p.createdBy.id = o.id),
                 COALESCE(SUM(s.quantity), 0L),
                 COALESCE(SUM(CASE WHEN s.unitPrice IS NOT NULL THEN s.quantity * s.unitPrice ELSE 0 END), 0),
                 0L)
-            FROM Location l
-            JOIN l.owner o
+            FROM AppUser o
+            LEFT JOIN Location l ON l.owner.id = o.id
             LEFT JOIN StockEntry s ON s.location = l
             GROUP BY o.id, o.fullName, o.email
             ORDER BY COALESCE(o.fullName, o.email)

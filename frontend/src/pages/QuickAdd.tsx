@@ -111,8 +111,8 @@ function ResultCard({
 
 interface ConfirmForm {
   partNumber: string;
-  name: string;
   description: string;
+  details: string;
   manufacturer: string;
   datasheetUrl: string;
   locationId: string;
@@ -147,8 +147,8 @@ export default function QuickAddPage() {
   // Step 3
   const [form, setForm] = useState<ConfirmForm>({
     partNumber: '',
-    name: '',
     description: '',
+    details: '',
     manufacturer: '',
     datasheetUrl: '',
     locationId: '',
@@ -267,8 +267,8 @@ export default function QuickAddPage() {
   function handleSelect(result: PartSearchResult) {
     setForm({
       partNumber: result.mpn,
-      name: result.shortDescription ?? result.mpn,
       description: result.shortDescription ?? '',
+      details: '',
       manufacturer: result.manufacturer ?? '',
       datasheetUrl: result.datasheetUrl ?? '',
       locationId: '', // resolved to the last-used location when step 3 loads the user's locations
@@ -332,8 +332,8 @@ export default function QuickAddPage() {
 
     const payload: QuickAddRequest = {
       partNumber: form.partNumber,
-      name: form.name,
       description: form.description || undefined,
+      details: form.details || undefined,
       manufacturer: form.manufacturer || undefined,
       datasheetUrl: form.datasheetUrl || undefined,
       specs: Object.keys(specs).length > 0 ? specs : undefined,
@@ -587,7 +587,6 @@ export default function QuickAddPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-sm font-medium text-gray-700">{p.name}</p>
                     {p.description && (
                       <p className="text-sm text-gray-500 mt-1 line-clamp-2">{p.description}</p>
                     )}
@@ -668,18 +667,6 @@ export default function QuickAddPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  name="name"
-                  value={form.name}
-                  onChange={handleFormChange}
-                  required
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Manufacturer</label>
                 <input
                   name="manufacturer"
@@ -705,6 +692,16 @@ export default function QuickAddPage() {
                   value={form.description}
                   onChange={handleFormChange}
                   rows={2}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Details</label>
+                <textarea
+                  name="details"
+                  value={form.details}
+                  onChange={handleFormChange}
+                  rows={4}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>

@@ -165,8 +165,8 @@ public class PartCategorizationService {
                     break;
                 } catch (Exception e) {
                     skipped++;
-                    lastError = "Part " + part.getName() + ": " + e.getMessage();
-                    log.warn("Categorization failed for part {}: {}", part.getName(), e.getMessage());
+                    lastError = "Part " + part.getPartNumber() + ": " + e.getMessage();
+                    log.warn("Categorization failed for part {}: {}", part.getPartNumber(), e.getMessage());
                 }
                 processed++;
             }
@@ -220,7 +220,7 @@ public class PartCategorizationService {
     /** Renders the part's identifying fields for the classifier prompt. */
     private String describe(Part part) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Part: ").append(part.getName());
+        sb.append("Part: ").append(part.getPartNumber());
         if (part.getMpn() != null) sb.append("\nMPN: ").append(part.getMpn());
         if (part.getManufacturer() != null) sb.append("\nManufacturer: ").append(part.getManufacturer());
         if (part.getDescription() != null) sb.append("\nDescription: ").append(part.getDescription());

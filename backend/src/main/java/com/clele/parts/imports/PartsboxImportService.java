@@ -140,7 +140,7 @@ public class PartsboxImportService {
                     String storageId = str(stock, "stock/storage-id");
                     Location location = storageById.get(storageId);
                     if (location == null) {
-                        log.warn("Part {} references unknown storage {}", part.getName(), storageId);
+                        log.warn("Part {} references unknown storage {}", part.getPartNumber(), storageId);
                         continue;
                     }
                     int quantity = intValue(stock.get("stock/quantity"));
@@ -226,7 +226,6 @@ public class PartsboxImportService {
         Part part = new Part();
         String name = pick(members, m -> str(m, "part/name"));
         part.setPartNumber(name);
-        part.setName(name);
         part.setDescription(pick(members, m -> firstNonBlank(
                 str(m, "part/description"), str(octo(m), "main-description"), str(m, "linked/description"))));
         part.setManufacturer(pick(members, m -> firstNonBlank(

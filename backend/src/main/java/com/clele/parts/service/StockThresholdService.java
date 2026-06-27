@@ -92,7 +92,7 @@ public class StockThresholdService {
         return StockThresholdDTO.builder()
                 .id(t.getId())
                 .partId(t.getPart().getId())
-                .partName(t.getPart().getName())
+                .partName(t.getPart().getPartNumber())
                 .partNumber(t.getPart().getPartNumber())
                 .locationId(t.getLocation().getId())
                 .locationName(t.getLocation().getName())

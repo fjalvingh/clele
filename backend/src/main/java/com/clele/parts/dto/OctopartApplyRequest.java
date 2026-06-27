@@ -18,7 +18,6 @@ public class OctopartApplyRequest {
     @NotBlank(message = "octopartId is required")
     private String octopartId;
 
-    private String name;
     private String description;
     private String manufacturer;
     private String mpn;

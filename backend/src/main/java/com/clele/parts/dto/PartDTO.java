@@ -12,8 +12,8 @@ import java.util.Map;
 public class PartDTO {
     private Long id;
     private String partNumber;
-    private String name;
     private String description;
+    private String details;
     private String manufacturer;
     private String footprint;
     private String mpn;

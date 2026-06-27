@@ -56,7 +56,7 @@ public class QuickAddService {
         StockEntryDTO stockEntryDTO = StockEntryDTO.builder()
                 .id(saved.getId())
                 .partId(part.getId())
-                .partName(part.getName())
+                .partName(part.getPartNumber())
                 .partNumber(part.getPartNumber())
                 .locationId(location.getId())
                 .locationName(location.getName())
@@ -71,8 +71,8 @@ public class QuickAddService {
     private Part createPart(QuickAddRequest request) {
         Part part = new Part();
         part.setPartNumber(request.getPartNumber());
-        part.setName(request.getName());
         part.setDescription(request.getDescription());
+        part.setDetails(request.getDetails());
         part.setManufacturer(request.getManufacturer());
         part.setDatasheetUrl(request.getDatasheetUrl());
         part.setSpecs(request.getSpecs());

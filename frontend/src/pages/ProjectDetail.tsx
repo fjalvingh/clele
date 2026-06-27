@@ -431,13 +431,13 @@ export default function ProjectDetailPage() {
                       key={p.id}
                       onClick={() => {
                         setBomForm((f) => ({ ...f, partId: p.id }));
-                        setPartSearch(`${p.partNumber} — ${p.name}`);
+                        setPartSearch(p.partNumber);
                         setSearchResults([]);
                       }}
                       className={`flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-blue-50 ${bomForm.partId === p.id ? 'bg-blue-50' : ''}`}
                     >
                       <span className="text-sm font-medium text-gray-900">{p.partNumber}</span>
-                      <span className="text-sm text-gray-500">{p.name}</span>
+                      {p.description && <span className="text-sm text-gray-500">{p.description}</span>}
                     </button>
                   ))}
                 </div>

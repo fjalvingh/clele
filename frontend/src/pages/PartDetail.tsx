@@ -247,7 +247,7 @@ export default function PartDetailPage() {
   };
 
   const openOctopart = () => {
-    const q = part?.mpn || part?.partNumber || part?.name || '';
+    const q = part?.mpn || part?.partNumber || '';
     setOctoQuery(q);
     setOctoResults([]);
     setOctoPicked(null);
@@ -682,7 +682,7 @@ export default function PartDetailPage() {
         <Link to={partsListUrl} className="hover:underline">
           Parts
         </Link>{' '}
-        / <span className="text-gray-800 font-medium">{part.name}</span>
+        / <span className="text-gray-800 font-medium">{part.partNumber}</span>
       </nav>
 
       {/* Part header card — image left, details right */}
@@ -695,7 +695,7 @@ export default function PartDetailPage() {
               {primaryImage ? (
                 <img
                   src={attachmentUrl(partId, primaryImage.id)}
-                  alt={part.name}
+                  alt={part.partNumber}
                   className="h-full w-full object-contain"
                 />
               ) : (
@@ -787,11 +787,11 @@ export default function PartDetailPage() {
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between">
               <div className="min-w-0">
-                <h1 className="text-2xl font-bold text-gray-900">{part.name}</h1>
+                <h1 className="text-2xl font-bold font-mono text-gray-900">{part.partNumber}</h1>
+                {part.description && (
+                  <p className="mt-1 text-sm text-gray-600">{part.description}</p>
+                )}
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded-md bg-blue-50 px-2 py-1 font-mono text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">
-                    {part.partNumber}
-                  </span>
                   {part.footprint && (
                     <span className="rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/20">
                       {part.footprint}
@@ -886,10 +886,10 @@ export default function PartDetailPage() {
                   <span className="text-gray-800">{part.createdByName}</span>
                 </div>
               )}
-              {part.description && (
+              {part.details && (
                 <div className="sm:col-span-2">
-                  <span className="font-medium text-gray-500">Description:</span>{' '}
-                  <span className="text-gray-800">{part.description}</span>
+                  <span className="font-medium text-gray-500">Details:</span>{' '}
+                  <span className="text-gray-800 whitespace-pre-wrap">{part.details}</span>
                 </div>
               )}
             </div>

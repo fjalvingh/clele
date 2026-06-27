@@ -185,7 +185,7 @@ public class StockEntryService {
         return StockEntryDTO.builder()
                 .id(entry.getId())
                 .partId(entry.getPart().getId())
-                .partName(entry.getPart().getName())
+                .partName(entry.getPart().getPartNumber())
                 .partNumber(entry.getPart().getPartNumber())
                 .locationId(entry.getLocation().getId())
                 .locationName(entry.getLocation().getName())

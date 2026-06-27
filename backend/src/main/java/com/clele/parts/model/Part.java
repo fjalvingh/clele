@@ -24,11 +24,11 @@ public class Part {
     @Column(name = "part_number", nullable = false, unique = true)
     private String partNumber;
 
-    @Column(nullable = false)
-    private String name;
-
     @Column(columnDefinition = "TEXT")
     private String description;
+
+    @Column(columnDefinition = "TEXT")
+    private String details;
 
     private String manufacturer;
 
