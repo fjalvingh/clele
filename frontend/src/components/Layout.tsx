@@ -38,6 +38,12 @@ const icons: Record<string, ReactNode> = {
       <path d="m20 20-3.2-3.2M11 8.5v5M8.5 11h5" />
     </svg>
   ),
+  barcodeScan: (
+    <svg {...icon}>
+      <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+      <path d="M7 8v8M10 8v8M13 8v4M16 8v8M13 14v2" />
+    </svg>
+  ),
   categories: (
     <svg {...icon}>
       <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2.2h7A1.5 1.5 0 0 1 19 8.7v9.8A1.5 1.5 0 0 1 17.5 20h-13A1.5 1.5 0 0 1 3 18.5Z" />
@@ -90,6 +96,7 @@ const navItems: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: icons.dashboard },
   { to: '/parts', label: 'Parts', icon: icons.parts },
   { to: '/quick-add', label: 'Quick Add', icon: icons.quickAdd },
+  { to: '/barcode-scan', label: 'Barcode Scan', icon: icons.barcodeScan },
   { to: '/categories', label: 'Categories', icon: icons.categories },
   { to: '/specs', label: 'Spec Fields', icon: icons.specs },
   { to: '/locations', label: 'Locations', icon: icons.locations },

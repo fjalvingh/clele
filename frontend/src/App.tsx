@@ -10,6 +10,7 @@ import LowStockPage from './pages/LowStock';
 import PartDetailPage from './pages/PartDetail';
 import PartsPage from './pages/Parts';
 import ProfilePage from './pages/Profile';
+import BarcodeScannerPage from './pages/BarcodeScanner';
 import QuickAddPage from './pages/QuickAdd';
 import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectsPage from './pages/Projects';
@@ -54,6 +55,7 @@ export default function App() {
             <Route path="parts" element={<PartsPage />} />
             <Route path="parts/:id" element={<PartDetailPage />} />
             <Route path="quick-add" element={<QuickAddPage />} />
+            <Route path="barcode-scan" element={<BarcodeScannerPage />} />
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="specs" element={<SpecDefinitionsPage />} />
             <Route path="locations" element={<LocationsPage />} />
