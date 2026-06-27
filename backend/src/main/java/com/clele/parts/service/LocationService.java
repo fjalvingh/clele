@@ -178,6 +178,7 @@ public class LocationService {
         // cascade, so re-pointing also frees the source for deletion. Drop the now-empty source
         // aggregates, then delete the source location.
         stockMovementRepository.repointLocation(target, sourceId);
+        stockMovementRepository.repointTargetLocation(target, sourceId);
         stockEntryRepository.deleteByLocationId(sourceId);
         locationRepository.delete(source);
     }

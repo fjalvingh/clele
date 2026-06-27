@@ -16,5 +16,9 @@ public enum MovementType {
     /** Transfer of stock between two locations (one negative leg, one positive leg). */
     MOVE,
     /** Written by the Partsbox importer replaying historical transactions. */
-    IMPORT
+    IMPORT,
+    /** Stock pulled from a location into a project during the BUILDING phase. */
+    PROJECT_OUT,
+    /** Stock returned from a cancelled project back to its source location. */
+    PROJECT_RETURN
 }

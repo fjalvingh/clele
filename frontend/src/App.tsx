@@ -11,6 +11,8 @@ import PartDetailPage from './pages/PartDetail';
 import PartsPage from './pages/Parts';
 import ProfilePage from './pages/Profile';
 import QuickAddPage from './pages/QuickAdd';
+import ProjectDetailPage from './pages/ProjectDetail';
+import ProjectsPage from './pages/Projects';
 import SpecDefinitionsPage from './pages/SpecDefinitions';
 import UsersPage from './pages/Users';
 
@@ -56,6 +58,8 @@ export default function App() {
             <Route path="specs" element={<SpecDefinitionsPage />} />
             <Route path="locations" element={<LocationsPage />} />
             <Route path="low-stock" element={<LowStockPage />} />
+            <Route path="projects" element={<ProjectsPage />} />
+            <Route path="projects/:id" element={<ProjectDetailPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

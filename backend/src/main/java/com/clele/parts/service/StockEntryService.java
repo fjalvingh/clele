@@ -101,8 +101,7 @@ public class StockEntryService {
 
     /**
      * Move stock from one location to another. The source must be owned by the current user; the
-     * destination may belong to any user. Leaves a clear trace: two {@code MOVE} movements whose
-     * comments name the other location.
+     * destination may belong to any user. Records a single atomic MOVE movement.
      */
     @Transactional
     public void move(StockMoveRequest request) {
@@ -114,19 +113,9 @@ public class StockEntryService {
         Location from = requireLocation(request.getFromLocationId());
         Location to = requireLocation(request.getToLocationId());
         int qty = request.getQuantity();
-        String note = request.getComments();
-        String suffix = (note != null && !note.isBlank()) ? " — " + note.trim() : "";
-        // Carry the source entry's unit price over to the moved stock.
-        java.math.BigDecimal price = stockEntryRepository
-                .findByPartIdAndLocationId(part.getId(), from.getId())
-                .map(StockEntry::getUnitPrice)
-                .orElse(null);
-        // Debit the source (checked against the current user's ownership; rejects negative stock).
-        stockMovementService.apply(part, from, -qty, null,
-                "Moved to " + to.breadcrumb() + suffix, MovementType.MOVE);
-        // Credit the destination — may be another user's location, so skip the ownership guard.
-        stockMovementService.applyNoOwnershipCheck(part, to, qty, price,
-                "Moved from " + from.breadcrumb() + suffix, MovementType.MOVE);
+        stockMovementService.applyMove(part, from, to, qty,
+                request.getComments() != null && !request.getComments().isBlank()
+                        ? request.getComments().trim() : null);
     }
 
     private Part requirePart(Long id) {

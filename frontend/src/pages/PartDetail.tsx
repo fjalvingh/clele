@@ -561,7 +561,7 @@ export default function PartDetailPage() {
     },
     {
       key: 'unitPrice',
-      header: 'Unit Price',
+      header: 'Avg. Cost',
       render: (row) =>
         row.unitPrice != null ? (
           <span className="font-mono text-sm">{formatMoney(row.unitPrice)}</span>
@@ -593,7 +593,20 @@ export default function PartDetailPage() {
           <span className="text-gray-400">—</span>
         ),
     },
-    { key: 'locationName', header: 'Location', render: (m) => m.locationBreadcrumb || m.locationName || '—' },
+    {
+      key: 'locationName',
+      header: 'Location',
+      render: (m) =>
+        m.type === 'MOVE' && m.targetLocationId != null ? (
+          <span className="text-sm">
+            {m.locationBreadcrumb || m.locationName}
+            <span className="mx-1 text-gray-400">→</span>
+            {m.targetLocationBreadcrumb || m.targetLocationName}
+          </span>
+        ) : (
+          m.locationBreadcrumb || m.locationName || '—'
+        ),
+    },
     {
       key: 'unitPrice',
       header: 'Unit Price',

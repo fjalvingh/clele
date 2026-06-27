@@ -15,10 +15,15 @@ public class StockMovementDTO {
     private Long locationId;
     private String locationName;
     private String locationBreadcrumb;
+    private Long targetLocationId;
+    private String targetLocationName;
+    private String targetLocationBreadcrumb;
     private Integer quantity;
     private BigDecimal unitPrice;
     private String comments;
     private LocalDateTime movedAt;
     private String createdBy;
     private com.clele.parts.model.MovementType type;
+    private Long projectId;
+    private String projectName;
 }

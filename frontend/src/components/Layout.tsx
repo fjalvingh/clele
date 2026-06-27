@@ -63,6 +63,14 @@ const icons: Record<string, ReactNode> = {
       <path d="M12 9.5v4M12 16.6h.01" />
     </svg>
   ),
+  // Blueprint-style icon for project builds
+  projects: (
+    <svg {...icon}>
+      <rect x="3" y="4" width="18" height="16" rx="1.5" />
+      <path d="M7 8h10M7 12h6M7 16h4" />
+      <path d="M15 14l2 2 3-3" />
+    </svg>
+  ),
   users: (
     <svg {...icon}>
       <circle cx="12" cy="8" r="3.5" />
@@ -86,6 +94,7 @@ const navItems: NavItem[] = [
   { to: '/specs', label: 'Spec Fields', icon: icons.specs },
   { to: '/locations', label: 'Locations', icon: icons.locations },
   { to: '/low-stock', label: 'Low Stock', icon: icons.lowStock },
+  { to: '/projects', label: 'Projects', icon: icons.projects, permission: 'PARTS_EDIT' },
   { to: '/users', label: 'Users', icon: icons.users, permission: 'USERS_EDIT' },
 ];
 

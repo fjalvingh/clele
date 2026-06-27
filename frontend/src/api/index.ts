@@ -2,6 +2,7 @@ import client from './client';
 import type {
   AppSettings,
   AuthUser,
+  CancelRequest,
   CategorizationStatus,
   Category,
   CategoryRequest,
@@ -23,6 +24,12 @@ import type {
   PartAttachment,
   PartRequest,
   PartSearchResult,
+  Project,
+  ProjectBomEntry,
+  ProjectBomRequest,
+  ProjectRequest,
+  ProjectStockEntry,
+  PullStockRequest,
   QuickAddRequest,
   QuickAddResponse,
   SpecDefinition,
@@ -291,3 +298,40 @@ export const getUnreadChanges = () =>
 
 export const markChangesRead = (date: string) =>
   client.post('/changes/mark-read', { date });
+
+// Projects
+export const getProjects = () =>
+  client.get<Project[]>('/projects').then((r) => r.data);
+
+export const getProject = (id: number) =>
+  client.get<Project>(`/projects/${id}`).then((r) => r.data);
+
+export const createProject = (data: ProjectRequest) =>
+  client.post<Project>('/projects', data).then((r) => r.data);
+
+export const updateProject = (id: number, data: ProjectRequest) =>
+  client.put<Project>(`/projects/${id}`, data).then((r) => r.data);
+
+export const deleteProject = (id: number) =>
+  client.delete(`/projects/${id}`);
+
+export const addBomEntry = (projectId: number, data: ProjectBomRequest) =>
+  client.post<ProjectBomEntry>(`/projects/${projectId}/bom`, data).then((r) => r.data);
+
+export const updateBomEntry = (projectId: number, bomId: number, data: ProjectBomRequest) =>
+  client.put<ProjectBomEntry>(`/projects/${projectId}/bom/${bomId}`, data).then((r) => r.data);
+
+export const removeBomEntry = (projectId: number, bomId: number) =>
+  client.delete(`/projects/${projectId}/bom/${bomId}`);
+
+export const startBuild = (projectId: number) =>
+  client.post<Project>(`/projects/${projectId}/start-build`).then((r) => r.data);
+
+export const pullStock = (projectId: number, data: PullStockRequest) =>
+  client.post<ProjectStockEntry>(`/projects/${projectId}/pull-stock`, data).then((r) => r.data);
+
+export const completeProject = (projectId: number) =>
+  client.post<Project>(`/projects/${projectId}/complete`).then((r) => r.data);
+
+export const cancelProject = (projectId: number, data: CancelRequest) =>
+  client.post<Project>(`/projects/${projectId}/cancel`, data).then((r) => r.data);

@@ -45,4 +45,14 @@ public class StockMovement {
     @Enumerated(EnumType.STRING)
     @Column(length = 16)
     private MovementType type;
+
+    /** For MOVE rows: the location stock was transferred to (the positive leg). Null for all other types. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "target_location_id")
+    private Location targetLocation;
+
+    /** For PROJECT_OUT / PROJECT_RETURN rows: the project this movement belongs to. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "project_id")
+    private Project project;
 }

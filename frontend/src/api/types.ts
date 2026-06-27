@@ -220,12 +220,87 @@ export interface StockMovement {
   locationId: number;
   locationName: string;
   locationBreadcrumb: string;
+  targetLocationId?: number | null;
+  targetLocationName?: string | null;
+  targetLocationBreadcrumb?: string | null;
   quantity: number;
   unitPrice?: number | null;
   comments?: string | null;
   movedAt: string;
   createdBy?: string | null;
   type?: string | null;
+  projectId?: number | null;
+  projectName?: string | null;
+}
+
+// Projects
+export type ProjectStatus = 'PLANNING' | 'BUILDING' | 'COMPLETED' | 'CANCELLED';
+
+export interface Project {
+  id: number;
+  name: string;
+  description?: string;
+  status: ProjectStatus;
+  instanceCount: number;
+  ownerId: number;
+  ownerName?: string;
+  bomPartCount: number;
+  totalStockValue?: number | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Populated only by the detail endpoint. */
+  bom?: ProjectBomEntry[];
+  /** Populated only by the detail endpoint. */
+  stock?: ProjectStockEntry[];
+}
+
+export interface ProjectBomEntry {
+  id: number;
+  partId: number;
+  partName: string;
+  partNumber: string;
+  qtyPerInstance: number;
+  totalNeeded: number;
+  pulledTotal: number;
+  notes?: string;
+}
+
+export interface ProjectStockEntry {
+  id: number;
+  partId: number;
+  partName: string;
+  partNumber: string;
+  locationId: number;
+  locationName: string;
+  locationBreadcrumb: string;
+  quantity: number;
+  unitPrice?: number | null;
+  movementId?: number | null;
+  addedAt: string;
+  addedByName?: string;
+}
+
+export interface ProjectRequest {
+  name: string;
+  description?: string;
+  instanceCount: number;
+}
+
+export interface ProjectBomRequest {
+  partId: number;
+  qtyPerInstance: number;
+  notes?: string;
+}
+
+export interface PullStockRequest {
+  partId: number;
+  locationId: number;
+  quantity: number;
+  unitPrice?: number | null;
+}
+
+export interface CancelRequest {
+  returnStockIds: number[];
 }
 
 // Currency was removed from movements — the app uses a single app-wide currency (AppSettings).
