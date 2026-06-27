@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { addStock, findLocalParts, getMyLocations, quickAddPart, searchPartsOnline } from '../api';
 import type { Location, Part, PartSearchResult } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import PrintLabelModal from '../components/PrintLabelModal';
 
 type Phase =
   | { kind: 'scan' }
@@ -36,6 +37,7 @@ export default function BarcodeScannerPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
+  const [labelPart, setLabelPart] = useState<Part | null>(null);
 
   useEffect(() => {
     getMyLocations().then(setLocations).catch(() => {});
@@ -108,7 +110,7 @@ export default function BarcodeScannerPage() {
     }
   };
 
-  const handleAddToExisting = async (part: Part) => {
+  const handleAddToExisting = async (part: Part, printAfter = false) => {
     if (!locationId) { setError('Select a location first'); return; }
     setPhase({ kind: 'adding' });
     try {
@@ -120,14 +122,24 @@ export default function BarcodeScannerPage() {
       });
       await refresh();
       pushRecentScan(barcode, part.partNumber, part.description, quantity);
-      resetToScan(`Added ${quantity}× ${part.partNumber}`);
+      if (printAfter) {
+        setLabelPart(part);
+        setBarcode('');
+        setQuantity(1);
+        setUnitPrice('');
+        setError('');
+        setSuccess('');
+        setPhase({ kind: 'scan' });
+      } else {
+        resetToScan(`Added ${quantity}× ${part.partNumber}`);
+      }
     } catch (e) {
       setError((e as Error).message);
       setPhase({ kind: 'found-local', part });
     }
   };
 
-  const handleCreateAndAdd = async (result: PartSearchResult) => {
+  const handleCreateAndAdd = async (result: PartSearchResult, printAfter = false) => {
     if (!locationId) { setError('Select a location first'); return; }
     setPhase({ kind: 'adding' });
     try {
@@ -142,7 +154,17 @@ export default function BarcodeScannerPage() {
       });
       await refresh();
       pushRecentScan(barcode, res.part.partNumber, res.part.description, quantity);
-      resetToScan(`Created & added ${quantity}× ${res.part.partNumber}`);
+      if (printAfter) {
+        setLabelPart(res.part);
+        setBarcode('');
+        setQuantity(1);
+        setUnitPrice('');
+        setError('');
+        setSuccess('');
+        setPhase({ kind: 'scan' });
+      } else {
+        resetToScan(`Created & added ${quantity}× ${res.part.partNumber}`);
+      }
     } catch (e) {
       setError((e as Error).message);
       setPhase({ kind: 'found-online', result });
@@ -150,7 +172,17 @@ export default function BarcodeScannerPage() {
   };
 
   // Shared stock form fields
-  const StockForm = ({ onSubmit, submitLabel }: { onSubmit: () => void; submitLabel: string }) => (
+  const StockForm = ({
+    onSubmit,
+    submitLabel,
+    onSubmitAndPrint,
+    submitAndPrintLabel,
+  }: {
+    onSubmit: () => void;
+    submitLabel: string;
+    onSubmitAndPrint?: () => void;
+    submitAndPrintLabel?: string;
+  }) => (
     <div className="space-y-3">
       {error && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
@@ -180,7 +212,7 @@ export default function BarcodeScannerPage() {
           />
         </div>
         <div className="col-span-2">
-          <label className="mb-1 block text-xs font-medium text-gray-500">Unit price (optional)</label>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Unit price</label>
           <input
             type="number"
             min={0}
@@ -192,14 +224,23 @@ export default function BarcodeScannerPage() {
           />
         </div>
       </div>
-      <div className="flex gap-3 pt-1">
+      <div className="flex flex-wrap gap-2 pt-1">
         <button
           onClick={onSubmit}
-          disabled={!locationId}
+          disabled={!locationId || !unitPrice}
           className="flex-1 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitLabel}
         </button>
+        {onSubmitAndPrint && (
+          <button
+            onClick={onSubmitAndPrint}
+            disabled={!locationId || !unitPrice}
+            className="flex-1 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitAndPrintLabel ?? 'Add & Print Label'}
+          </button>
+        )}
         <button
           onClick={() => resetToScan()}
           className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -345,6 +386,8 @@ export default function BarcodeScannerPage() {
               <StockForm
                 onSubmit={() => handleAddToExisting(phase.part)}
                 submitLabel="Add Stock"
+                onSubmitAndPrint={() => handleAddToExisting(phase.part, true)}
+                submitAndPrintLabel="Add & Print Label"
               />
             </div>
           </div>
@@ -385,6 +428,8 @@ export default function BarcodeScannerPage() {
               <StockForm
                 onSubmit={() => handleCreateAndAdd(phase.result)}
                 submitLabel="Create & Add Stock"
+                onSubmitAndPrint={() => handleCreateAndAdd(phase.result, true)}
+                submitAndPrintLabel="Create, Add & Print Label"
               />
             </div>
           </div>
@@ -413,6 +458,17 @@ export default function BarcodeScannerPage() {
               </button>
             </div>
           </div>
+        )}
+
+        {labelPart && (
+          <PrintLabelModal
+            open={true}
+            onClose={() => {
+              setLabelPart(null);
+              setSuccess(`Added ${labelPart.partNumber}`);
+            }}
+            part={labelPart}
+          />
         )}
 
         {/* Recent scans */}
