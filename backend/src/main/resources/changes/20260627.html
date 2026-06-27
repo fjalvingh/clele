@@ -10,3 +10,39 @@
   <li>The <strong>Low Stock</strong> page now shows the total on-hand quantity across the whole subtree compared to the threshold.</li>
   <li>Thresholds can only be placed on <em>root</em> locations (those with no parent).</li>
 </ul>
+
+<h4>Stock movements between locations</h4>
+<p>
+  Moving stock between two locations is now recorded as a single movement in the history ledger,
+  with clear "Moved to …" / "Moved from …" annotations on each end.
+</p>
+
+<h4>Weighted-average cost tracking</h4>
+<p>
+  Unit prices are now maintained as a <strong>weighted average</strong> across all purchases.
+  Adding more stock at a different price blends into the existing average rather than overwriting it,
+  giving a more accurate picture of what your stock actually cost.
+</p>
+
+<h4>Projects</h4>
+<p>
+  You can now create <strong>Projects</strong> and attach a bill of materials (BOM) to each one.
+</p>
+<ul>
+  <li>Add parts to a project with a required quantity.</li>
+  <li>Reserve stock for the project directly from the project detail page.</li>
+  <li>See at a glance how much stock is allocated versus still needed per part.</li>
+</ul>
+
+<h4>Part number is now the primary identifier</h4>
+<p>
+  Parts no longer have a separate "name" field. The <strong>part number</strong> and
+  <strong>description</strong> are now used everywhere instead, matching the way real component
+  catalogues work.
+</p>
+
+<h4>Part counts on the Categories page</h4>
+<p>
+  Each category in the tree now shows a small badge with the number of parts directly assigned to it,
+  making it easy to spot populated vs. empty categories at a glance.
+</p>
