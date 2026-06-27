@@ -7,7 +7,7 @@ import PrintLabelModal from '../components/PrintLabelModal';
 
 type Phase =
   | { kind: 'scan' }
-  | { kind: 'searching'; step: 'local' | 'online' }
+  | { kind: 'searching'; step: 'local' | 'online'; query: string }
   | { kind: 'multiple'; parts: Part[]; query: string }
   | { kind: 'found-local'; part: Part; query: string }
   | { kind: 'found-online'; result: PartSearchResult; query: string }
@@ -21,6 +21,112 @@ interface RecentScan {
   partNumber: string;
   description?: string;
   qty: number;
+}
+
+interface StockFormProps {
+  error: string;
+  locationId: number | '';
+  locations: Location[];
+  quantity: number;
+  unitPrice: string;
+  onLocationChange: (id: number | '') => void;
+  onQuantityChange: (q: number) => void;
+  onUnitPriceChange: (p: string) => void;
+  onSubmit: () => void;
+  submitLabel: string;
+  onSubmitAndPrint?: () => void;
+  submitAndPrintLabel?: string;
+  onSkip: () => void;
+}
+
+function StockForm({
+  error,
+  locationId,
+  locations,
+  quantity,
+  unitPrice,
+  onLocationChange,
+  onQuantityChange,
+  onUnitPriceChange,
+  onSubmit,
+  submitLabel,
+  onSubmitAndPrint,
+  submitAndPrintLabel,
+  onSkip,
+}: StockFormProps) {
+  return (
+    <div className="space-y-3">
+      {error && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+      )}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="col-span-3">
+          <label className="mb-1 block text-xs font-medium text-gray-500">Location</label>
+          <select
+            value={locationId}
+            onChange={(e) => onLocationChange(e.target.value ? Number(e.target.value) : '')}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">— select location —</option>
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>{l.breadcrumb}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-500">Quantity</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={quantity || ''}
+            onChange={(e) => {
+              const v = parseInt(e.target.value.replace(/\D/g, ''), 10);
+              onQuantityChange(isNaN(v) ? 0 : v);
+            }}
+            onBlur={() => onQuantityChange(Math.max(1, quantity))}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div className="col-span-2">
+          <label className="mb-1 block text-xs font-medium text-gray-500">Unit price</label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            placeholder="0.00"
+            value={unitPrice}
+            onChange={(e) => onUnitPriceChange(e.target.value)}
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2 pt-1">
+        <button
+          onClick={onSubmit}
+          disabled={!locationId || !unitPrice}
+          className="flex-1 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {submitLabel}
+        </button>
+        {onSubmitAndPrint && (
+          <button
+            onClick={onSubmitAndPrint}
+            disabled={!locationId || !unitPrice}
+            className="flex-1 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {submitAndPrintLabel ?? 'Add & Print Label'}
+          </button>
+        )}
+        <button
+          onClick={onSkip}
+          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Skip
+        </button>
+      </div>
+    </div>
+  );
 }
 
 let nextId = 0;
@@ -85,7 +191,7 @@ export default function BarcodeScannerPage() {
   const searchOnline = useCallback(async (q: string) => {
     const gen = ++searchGenRef.current;
     setError('');
-    setPhase({ kind: 'searching', step: 'online' });
+    setPhase({ kind: 'searching', step: 'online', query: q });
     try {
       const online = await searchPartsOnline(q);
       if (gen !== searchGenRef.current) return;
@@ -105,6 +211,15 @@ export default function BarcodeScannerPage() {
     const q = code.trim().replace(/[{}]/g, '');
     if (!q) return;
 
+    // Reject suspiciously short all-numeric codes
+    if (/^\d+$/.test(q) && q.length < 4) {
+      setBarcode('');
+      setSuccess('');
+      setError(`Barcode ${q} too short`);
+      setPhase({ kind: 'scan' });
+      return;
+    }
+
     // If this code was already searched without being acted on, say so
     if (triedCodes.includes(q)) {
       setBarcode('');
@@ -118,7 +233,7 @@ export default function BarcodeScannerPage() {
     const gen = ++searchGenRef.current;
     setSuccess('');
     setError('');
-    setPhase({ kind: 'searching', step: 'local' });
+    setPhase({ kind: 'searching', step: 'local', query: q });
 
     try {
       const local = await findLocalParts(q);
@@ -135,7 +250,7 @@ export default function BarcodeScannerPage() {
         return;
       }
 
-      setPhase({ kind: 'searching', step: 'online' });
+      setPhase({ kind: 'searching', step: 'online', query: q });
       const online = await searchPartsOnline(q);
       if (gen !== searchGenRef.current) return;
 
@@ -221,90 +336,17 @@ export default function BarcodeScannerPage() {
     }
   };
 
-  // Shared stock form fields
-  const StockForm = ({
-    onSubmit,
-    submitLabel,
-    onSubmitAndPrint,
-    submitAndPrintLabel,
-  }: {
-    onSubmit: () => void;
-    submitLabel: string;
-    onSubmitAndPrint?: () => void;
-    submitAndPrintLabel?: string;
-  }) => (
-    <div className="space-y-3">
-      {error && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
-      )}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="col-span-3">
-          <label className="mb-1 block text-xs font-medium text-gray-500">Location</label>
-          <select
-            value={locationId}
-            onChange={(e) => setLocationId(e.target.value ? Number(e.target.value) : '')}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="">— select location —</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>{l.breadcrumb}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-500">Quantity</label>
-          <input
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            value={quantity || ''}
-            onChange={(e) => {
-              const v = parseInt(e.target.value.replace(/\D/g, ''), 10);
-              setQuantity(isNaN(v) ? 0 : v);
-            }}
-            onBlur={() => setQuantity((q) => Math.max(1, q))}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-        <div className="col-span-2">
-          <label className="mb-1 block text-xs font-medium text-gray-500">Unit price</label>
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            placeholder="0.00"
-            value={unitPrice}
-            onChange={(e) => setUnitPrice(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2 pt-1">
-        <button
-          onClick={onSubmit}
-          disabled={!locationId || !unitPrice}
-          className="flex-1 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {submitLabel}
-        </button>
-        {onSubmitAndPrint && (
-          <button
-            onClick={onSubmitAndPrint}
-            disabled={!locationId || !unitPrice}
-            className="flex-1 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {submitAndPrintLabel ?? 'Add & Print Label'}
-          </button>
-        )}
-        <button
-          onClick={() => resetToScan()}
-          className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-        >
-          Skip
-        </button>
-      </div>
-    </div>
-  );
+  const stockFormProps = {
+    error,
+    locationId,
+    locations,
+    quantity,
+    unitPrice,
+    onLocationChange: setLocationId,
+    onQuantityChange: setQuantity,
+    onUnitPriceChange: setUnitPrice,
+    onSkip: resetToScan,
+  };
 
   return (
     <div className="min-h-full bg-gray-50 p-6">
@@ -350,13 +392,16 @@ export default function BarcodeScannerPage() {
           {success && (
             <p className="mt-2 text-sm font-medium text-green-600">{success}</p>
           )}
+          {error && phase.kind === 'scan' && (
+            <p className="mt-2 text-sm font-medium text-red-600">{error}</p>
+          )}
         </div>
 
         {/* Phase-specific content */}
 
         {(phase.kind === 'searching' || phase.kind === 'adding') && (
           <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <svg className="h-5 w-5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+            <svg className="h-5 w-5 shrink-0 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
             </svg>
@@ -364,8 +409,8 @@ export default function BarcodeScannerPage() {
               {phase.kind === 'adding'
                 ? 'Saving…'
                 : phase.step === 'local'
-                ? 'Searching local database…'
-                : 'Searching online…'}
+                ? <>Searching local database for <span className="font-mono font-medium text-gray-900">{phase.query}</span>…</>
+                : <>Searching online for <span className="font-mono font-medium text-gray-900">{phase.query}</span>…</>}
             </span>
           </div>
         )}
@@ -394,7 +439,7 @@ export default function BarcodeScannerPage() {
           <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
             <div className="border-b border-gray-100 px-5 py-3">
               <p className="text-sm font-medium text-gray-700">
-                {phase.parts.length} matching parts found for code{' '}
+                {phase.parts.length} existing local parts found for code{' '}
                 <span className="font-mono text-gray-900">{phase.query}</span> — select one:
               </p>
             </div>
@@ -470,6 +515,7 @@ export default function BarcodeScannerPage() {
                 </div>
               </div>
               <StockForm
+                {...stockFormProps}
                 onSubmit={() => handleAddToExisting(phase.part)}
                 submitLabel="Add Stock"
                 onSubmitAndPrint={() => handleAddToExisting(phase.part, true)}
@@ -525,6 +571,7 @@ export default function BarcodeScannerPage() {
                 )}
               </div>
               <StockForm
+                {...stockFormProps}
                 onSubmit={() => handleCreateAndAdd(phase.result, phase.query)}
                 submitLabel="Create & Add Stock"
                 onSubmitAndPrint={() => handleCreateAndAdd(phase.result, phase.query, true)}
