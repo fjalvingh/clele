@@ -117,7 +117,6 @@ interface ConfirmForm {
   datasheetUrl: string;
   locationId: string;
   quantity: string;
-  minimumQuantity: string;
   unitPrice: string;
   // raw specs from search result (kept for pre-filling)
   specsRaw: string[];
@@ -154,7 +153,6 @@ export default function QuickAddPage() {
     datasheetUrl: '',
     locationId: '',
     quantity: '1',
-    minimumQuantity: '1',
     unitPrice: '',
     specsRaw: [],
   });
@@ -275,7 +273,6 @@ export default function QuickAddPage() {
       datasheetUrl: result.datasheetUrl ?? '',
       locationId: '', // resolved to the last-used location when step 3 loads the user's locations
       quantity: '1',
-      minimumQuantity: '1',
       unitPrice: '',
       specsRaw: result.specs,
     });
@@ -342,7 +339,6 @@ export default function QuickAddPage() {
       specs: Object.keys(specs).length > 0 ? specs : undefined,
       locationId: parseInt(form.locationId, 10),
       quantity: parseInt(form.quantity, 10),
-      minimumQuantity: parseInt(form.minimumQuantity, 10),
       unitPrice: form.unitPrice !== '' ? parseFloat(form.unitPrice) : null,
     };
 
@@ -751,20 +747,6 @@ export default function QuickAddPage() {
                 <input
                   name="quantity"
                   value={form.quantity}
-                  onChange={handleFormChange}
-                  type="number"
-                  min="0"
-                  required
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Minimum qty <span className="text-red-500">*</span>
-                </label>
-                <input
-                  name="minimumQuantity"
-                  value={form.minimumQuantity}
                   onChange={handleFormChange}
                   type="number"
                   min="0"

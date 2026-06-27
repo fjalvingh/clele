@@ -22,10 +22,6 @@ public class StockEntryRequest {
     @Min(value = 0, message = "Quantity must be >= 0")
     private Integer quantity;
 
-    @NotNull(message = "Minimum quantity is required")
-    @Min(value = 0, message = "Minimum quantity must be >= 0")
-    private Integer minimumQuantity;
-
     @DecimalMin(value = "0.0", inclusive = true, message = "Unit price must be >= 0")
     private BigDecimal unitPrice;
 

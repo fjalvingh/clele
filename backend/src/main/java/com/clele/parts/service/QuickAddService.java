@@ -50,7 +50,6 @@ public class QuickAddService {
         // The funnel writes the INITIAL movement, creates the entry and checks location ownership.
         StockEntry saved = stockMovementService.apply(part, location, request.getQuantity(),
                 request.getUnitPrice(), null, MovementType.INITIAL);
-        saved.setMinimumQuantity(request.getMinimumQuantity());
         saved = stockEntryRepository.save(saved);
         currentUserService.rememberLastLocation(location);
 
@@ -63,8 +62,6 @@ public class QuickAddService {
                 .locationName(location.getName())
                 .locationBreadcrumb(location.breadcrumb())
                 .quantity(saved.getQuantity())
-                .minimumQuantity(saved.getMinimumQuantity())
-                .lowStock(saved.getQuantity() < saved.getMinimumQuantity())
                 .unitPrice(saved.getUnitPrice())
                 .build();
 

@@ -176,7 +176,6 @@ public class PartsboxImportService {
                         .part(part)
                         .location(locationRepository.getReferenceById(loc.getKey()))
                         .quantity(loc.getValue())
-                        .minimumQuantity(0)
                         .unitPrice(lastPriceByLocation.get(loc.getKey()))
                         .build());
                 stockEntryCount++;

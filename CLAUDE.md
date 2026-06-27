@@ -2,6 +2,12 @@
 
 Full-stack web app for managing electronic component inventory with AI-powered part lookup.
 
+## Changelog
+
+User-visible change notes live in `backend/src/main/resources/changes/` as HTML fragments named
+`YYYYMMDD.html` (one file per date). After completing any larger change — new feature, redesigned
+behaviour, removed UI element — ask the user whether a changelog entry should be written there.
+
 ## Build & Run
 
 Frontend and backend ship as a **single web container**: the Maven build compiles the React/Vite
@@ -100,9 +106,12 @@ frontend/src/
     on every stock add, not a managed account setting. Also drops the stale `location_owner_name_key`
     unique constraint (per-owner global name uniqueness) left over from before V21: names may now
     repeat under different parents; sibling uniqueness is enforced in the service — see Locations below
+  - V23 adds a changelog mechanism (`changes/` HTML fragments + `ChangelogController`)
+  - V24 introduces `part_stock_threshold` (see Stock Thresholds below) and drops
+    `stock_entry.minimum_quantity` — thresholds are now per (part, root location), not per stock
+    entry. Existing `minimum_quantity > 0` rows are migrated to the new table (MAX per root).
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V23** (CLAUDE.md previously lagged the actual migrations — always check the
-  `db/migration/` directory for the real high-water mark before adding one)
+  is **V25** (always check `db/migration/` for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
@@ -219,11 +228,11 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   unitPrice, comments, type)`** — it writes one `StockMovement` (delta) and updates the `stock_entry`
   aggregate in the same transaction, checks location ownership, and rejects changes that would drive
   stock negative. All manual paths route through it: `StockEntryService.create` (delta `+qty`,
-  `INITIAL`), `update` (delta `new−old`, `ADJUST`; a min-qty/price-only edit writes no movement),
+  `INITIAL`), `update` (delta `new−old`, `ADJUST`; a price-only edit writes no movement),
   `delete` (delta `−qty`, `ADJUST`, then drops the row); `QuickAddService` (delta `+qty`, `INITIAL`).
 - **Part detail stock operations** are the explicit user-facing verbs (no "Edit" — adjusting an
   absolute quantity was unclear): `StockEntryService.addStock` (delta `+qty`, `PURCHASE`, find-or-
-  create, also (re)sets the threshold/price), `takeStock` (delta `−qty`, `CONSUME`), and `move`
+  create, also (re)sets the price), `takeStock` (delta `−qty`, `CONSUME`), and `move`
   (transfer between two locations). Each is a `POST /api/stock/{add,take,move}`. **Move** writes two
   `MOVE` movements — a negative leg at the source and a positive leg at the destination, each with a
   comment naming the other location ("Moved to …" / "Moved from …") for a clear trace — and carries
@@ -235,6 +244,26 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - The Partsbox importer keeps its own dated-movement loop (movements tagged `IMPORT`, entry = Σ) — it
   was already consistent. `POST /api/stock/reconcile` (`PARTS_EDIT`) realigns every aggregate to its
   ledger and returns `{corrected: n}` — a verification/safety-net hook (expect 0 in steady state).
+
+## Stock Thresholds
+
+- Minimum stock levels live in a **separate** `part_stock_threshold` table (V24) — one row per
+  (part, root location). `stock_entry` no longer has a `minimum_quantity` column.
+- A threshold is set **per root location only** (locations with `parent_id IS NULL`). "Low stock"
+  means the SUM of all `stock_entry.quantity` rows for the part across the entire subtree of that
+  root location is below the threshold. This covers stock spread across Building A > Room B > Shelf C
+  with a single threshold on Building A.
+- **`StockThresholdRepository`** uses native SQL with a recursive CTE to compute subtree totals —
+  JPQL cannot express recursive CTEs so all threshold queries are native. Results map via the
+  `StockThresholdView` Spring Data projection interface (getters matching column aliases).
+- **`StockThresholdService`**: `findAll(partId?)`, `findLowStock()`, `countLowStock()`,
+  `upsert(request)` (validates root-location constraint, returns 400 if not root), `delete(id)`.
+- **Dashboard** `lowStockCount` is driven by `StockThresholdService.countLowStock()`.
+- **Frontend**: the Part Detail page has a "Stock Thresholds" card showing each threshold row
+  (root location, on-hand total across subtree, minimum, low-stock badge) with Add/Edit/Delete.
+  The root-location picker filters `allLocations` to entries without a `parentId`. The Low Stock
+  page (`pages/LowStock.tsx`) calls `getLowStockThresholds()` and shows root-location names and
+  deficits.
 
 ## App Settings
 
@@ -485,6 +514,10 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   the Part Detail stock verbs (add / take / move-between-locations, move's destination may be any
   user's location); `POST /stock/reconcile` realigns every stock entry to its ledger sum (requires
   `PARTS_EDIT`)
+- `GET /stock-thresholds?partId=` — all thresholds (optionally filtered by part) with subtree totals;
+  `GET /stock-thresholds/low` — thresholds where subtree total < minimum (drives Low Stock page);
+  `POST /stock-thresholds` → upsert (create or update) a threshold, 201; location must be a root
+  (400 otherwise); `DELETE /stock-thresholds/{id}` → 204
 - `GET /dashboard`
 - `GET /parts-search?q=` — AI part search
 - `GET /parts-search/images?q=` — image suggestions

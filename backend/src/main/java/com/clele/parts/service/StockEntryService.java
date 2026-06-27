@@ -52,16 +52,6 @@ public class StockEntryService {
                 .collect(Collectors.toList());
     }
 
-    public List<StockEntryDTO> findLowStock() {
-        return stockEntryRepository.findLowStock().stream()
-                .map(this::toDTO)
-                .collect(Collectors.toList());
-    }
-
-    public long countLowStock() {
-        return stockEntryRepository.countLowStock();
-    }
-
     public java.math.BigDecimal totalStockValue() {
         return stockEntryRepository.totalStockValue();
     }
@@ -79,7 +69,6 @@ public class StockEntryService {
         // The funnel writes the INITIAL movement, creates the entry and checks location ownership.
         StockEntry entry = stockMovementService.apply(part, location, request.getQuantity(),
                 request.getUnitPrice(), request.getComments(), MovementType.INITIAL);
-        entry.setMinimumQuantity(request.getMinimumQuantity());
         StockEntryDTO dto = toDTO(stockEntryRepository.save(entry));
         currentUserService.rememberLastLocation(location);
         return dto;
@@ -95,9 +84,6 @@ public class StockEntryService {
         Location location = requireLocation(request.getLocationId());
         StockEntry entry = stockMovementService.apply(part, location, request.getQuantity(),
                 request.getUnitPrice(), request.getComments(), MovementType.PURCHASE);
-        if (request.getMinimumQuantity() != null) {
-            entry.setMinimumQuantity(request.getMinimumQuantity());
-        }
         StockEntryDTO dto = toDTO(stockEntryRepository.save(entry));
         currentUserService.rememberLastLocation(location);
         return dto;
@@ -171,7 +157,6 @@ public class StockEntryService {
                 entry.setUnitPrice(request.getUnitPrice());
             }
         }
-        entry.setMinimumQuantity(request.getMinimumQuantity());
         return toDTO(stockEntryRepository.save(entry));
     }
 
@@ -219,8 +204,6 @@ public class StockEntryService {
                 .ownerId(owner != null ? owner.getId() : null)
                 .ownerName(owner != null ? (owner.getFullName() != null ? owner.getFullName() : owner.getEmail()) : null)
                 .quantity(entry.getQuantity())
-                .minimumQuantity(entry.getMinimumQuantity())
-                .lowStock(entry.getQuantity() < entry.getMinimumQuantity())
                 .unitPrice(entry.getUnitPrice())
                 .build();
     }

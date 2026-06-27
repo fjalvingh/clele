@@ -1,24 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { getLowStock } from '../api';
-import type { StockEntry } from '../api/types';
+import { getLowStockThresholds } from '../api';
+import type { StockThreshold } from '../api/types';
 import Badge from '../components/Badge';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 
 export default function LowStockPage() {
-  const [entries, setEntries] = useState<StockEntry[]>([]);
+  const [entries, setEntries] = useState<StockThreshold[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getLowStock()
+    getLowStockThresholds()
       .then(setEntries)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
-  const columns: Column<StockEntry>[] = [
+  const columns: Column<StockThreshold>[] = [
     {
       key: 'partNumber',
       header: 'Part Number',
@@ -29,12 +29,12 @@ export default function LowStockPage() {
       ),
     },
     { key: 'partName', header: 'Part Name' },
-    { key: 'locationName', header: 'Location', render: (row) => row.locationBreadcrumb || row.locationName },
+    { key: 'locationName', header: 'Location' },
     {
-      key: 'quantity',
-      header: 'Quantity',
+      key: 'totalQuantity',
+      header: 'On Hand',
       render: (row) => (
-        <Badge variant="red">{row.quantity}</Badge>
+        <Badge variant="red">{row.totalQuantity}</Badge>
       ),
     },
     {
@@ -47,7 +47,7 @@ export default function LowStockPage() {
       header: 'Deficit',
       render: (row) => (
         <span className="font-semibold text-red-700">
-          {row.minimumQuantity - row.quantity}
+          {row.minimumQuantity - row.totalQuantity}
         </span>
       ),
     },
@@ -57,7 +57,7 @@ export default function LowStockPage() {
     <div className="p-8">
       <h1 className="mb-2 text-2xl font-bold text-gray-900">Low Stock Alerts</h1>
       <p className="mb-6 text-sm text-gray-500">
-        Parts where current quantity is below the minimum threshold.
+        Parts where on-hand quantity (across all sub-locations) is below the minimum threshold.
       </p>
 
       {loading && <p className="text-gray-500">Loading...</p>}

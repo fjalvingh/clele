@@ -31,12 +31,6 @@ public class StockEntryController {
         return stockEntryService.findAll();
     }
 
-    @GetMapping("/low")
-    @Operation(summary = "List stock entries below minimum quantity")
-    public List<StockEntryDTO> getLowStock() {
-        return stockEntryService.findLowStock();
-    }
-
     @GetMapping("/{id}")
     @Operation(summary = "Get stock entry by ID")
     public StockEntryDTO getById(@PathVariable Long id) {

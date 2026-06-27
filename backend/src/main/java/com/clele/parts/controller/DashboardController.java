@@ -5,6 +5,7 @@ import com.clele.parts.repository.CategoryRepository;
 import com.clele.parts.service.LocationService;
 import com.clele.parts.service.PartService;
 import com.clele.parts.service.StockEntryService;
+import com.clele.parts.service.StockThresholdService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class DashboardController {
     private final PartService partService;
     private final LocationService locationService;
     private final StockEntryService stockEntryService;
+    private final StockThresholdService stockThresholdService;
     private final CategoryRepository categoryRepository;
 
     @GetMapping
@@ -30,7 +32,7 @@ public class DashboardController {
                 .totalParts(partService.countAll())
                 .totalLocations(locationService.countAll())
                 .totalCategories(categoryRepository.count())
-                .lowStockCount(stockEntryService.countLowStock())
+                .lowStockCount(stockThresholdService.countLowStock())
                 .totalStockValue(stockEntryService.totalStockValue())
                 .perUser(locationService.perUserStats())
                 .build();

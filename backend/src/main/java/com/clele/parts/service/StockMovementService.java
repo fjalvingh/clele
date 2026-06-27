@@ -62,7 +62,6 @@ public class StockMovementService {
                         .part(part)
                         .location(location)
                         .quantity(0)
-                        .minimumQuantity(0)
                         .build());
 
         int newQuantity = entry.getQuantity() + deltaQty;

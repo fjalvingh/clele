@@ -32,6 +32,8 @@ import type {
   StockEntryRequest,
   StockMoveRequest,
   StockMovement,
+  StockThreshold,
+  StockThresholdRequest,
   UnreadChanges,
   User,
   UserRequest,
@@ -160,8 +162,20 @@ export const deleteUser = (id: number) =>
 export const getStock = () =>
   client.get<StockEntry[]>('/stock').then((r) => r.data);
 
-export const getLowStock = () =>
-  client.get<StockEntry[]>('/stock/low').then((r) => r.data);
+// Stock thresholds (minimum on-hand per part at a root location)
+export const getStockThresholds = (partId?: number) =>
+  client
+    .get<StockThreshold[]>('/stock-thresholds', { params: partId ? { partId } : {} })
+    .then((r) => r.data);
+
+export const getLowStockThresholds = () =>
+  client.get<StockThreshold[]>('/stock-thresholds/low').then((r) => r.data);
+
+export const upsertStockThreshold = (data: StockThresholdRequest) =>
+  client.post<StockThreshold>('/stock-thresholds', data).then((r) => r.data);
+
+export const deleteStockThreshold = (id: number) =>
+  client.delete(`/stock-thresholds/${id}`);
 
 export const getStockEntry = (id: number) =>
   client.get<StockEntry>(`/stock/${id}`).then((r) => r.data);

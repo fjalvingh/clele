@@ -30,10 +30,6 @@ public class StockAdjustRequest {
     @DecimalMin(value = "0.0", inclusive = true, message = "Unit price must be >= 0")
     private BigDecimal unitPrice;
 
-    /** Low-stock threshold; only applied when adding stock (optional). */
-    @Min(value = 0, message = "Minimum quantity must be >= 0")
-    private Integer minimumQuantity;
-
     /** Optional note recorded on the resulting stock movement. */
     private String comments;
 }

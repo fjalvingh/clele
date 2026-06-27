@@ -46,7 +46,7 @@ public interface LocationRepository extends JpaRepository<Location, Long> {
                 COUNT(DISTINCT s.part.id),
                 COALESCE(SUM(s.quantity), 0L),
                 COALESCE(SUM(CASE WHEN s.unitPrice IS NOT NULL THEN s.quantity * s.unitPrice ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN s.quantity < s.minimumQuantity THEN 1L ELSE 0L END), 0L))
+                0L)
             FROM Location l
             JOIN l.owner o
             LEFT JOIN StockEntry s ON s.location = l

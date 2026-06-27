@@ -165,7 +165,6 @@ public class LocationService {
                             .part(src.getPart())
                             .location(target)
                             .quantity(0)
-                            .minimumQuantity(src.getMinimumQuantity())
                             .build());
             tgt.setQuantity(tgt.getQuantity() + src.getQuantity());
             if (src.getUnitPrice() != null) {

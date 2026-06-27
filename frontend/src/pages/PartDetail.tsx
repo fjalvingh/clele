@@ -7,6 +7,7 @@ import {
   attachmentUrl,
   deletePartAttachment,
   deleteStockEntry,
+  deleteStockThreshold,
   getLocations,
   getMyLocations,
   getOctopartUsage,
@@ -15,11 +16,13 @@ import {
   getPartMovements,
   getPartStock,
   getSpecDefinitions,
+  getStockThresholds,
   moveStock,
   searchOctopart,
   searchPartImages,
   takeStock,
   uploadPartAttachment,
+  upsertStockThreshold,
 } from '../api';
 import type {
   AttachmentType,
@@ -33,6 +36,7 @@ import type {
   SpecDefinition,
   StockEntry,
   StockMovement,
+  StockThreshold,
 } from '../api/types';
 import { MAJOR_TYPES } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
@@ -53,7 +57,6 @@ interface StockOpForm {
   destLocationId: number; // move: destination (may belong to any user)
   quantity: number;
   unitPrice: number | null;
-  minimumQuantity: number;
   comment: string;
 }
 
@@ -62,7 +65,6 @@ const emptyOpForm: StockOpForm = {
   destLocationId: 0,
   quantity: 0,
   unitPrice: null,
-  minimumQuantity: 0,
   comment: '',
 };
 
@@ -168,6 +170,13 @@ export default function PartDetailPage() {
 
   const [printModalOpen, setPrintModalOpen] = useState(false);
 
+  // Stock thresholds — per root location minimums.
+  const [thresholds, setThresholds] = useState<StockThreshold[]>([]);
+  const [thresholdModalOpen, setThresholdModalOpen] = useState(false);
+  const [editingThreshold, setEditingThreshold] = useState<StockThreshold | null>(null);
+  const [thresholdForm, setThresholdForm] = useState({ locationId: 0, minimumQuantity: 0 });
+  const [thresholdError, setThresholdError] = useState<string | null>(null);
+
   const splitAttachments = (atts: PartAttachment[]) => {
     setImages(atts.filter((a) => a.type === 'PHOTO'));
     setDatasheets(atts.filter((a) => a.type === 'DATASHEET'));
@@ -200,6 +209,10 @@ export default function PartDetailPage() {
         getSpecDefinitions()
           .then(setSpecDefs)
           .catch(() => setSpecDefs([]));
+        // Thresholds — best-effort
+        getStockThresholds(partId)
+          .then(setThresholds)
+          .catch(() => setThresholds([]));
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -289,7 +302,6 @@ export default function PartDetailPage() {
       ...emptyOpForm,
       locationId: entry ? entry.locationId : defaultLoc,
       unitPrice: entry?.unitPrice ?? null,
-      minimumQuantity: entry?.minimumQuantity ?? 0,
     });
     setFormError(null);
     setStockOp('add');
@@ -320,7 +332,6 @@ export default function PartDetailPage() {
           locationId: opEntry ? opEntry.locationId : opForm.locationId,
           quantity: opForm.quantity,
           unitPrice: opForm.unitPrice,
-          minimumQuantity: opForm.minimumQuantity,
           comments: opForm.comment || null,
         });
         // Adding stock updates the user's last-used location; refresh so it pre-selects next time.
@@ -347,6 +358,46 @@ export default function PartDetailPage() {
       setFormError((e as Error).message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openAddThreshold = () => {
+    setEditingThreshold(null);
+    setThresholdForm({ locationId: 0, minimumQuantity: 1 });
+    setThresholdError(null);
+    setThresholdModalOpen(true);
+  };
+
+  const openEditThreshold = (t: StockThreshold) => {
+    setEditingThreshold(t);
+    setThresholdForm({ locationId: t.locationId, minimumQuantity: t.minimumQuantity });
+    setThresholdError(null);
+    setThresholdModalOpen(true);
+  };
+
+  const handleSubmitThreshold = async () => {
+    if (!thresholdForm.locationId) return;
+    setThresholdError(null);
+    try {
+      await upsertStockThreshold({
+        partId,
+        locationId: thresholdForm.locationId,
+        minimumQuantity: thresholdForm.minimumQuantity,
+      });
+      setThresholdModalOpen(false);
+      getStockThresholds(partId).then(setThresholds).catch(() => {});
+    } catch (e: unknown) {
+      setThresholdError((e as Error).message);
+    }
+  };
+
+  const handleDeleteThreshold = async (t: StockThreshold) => {
+    if (!confirm(`Remove threshold for "${t.locationName}"?`)) return;
+    try {
+      await deleteStockThreshold(t.id);
+      setThresholds((prev) => prev.filter((x) => x.id !== t.id));
+    } catch (e: unknown) {
+      alert((e as Error).message);
     }
   };
 
@@ -506,14 +557,8 @@ export default function PartDetailPage() {
     {
       key: 'quantity',
       header: 'Quantity',
-      render: (row) =>
-        row.lowStock ? (
-          <Badge variant="red">{row.quantity}</Badge>
-        ) : (
-          <Badge variant="green">{row.quantity}</Badge>
-        ),
+      render: (row) => <Badge variant="blue">{row.quantity}</Badge>,
     },
-    { key: 'minimumQuantity', header: 'Min Qty' },
     {
       key: 'unitPrice',
       header: 'Unit Price',
@@ -522,16 +567,6 @@ export default function PartDetailPage() {
           <span className="font-mono text-sm">{formatMoney(row.unitPrice)}</span>
         ) : (
           <span className="text-gray-400">—</span>
-        ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (row) =>
-        row.lowStock ? (
-          <Badge variant="red">Low Stock</Badge>
-        ) : (
-          <Badge variant="green">OK</Badge>
         ),
     },
   ];
@@ -1136,6 +1171,121 @@ export default function PartDetailPage() {
         />
       </div>
 
+      {/* Stock thresholds — per root-location minimums */}
+      <div className="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+            <span className="h-5 w-1 rounded-full bg-amber-500" />
+            Stock Thresholds
+          </h2>
+          {canEdit && (
+            <button
+              onClick={openAddThreshold}
+              className="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600"
+            >
+              + Set Threshold
+            </button>
+          )}
+        </div>
+        {thresholds.length === 0 ? (
+          <p className="text-sm text-gray-400">No minimum stock thresholds set for this part.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <th className="pb-2 pr-4">Location</th>
+                <th className="pb-2 pr-4">On Hand</th>
+                <th className="pb-2 pr-4">Minimum</th>
+                <th className="pb-2 pr-4">Status</th>
+                {canEdit && <th className="pb-2" />}
+              </tr>
+            </thead>
+            <tbody>
+              {thresholds.map((t) => (
+                <tr key={t.id} className="border-b border-gray-50 last:border-0">
+                  <td className="py-2 pr-4 font-medium text-gray-800">{t.locationName}</td>
+                  <td className="py-2 pr-4 font-mono">{t.totalQuantity}</td>
+                  <td className="py-2 pr-4 font-mono">{t.minimumQuantity}</td>
+                  <td className="py-2 pr-4">
+                    {t.lowStock ? (
+                      <Badge variant="red">Low — {t.minimumQuantity - t.totalQuantity} short</Badge>
+                    ) : (
+                      <Badge variant="green">OK</Badge>
+                    )}
+                  </td>
+                  {canEdit && (
+                    <td className="py-2">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => openEditThreshold(t)}
+                          className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteThreshold(t)}
+                          className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Threshold modal */}
+      <Modal
+        open={thresholdModalOpen}
+        onClose={() => setThresholdModalOpen(false)}
+        title={editingThreshold ? 'Edit threshold' : 'Set threshold'}
+      >
+        <FormField
+          as="select"
+          label="Root location *"
+          value={thresholdForm.locationId || ''}
+          onChange={(e) => setThresholdForm({ ...thresholdForm, locationId: Number(e.target.value) })}
+          disabled={!!editingThreshold}
+        >
+          <option value="">— Select root location —</option>
+          {[...allLocations]
+            .filter((l) => !l.parentId)
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}{l.ownerName ? ` · ${l.ownerName}` : ''}
+              </option>
+            ))}
+        </FormField>
+        <FormField
+          label="Minimum quantity *"
+          type="number"
+          min={0}
+          value={thresholdForm.minimumQuantity}
+          onChange={(e) => setThresholdForm({ ...thresholdForm, minimumQuantity: Number(e.target.value) })}
+        />
+        {thresholdError && <p className="mb-3 text-sm text-red-600">{thresholdError}</p>}
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={() => setThresholdModalOpen(false)}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSubmitThreshold}
+            disabled={!thresholdForm.locationId}
+            className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-40"
+          >
+            Save
+          </button>
+        </div>
+      </Modal>
+
       {/* Stock movement history (collapsible) */}
       <div className="mt-6 rounded-xl border border-gray-200 bg-white shadow-sm">
         <button
@@ -1200,14 +1350,11 @@ export default function PartDetailPage() {
                 label="Location *"
                 value={opForm.locationId || ''}
                 onChange={(e) => {
-                  // If the chosen location already holds stock, carry its threshold/price so a
-                  // top-level add doesn't reset them.
                   const locId = Number(e.target.value);
                   const existing = stock.find((s) => s.locationId === locId);
                   setOpForm({
                     ...opForm,
                     locationId: locId,
-                    minimumQuantity: existing?.minimumQuantity ?? 0,
                     unitPrice: existing?.unitPrice ?? null,
                   });
                 }}
@@ -1260,33 +1407,22 @@ export default function PartDetailPage() {
               onChange={(e) => setOpForm({ ...opForm, quantity: Number(e.target.value) })}
             />
 
-            {/* Threshold + price only make sense when adding. */}
+            {/* Price only makes sense when adding. */}
             {stockOp === 'add' && (
-              <>
-                <FormField
-                  label="Minimum Quantity"
-                  type="number"
-                  min={0}
-                  value={opForm.minimumQuantity}
-                  onChange={(e) =>
-                    setOpForm({ ...opForm, minimumQuantity: Number(e.target.value) })
-                  }
-                />
-                <FormField
-                  label="Unit Price"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  placeholder="Optional"
-                  value={opForm.unitPrice ?? ''}
-                  onChange={(e) =>
-                    setOpForm({
-                      ...opForm,
-                      unitPrice: e.target.value !== '' ? Number(e.target.value) : null,
-                    })
-                  }
-                />
-              </>
+              <FormField
+                label="Unit Price"
+                type="number"
+                min={0}
+                step={0.01}
+                placeholder="Optional"
+                value={opForm.unitPrice ?? ''}
+                onChange={(e) =>
+                  setOpForm({
+                    ...opForm,
+                    unitPrice: e.target.value !== '' ? Number(e.target.value) : null,
+                  })
+                }
+              />
             )}
 
             <FormField

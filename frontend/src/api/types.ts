@@ -175,8 +175,6 @@ export interface StockEntry {
   ownerId?: number;
   ownerName?: string;
   quantity: number;
-  minimumQuantity: number;
-  lowStock: boolean;
   unitPrice?: number | null;
 }
 
@@ -186,8 +184,25 @@ export interface StockAdjustRequest {
   locationId: number;
   quantity: number;
   unitPrice?: number | null;
-  minimumQuantity?: number;
   comments?: string | null;
+}
+
+export interface StockThreshold {
+  id: number;
+  partId: number;
+  partName: string;
+  partNumber: string;
+  locationId: number;
+  locationName: string;
+  minimumQuantity: number;
+  totalQuantity: number;
+  lowStock: boolean;
+}
+
+export interface StockThresholdRequest {
+  partId: number;
+  locationId: number;
+  minimumQuantity: number;
 }
 
 /** Move a quantity of stock from one location to another (destination may belong to any user). */
@@ -224,7 +239,6 @@ export interface StockEntryRequest {
   partId: number;
   locationId: number;
   quantity: number;
-  minimumQuantity: number;
   unitPrice?: number | null;
   comments?: string | null;
 }
@@ -248,7 +262,6 @@ export interface QuickAddRequest {
   categoryId?: number | null;
   locationId: number;
   quantity: number;
-  minimumQuantity: number;
   unitPrice?: number | null;
 }
 
