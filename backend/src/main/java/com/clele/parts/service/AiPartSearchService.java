@@ -149,6 +149,10 @@ public class AiPartSearchService {
         } else {
             // No fence — try to find a bare JSON array
             int bracketStart = text.indexOf('[');
+            if (bracketStart < 0) {
+                // AI returned prose (no results / unknown part) — treat as empty
+                return List.of();
+            }
             if (bracketStart > 0) {
                 text = text.substring(bracketStart);
             }
