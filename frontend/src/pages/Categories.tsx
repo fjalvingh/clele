@@ -38,6 +38,9 @@ function TreeNode({ node, onEdit, onDelete, categories }: TreeNodeProps) {
         {node.description && (
           <span className="hidden text-xs text-gray-400 group-hover:inline">{node.description}</span>
         )}
+        {node.partCount > 0 && (
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">{node.partCount}</span>
+        )}
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => fullCat && onEdit(fullCat)}

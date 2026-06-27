@@ -145,6 +145,7 @@ public class CategoryService {
                 .name(category.getName())
                 .description(category.getDescription())
                 .parentId(category.getParent() != null ? category.getParent().getId() : null)
+                .partCount(categoryRepository.countPartsByCategoryId(category.getId()))
                 .children(childDTOs)
                 .build();
     }
