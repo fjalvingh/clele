@@ -46,6 +46,7 @@ import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
+import PartEditModal from '../components/PartEditModal';
 import PrintLabelModal from '../components/PrintLabelModal';
 import { formatMetric } from '../utils/units';
 
@@ -169,6 +170,7 @@ export default function PartDetailPage() {
   const [octoApplying, setOctoApplying] = useState(false);
 
   const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
 
   // Stock thresholds — per root location minimums.
   const [thresholds, setThresholds] = useState<StockThreshold[]>([]);
@@ -831,6 +833,14 @@ export default function PartDetailPage() {
                       Set OctoPart credentials
                     </Link>
                   )
+                )}
+                {canEdit && (
+                  <button
+                    onClick={() => setEditModalOpen(true)}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+                  >
+                    Edit
+                  </button>
                 )}
                 <button
                   onClick={() => setPrintModalOpen(true)}
@@ -1724,6 +1734,17 @@ export default function PartDetailPage() {
 
       {/* Print label modal */}
       <PrintLabelModal open={printModalOpen} onClose={() => setPrintModalOpen(false)} part={part} />
+
+      {/* Edit part modal */}
+      <PartEditModal
+        open={editModalOpen}
+        part={part}
+        onClose={() => setEditModalOpen(false)}
+        onSaved={(updated) => {
+          setPart(updated);
+          setEditModalOpen(false);
+        }}
+      />
       </div>
     </div>
   );
