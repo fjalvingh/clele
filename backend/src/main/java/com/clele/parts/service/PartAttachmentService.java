@@ -162,6 +162,11 @@ public class PartAttachmentService {
             return new Downloaded(body, ct != null ? ct.toString() : MediaType.APPLICATION_OCTET_STREAM_VALUE);
         } catch (ResponseStatusException e) {
             throw e;
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            log.error("Failed to download from {}: {}", url, e.getStatusCode());
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "The source refused the download (HTTP " + e.getStatusCode().value()
+                            + "). It may be blocking automated requests — try opening the URL in a browser instead.");
         } catch (Exception e) {
             log.error("Failed to download from {}: {}", url, e.getMessage());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Failed to download: " + e.getMessage());

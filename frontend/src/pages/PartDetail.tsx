@@ -21,6 +21,7 @@ import {
   searchOctopart,
   searchPartImages,
   takeStock,
+  updatePart,
   uploadPartAttachment,
   upsertStockThreshold,
 } from '../api';
@@ -33,6 +34,7 @@ import type {
   OctopartUsage,
   Part,
   PartAttachment,
+  PartRequest,
   SpecDefinition,
   StockEntry,
   StockMovement,
@@ -473,6 +475,30 @@ export default function PartDetailPage() {
     }
   };
 
+  const handleRemoveDatasheetUrl = async () => {
+    if (!part) return;
+    if (!confirm('Remove the datasheet URL from this part?')) return;
+    setFileBusy(true);
+    setFileError(null);
+    try {
+      const request: PartRequest = {
+        partNumber: part.partNumber,
+        description: part.description,
+        details: part.details,
+        manufacturer: part.manufacturer,
+        datasheetUrl: undefined,
+        specs: part.specs,
+        categoryId: part.categoryId ?? null,
+      };
+      const updated = await updatePart(partId, request);
+      setPart(updated);
+    } catch (err: unknown) {
+      setFileError((err as Error).message);
+    } finally {
+      setFileBusy(false);
+    }
+  };
+
   const handleDeleteAttachment = async (att: PartAttachment) => {
     if (!confirm('Remove this file?')) return;
     try {
@@ -740,7 +766,7 @@ export default function PartDetailPage() {
                     {canEdit && (
                       <button
                         onClick={() => handleDeleteImage(img)}
-                        className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs text-white group-hover:flex"
+                        className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs text-white"
                         title="Remove"
                       >
                         ×
@@ -959,6 +985,36 @@ export default function PartDetailPage() {
                   </li>
                 ))}
               </ul>
+            )}
+            {part.datasheetUrl && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-gray-400">
+                <span className="shrink-0">Source:</span>
+                <a
+                  href={part.datasheetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="truncate text-blue-600 hover:underline"
+                >
+                  {part.datasheetUrl}
+                </a>
+                {canEdit && (
+                  <span className="ml-auto flex shrink-0 gap-2">
+                    <button
+                      onClick={() => setEditModalOpen(true)}
+                      className="hover:underline"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={handleRemoveDatasheetUrl}
+                      disabled={fileBusy}
+                      className="text-red-600 hover:underline disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </span>
+                )}
+              </div>
             )}
             {canEdit && (
               <div className="mt-3 flex flex-wrap gap-2">
