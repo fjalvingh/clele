@@ -114,7 +114,10 @@ export default function TagInput({ value, onChange }: Props) {
               }
             }}
             onFocus={() => setShowSuggestions(true)}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            onBlur={() => {
+              setTimeout(() => setShowSuggestions(false), 150);
+              if (input.trim()) commit(input);
+            }}
             placeholder="Add a tag…"
             className="block w-full border-0 p-0.5 text-sm focus:outline-none focus:ring-0"
           />
