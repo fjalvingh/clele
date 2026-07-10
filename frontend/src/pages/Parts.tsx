@@ -13,11 +13,13 @@ import {
 } from '../api';
 import type { CategorizationStatus, Category, CategoryTree, Part, PartRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import Badge from '../components/Badge';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
 import MetricNumberField from '../components/MetricNumberField';
 import Modal from '../components/Modal';
+import TagInput from '../components/TagInput';
 
 // Hierarchical category selector (same pattern as Categories page)
 interface CatOption { id: number; label: string }
@@ -41,6 +43,7 @@ const emptyForm = (): PartRequest => ({
   datasheetUrl: '',
   specs: {},
   categoryId: null,
+  tags: [],
 });
 
 // Split "64 KB" → ["64", "KB"] given units list; falls back to [value, first unit]
@@ -329,6 +332,7 @@ export default function PartsPage() {
       datasheetUrl: part.datasheetUrl ?? '',
       specs: part.specs ?? {},
       categoryId: part.categoryId ?? null,
+      tags: part.tags ?? [],
     };
     setForm(f);
     // Populate spec values from existing part specs; spec defs will be fetched by the effect
@@ -393,6 +397,20 @@ export default function PartsPage() {
       key: 'category',
       header: 'Category',
       render: (r) => r.categoryBreadcrumb ?? '—',
+    },
+    {
+      key: 'tags',
+      header: 'Tags',
+      render: (r) =>
+        r.tags && r.tags.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {r.tags.map((t) => (
+              <Badge key={t} variant="blue">{t}</Badge>
+            ))}
+          </div>
+        ) : (
+          '—'
+        ),
     },
   ];
 
@@ -609,6 +627,10 @@ export default function PartsPage() {
               </option>
             ))}
           </FormField>
+          <TagInput
+            value={form.tags ?? []}
+            onChange={(tags) => setForm({ ...form, tags })}
+          />
 
           {/* Dynamic spec fields */}
           {specDefs.length > 0 ? (

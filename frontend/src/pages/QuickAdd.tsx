@@ -4,6 +4,7 @@ import { findLocalParts, getMyLocations, getSpecDefinitions, quickAddPart, searc
 import type { ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import MetricNumberField from '../components/MetricNumberField';
+import TagInput from '../components/TagInput';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -120,6 +121,7 @@ interface ConfirmForm {
   unitPrice: string;
   // raw specs from search result (kept for pre-filling)
   specsRaw: string[];
+  tags: string[];
 }
 
 function displayUrl(img: { url: string; thumbnailUrl?: string }) {
@@ -155,6 +157,7 @@ export default function QuickAddPage() {
     quantity: '1',
     unitPrice: '',
     specsRaw: [],
+    tags: [],
   });
   const [locations, setLocations] = useState<Location[]>([]);
   const [locLoading, setLocLoading] = useState(false);
@@ -275,6 +278,7 @@ export default function QuickAddPage() {
       quantity: '1',
       unitPrice: '',
       specsRaw: result.specs,
+      tags: [],
     });
     setSaveError(null);
     setSelectedImageUrls(new Set());
@@ -337,6 +341,7 @@ export default function QuickAddPage() {
       manufacturer: form.manufacturer || undefined,
       datasheetUrl: form.datasheetUrl || undefined,
       specs: Object.keys(specs).length > 0 ? specs : undefined,
+      tags: form.tags.length > 0 ? form.tags : undefined,
       locationId: parseInt(form.locationId, 10),
       quantity: parseInt(form.quantity, 10),
       unitPrice: form.unitPrice !== '' ? parseFloat(form.unitPrice) : null,
@@ -590,6 +595,7 @@ export default function QuickAddPage() {
                     {p.description && (
                       <p className="text-sm text-gray-500 mt-1 line-clamp-2">{p.description}</p>
                     )}
+                    <p className="mt-1 text-xs text-gray-400">{p.totalQuantity ?? 0} on hand</p>
                   </div>
                   <button
                     onClick={() => navigate(`/parts/${p.id}`)}
@@ -703,6 +709,12 @@ export default function QuickAddPage() {
                   onChange={handleFormChange}
                   rows={4}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div className="col-span-2">
+                <TagInput
+                  value={form.tags}
+                  onChange={(tags) => setForm((prev) => ({ ...prev, tags }))}
                 />
               </div>
             </div>

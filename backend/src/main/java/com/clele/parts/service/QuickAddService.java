@@ -30,6 +30,7 @@ public class QuickAddService {
     private final PartService partService;
     private final CurrentUserService currentUserService;
     private final StockMovementService stockMovementService;
+    private final TagService tagService;
 
     @Transactional
     public QuickAddResponseDTO quickAdd(QuickAddRequest request) {
@@ -80,6 +81,9 @@ public class QuickAddService {
             Category category = categoryRepository.findById(request.getCategoryId())
                     .orElseThrow(() -> new EntityNotFoundException("Category not found: " + request.getCategoryId()));
             part.setCategory(category);
+        }
+        if (request.getTags() != null) {
+            part.getTags().addAll(tagService.resolveOrCreate(request.getTags()));
         }
         part.setCreatedBy(currentUserService.current());
         return partRepository.save(part);

@@ -3,6 +3,7 @@ package com.clele.parts.dto;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -28,4 +29,5 @@ public class PartDTO {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Long totalQuantity;
+    private List<String> tags;
 }

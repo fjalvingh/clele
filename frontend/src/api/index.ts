@@ -42,6 +42,7 @@ import type {
   StockMovement,
   StockThreshold,
   StockThresholdRequest,
+  Tag,
   UnreadChanges,
   User,
   UserRequest,
@@ -94,6 +95,10 @@ export const updatePart = (id: number, data: PartRequest) =>
   client.put<Part>(`/parts/${id}`, data).then((r) => r.data);
 
 export const deletePart = (id: number) => client.delete(`/parts/${id}`);
+
+// Tags
+export const searchTags = (q: string) =>
+  client.get<Tag[]>('/tags', { params: { q } }).then((r) => r.data);
 
 /** Admin: delete every part created by a user. Resolves to the number of parts removed. */
 export const deletePartsByUser = (userId: number) =>

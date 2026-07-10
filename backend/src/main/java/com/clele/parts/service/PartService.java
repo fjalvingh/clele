@@ -4,6 +4,7 @@ import com.clele.parts.dto.PartDTO;
 import com.clele.parts.dto.PartRequest;
 import com.clele.parts.model.Category;
 import com.clele.parts.model.Part;
+import com.clele.parts.model.Tag;
 import com.clele.parts.repository.CategoryRepository;
 import com.clele.parts.repository.PartAttachmentRepository;
 import com.clele.parts.repository.PartRepository;
@@ -20,6 +21,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -32,6 +34,7 @@ public class PartService {
     private final StockEntryRepository stockEntryRepository;
     private final PartAttachmentRepository partAttachmentRepository;
     private final CurrentUserService currentUserService;
+    private final TagService tagService;
 
     public List<PartDTO> search(String search, Long categoryId, String sort) {
         String term = (search != null && !search.isBlank()) ? search.trim() : null;
@@ -82,8 +85,10 @@ public class PartService {
         if (term.isEmpty()) {
             return List.of();
         }
-        return partRepository.fuzzyByPartNumber(term).stream()
-                .map(this::toDTO)
+        List<Part> parts = partRepository.fuzzyByPartNumber(term);
+        Map<Long, Long> stockByPart = stockByOwner(parts);
+        return parts.stream()
+                .map(p -> toDTOWithStock(p, stockByPart))
                 .collect(Collectors.toList());
     }
 
@@ -190,6 +195,11 @@ public class PartService {
         } else {
             part.setCategory(null);
         }
+        if (request.getTags() != null) {
+            Set<Tag> resolved = tagService.resolveOrCreate(request.getTags());
+            part.getTags().clear();
+            part.getTags().addAll(resolved);
+        }
         return part;
     }
 
@@ -227,6 +237,10 @@ public class PartService {
                         : null)
                 .createdAt(part.getCreatedAt())
                 .updatedAt(part.getUpdatedAt())
+                .tags(part.getTags().stream()
+                        .map(Tag::getName)
+                        .sorted(String.CASE_INSENSITIVE_ORDER)
+                        .collect(Collectors.toList()))
                 .build();
     }
 }

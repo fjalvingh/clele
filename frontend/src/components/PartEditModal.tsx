@@ -4,6 +4,7 @@ import type { CategoryTree, Part, PartRequest, SpecDefinition } from '../api/typ
 import FormField from './FormField';
 import MetricNumberField from './MetricNumberField';
 import Modal from './Modal';
+import TagInput from './TagInput';
 
 interface CatOption { id: number; label: string }
 
@@ -152,6 +153,7 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
     datasheetUrl: '',
     specs: {},
     categoryId: null,
+    tags: [],
   });
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
   const [specValues, setSpecValues] = useState<Record<string, string>>({});
@@ -174,6 +176,7 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
       datasheetUrl: part.datasheetUrl ?? '',
       specs: part.specs ?? {},
       categoryId: part.categoryId ?? null,
+      tags: part.tags ?? [],
     });
     const existing: Record<string, string> = {};
     for (const [k, v] of Object.entries(part.specs ?? {})) {
@@ -271,6 +274,10 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
             </option>
           ))}
         </FormField>
+        <TagInput
+          value={form.tags ?? []}
+          onChange={(tags) => setForm({ ...form, tags })}
+        />
 
         {specDefs.length > 0 ? (
           <div className="mt-2">

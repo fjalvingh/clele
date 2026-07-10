@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -26,6 +27,7 @@ public class QuickAddRequest {
     private String datasheetUrl;
     private Map<String, Object> specs;
     private Long categoryId;
+    private List<String> tags;
 
     // Stock fields
     @NotNull(message = "Location ID is required")

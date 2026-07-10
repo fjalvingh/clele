@@ -939,6 +939,16 @@ export default function PartDetailPage() {
                   <span className="text-gray-800">{part.categoryBreadcrumb}</span>
                 </div>
               )}
+              {part.tags && part.tags.length > 0 && (
+                <div>
+                  <span className="font-medium text-gray-500">Tags:</span>{' '}
+                  <div className="mt-1 inline-flex flex-wrap gap-1 align-middle">
+                    {part.tags.map((t) => (
+                      <Badge key={t} variant="blue">{t}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
               {part.datasheetUrl && (
                 <div>
                   <span className="font-medium text-gray-500">Datasheet:</span>{' '}

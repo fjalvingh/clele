@@ -88,6 +88,7 @@ export interface Part {
   createdAt: string;
   updatedAt: string;
   totalQuantity?: number;
+  tags?: string[];
 }
 
 export interface PartRequest {
@@ -98,6 +99,13 @@ export interface PartRequest {
   datasheetUrl?: string;
   specs?: Record<string, string>;
   categoryId?: number | null;
+  tags?: string[];
+}
+
+/** A saved tag name, as returned by the tag autocomplete endpoint. */
+export interface Tag {
+  id: number;
+  name: string;
 }
 
 export interface Location {
@@ -337,6 +345,7 @@ export interface QuickAddRequest {
   datasheetUrl?: string;
   specs?: Record<string, string>;
   categoryId?: number | null;
+  tags?: string[];
   locationId: number;
   quantity: number;
   unitPrice?: number | null;
