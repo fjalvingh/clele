@@ -392,6 +392,12 @@ export interface ImageSuggestion {
   description?: string;
 }
 
+export interface DatasheetSuggestion {
+  url: string;      // candidate datasheet URL (usually a PDF)
+  title?: string;   // result title/label, for display
+  source?: string;  // hostname the result came from, for display
+}
+
 export type AttachmentType = 'PHOTO' | 'DATASHEET' | 'ATTACHMENT';
 
 export interface PartAttachment {

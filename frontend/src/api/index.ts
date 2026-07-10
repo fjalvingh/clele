@@ -8,6 +8,7 @@ import type {
   CategoryRequest,
   CategoryTree,
   Dashboard,
+  DatasheetSuggestion,
   ImageSuggestion,
   Location,
   LocationRequest,
@@ -275,6 +276,9 @@ export const quickAddPart = (data: QuickAddRequest) =>
 
 export const searchPartImages = (q: string) =>
   client.get<ImageSuggestion[]>('/parts-search/images', { params: { q } }).then((r) => r.data);
+
+export const searchPartDatasheets = (q: string) =>
+  client.get<DatasheetSuggestion[]>('/parts-search/datasheets', { params: { q } }).then((r) => r.data);
 
 // OctoPart (Nexar) enrichment
 export const getOctopartUsage = () =>

@@ -19,6 +19,7 @@ import {
   getStockThresholds,
   moveStock,
   searchOctopart,
+  searchPartDatasheets,
   searchPartImages,
   takeStock,
   updatePart,
@@ -27,6 +28,7 @@ import {
 } from '../api';
 import type {
   AttachmentType,
+  DatasheetSuggestion,
   ImageSuggestion,
   Location,
   OctopartApplyRequest,
@@ -157,6 +159,14 @@ export default function PartDetailPage() {
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
   const [attaching, setAttaching] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
+
+  // "Find datasheet" modal — same search/pick pattern as "Find image", but attaches via URL.
+  const [datasheetModalOpen, setDatasheetModalOpen] = useState(false);
+  const [datasheetQuery, setDatasheetQuery] = useState('');
+  const [datasheetSuggestions, setDatasheetSuggestions] = useState<DatasheetSuggestion[]>([]);
+  const [datasheetsLoading, setDatasheetsLoading] = useState(false);
+  const [datasheetAttaching, setDatasheetAttaching] = useState(false);
+  const [datasheetAttachError, setDatasheetAttachError] = useState<string | null>(null);
 
   // OctoPart (Nexar) enrichment — search/pick/confirm.
   const [octoModalOpen, setOctoModalOpen] = useState(false);
@@ -577,6 +587,38 @@ export default function PartDetailPage() {
       return;
     }
     setImageModalOpen(false);
+  };
+
+  const runDatasheetSearch = (q: string) => {
+    if (!q.trim()) return;
+    setDatasheetsLoading(true);
+    setDatasheetSuggestions([]);
+    searchPartDatasheets(q.trim())
+      .then(setDatasheetSuggestions)
+      .catch(() => setDatasheetSuggestions([]))
+      .finally(() => setDatasheetsLoading(false));
+  };
+
+  const openFindDatasheet = () => {
+    const q = [part?.manufacturer, part?.partNumber].filter(Boolean).join(' ') || part?.partNumber || '';
+    setDatasheetQuery(q);
+    setDatasheetAttachError(null);
+    setDatasheetModalOpen(true);
+    runDatasheetSearch(q);
+  };
+
+  const handleAttachDatasheet = async (url: string) => {
+    setDatasheetAttaching(true);
+    setDatasheetAttachError(null);
+    try {
+      await addAttachmentFromUrl(partId, url, 'DATASHEET');
+      await refreshAttachments();
+      setDatasheetModalOpen(false);
+    } catch (err: unknown) {
+      setDatasheetAttachError((err as Error).message);
+    } finally {
+      setDatasheetAttaching(false);
+    }
   };
 
   const stockColumns: Column<StockEntry>[] = [
@@ -1055,6 +1097,25 @@ export default function PartDetailPage() {
                     Download from URL
                   </button>
                 )}
+                <button
+                  onClick={openFindDatasheet}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
+                >
+                  <svg
+                    className="h-3.5 w-3.5 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.8}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-3.5-3.5" />
+                  </svg>
+                  Find datasheet
+                </button>
               </div>
             )}
           </div>
@@ -1640,6 +1701,90 @@ export default function PartDetailPage() {
               {attaching ? 'Attaching…' : 'Attach selected'}
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Find datasheet modal */}
+      <Modal open={datasheetModalOpen} onClose={() => setDatasheetModalOpen(false)} title="Find datasheet">
+        <div className="mb-4 flex gap-2">
+          <input
+            type="text"
+            value={datasheetQuery}
+            onChange={(e) => setDatasheetQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && runDatasheetSearch(datasheetQuery)}
+            placeholder="e.g. Texas Instruments LM317"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <button
+            onClick={() => runDatasheetSearch(datasheetQuery)}
+            disabled={!datasheetQuery.trim() || datasheetsLoading}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            Search
+          </button>
+        </div>
+
+        <div className="min-h-[8rem]">
+          {datasheetsLoading ? (
+            <p className="text-sm text-gray-400">Searching for datasheets…</p>
+          ) : datasheetSuggestions.length === 0 ? (
+            <p className="text-sm text-gray-400">No datasheets found. Try a different search term.</p>
+          ) : (
+            <ul className="space-y-2">
+              {datasheetSuggestions.map((d) => (
+                <li
+                  key={d.url}
+                  className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2"
+                >
+                  <svg
+                    className="h-5 w-5 shrink-0 text-blue-600"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.8}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 3v5h5" />
+                    <path d="M9 13h6" />
+                    <path d="M9 17h6" />
+                  </svg>
+                  <div className="min-w-0 flex-1">
+                    <a
+                      href={d.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={d.url}
+                      className="block truncate text-sm text-blue-600 hover:underline"
+                    >
+                      {d.title ?? d.url}
+                    </a>
+                    <p className="truncate text-xs text-gray-400">{d.source ?? d.url}</p>
+                  </div>
+                  <button
+                    onClick={() => handleAttachDatasheet(d.url)}
+                    disabled={datasheetAttaching}
+                    className="shrink-0 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-medium hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Use this
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {datasheetAttachError && <p className="mt-3 text-sm text-red-600">{datasheetAttachError}</p>}
+
+        <div className="mt-4 flex justify-end">
+          <button
+            onClick={() => setDatasheetModalOpen(false)}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Cancel
+          </button>
         </div>
       </Modal>
 

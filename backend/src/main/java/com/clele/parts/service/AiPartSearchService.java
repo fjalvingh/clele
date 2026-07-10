@@ -1,5 +1,6 @@
 package com.clele.parts.service;
 
+import com.clele.parts.dto.DatasheetSuggestionDTO;
 import com.clele.parts.dto.ImageSuggestionDTO;
 import com.clele.parts.dto.PartSearchResultDTO;
 import com.clele.parts.model.SpecDefinition;
@@ -24,6 +25,7 @@ import java.util.Map;
 public class AiPartSearchService {
 
     private final DuckDuckGoImageService duckDuckGoImageService;
+    private final DuckDuckGoDatasheetService duckDuckGoDatasheetService;
     private final SpecDefinitionRepository specDefinitionRepository;
 
     private static final String API_URL = "https://api.anthropic.com/v1/messages";
@@ -40,6 +42,17 @@ public class AiPartSearchService {
 
             Focus on Wikimedia Commons uploads (https://upload.wikimedia.org/wikipedia/commons/...) \
             or official manufacturer/distributor product image URLs. \
+            Return [] if you truly have no suggestions.
+            """;
+
+    private static final String DATASHEET_PROMPT = """
+            You are helping locate manufacturer datasheets for an electronic component inventory system.
+            For the electronic component "%s", suggest up to 5 direct URLs to its datasheet (PDF).
+
+            Return ONLY a valid JSON array with no markdown, no explanation:
+            [{"url": "https://...", "title": "brief label", "source": "hostname"}]
+
+            Prefer official manufacturer or authorized distributor (Mouser, DigiKey, ...) hosted PDFs. \
             Return [] if you truly have no suggestions.
             """;
 
@@ -230,6 +243,39 @@ public class AiPartSearchService {
         }
     }
 
+    public List<DatasheetSuggestionDTO> searchDatasheets(String query) {
+        // 1. Try DuckDuckGo — best relevance, no API key needed
+        List<DatasheetSuggestionDTO> ddg = duckDuckGoDatasheetService.search(query);
+        if (!ddg.isEmpty()) {
+            return ddg;
+        }
+
+        // Fall back to AI suggestions
+        if (apiKey == null || apiKey.isBlank()) {
+            return List.of();
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("x-api-key", apiKey);
+        headers.set("anthropic-version", API_VERSION);
+
+        String prompt = String.format(DATASHEET_PROMPT, query);
+        Map<String, Object> body = Map.of(
+                "model", model,
+                "max_tokens", 1024,
+                "messages", List.of(Map.of("role", "user", "content", prompt))
+        );
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(API_URL, HttpMethod.POST,
+                    new HttpEntity<>(body, headers), String.class);
+            return parseDatasheetResponse(response.getBody());
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
     // ── Wikimedia Commons image search ──────────────────────────────────────────
 
     private List<ImageSuggestionDTO> searchWikimediaImages(String query) {
@@ -312,6 +358,31 @@ public class AiPartSearchService {
             results.add(ImageSuggestionDTO.builder()
                     .url(url)
                     .description(nullIfBlank(node.path("description").asText(null)))
+                    .build());
+        }
+        return results;
+    }
+
+    private List<DatasheetSuggestionDTO> parseDatasheetResponse(String body) throws Exception {
+        JsonNode root = objectMapper.readTree(body);
+        if (root.has("error")) return List.of();
+
+        String text = root.path("content").get(0).path("text").asText("").strip();
+        if (text.startsWith("```")) {
+            text = text.replaceFirst("^```(?:json)?\\s*", "").replaceFirst("```\\s*$", "").strip();
+        }
+
+        JsonNode array = objectMapper.readTree(text);
+        if (!array.isArray()) return List.of();
+
+        List<DatasheetSuggestionDTO> results = new ArrayList<>();
+        for (JsonNode node : array) {
+            String url = node.path("url").asText("").strip();
+            if (url.isBlank() || !url.toLowerCase().contains(".pdf")) continue;
+            results.add(DatasheetSuggestionDTO.builder()
+                    .url(url)
+                    .title(nullIfBlank(node.path("title").asText(null)))
+                    .source(nullIfBlank(node.path("source").asText(null)))
                     .build());
         }
         return results;

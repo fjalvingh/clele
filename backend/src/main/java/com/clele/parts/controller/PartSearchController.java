@@ -1,5 +1,6 @@
 package com.clele.parts.controller;
 
+import com.clele.parts.dto.DatasheetSuggestionDTO;
 import com.clele.parts.dto.ImageSuggestionDTO;
 import com.clele.parts.dto.PartSearchResultDTO;
 import com.clele.parts.dto.QuickAddRequest;
@@ -30,6 +31,11 @@ public class PartSearchController {
     @GetMapping("/api/parts-search/images")
     public List<ImageSuggestionDTO> searchImages(@RequestParam String q) {
         return aiPartSearchService.searchImages(q);
+    }
+
+    @GetMapping("/api/parts-search/datasheets")
+    public List<DatasheetSuggestionDTO> searchDatasheets(@RequestParam String q) {
+        return aiPartSearchService.searchDatasheets(q);
     }
 
     @PostMapping("/api/parts/quick-add")
