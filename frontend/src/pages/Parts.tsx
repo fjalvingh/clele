@@ -392,7 +392,7 @@ export default function PartsPage() {
       ),
     },
     { key: 'description', header: 'Description', render: (r) => r.description ?? '—' },
-    { key: 'manufacturer', header: 'Manufacturer', render: (r) => r.manufacturer ?? '—' },
+    { key: 'stock', header: 'In Stock', render: (r) => r.totalQuantity ?? 0 },
     {
       key: 'category',
       header: 'Category',
