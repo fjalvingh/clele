@@ -196,7 +196,7 @@ export default function CategoriesPage() {
       {error && <p className="text-red-600">{error}</p>}
 
       {!loading && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-surface p-4 shadow-sm">
           {tree.length === 0 ? (
             <p className="text-sm text-gray-400">No categories yet. Create one to get started.</p>
           ) : (

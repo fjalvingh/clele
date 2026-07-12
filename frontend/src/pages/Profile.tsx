@@ -3,9 +3,17 @@ import { getOctopartCredentials, updateOctopartCredentials } from '../api';
 import type { OctopartCredentialsStatus } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import FormField from '../components/FormField';
+import { useTheme, type ThemePreference } from '../theme/ThemeContext';
+
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+];
 
 export default function ProfilePage() {
   const { refresh } = useAuth();
+  const { preference, setPreference } = useTheme();
   const [status, setStatus] = useState<OctopartCredentialsStatus | null>(null);
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
@@ -46,7 +54,29 @@ export default function ProfilePage() {
       <h1 className="text-2xl font-bold text-gray-900">My Account</h1>
       <p className="mt-1 text-sm text-gray-500">Your personal settings.</p>
 
-      <section className="mt-6 rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+      <section className="mt-6 rounded-lg border border-gray-200 bg-surface p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-gray-900">Appearance</h2>
+        <p className="mt-1 text-sm text-gray-600">Choose how Clele looks on this device.</p>
+
+        <div className="mt-4 inline-flex rounded-lg border border-gray-300 p-1">
+          {THEME_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setPreference(opt.value)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                preference === opt.value
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-6 rounded-lg border border-gray-200 bg-surface p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-gray-900">OctoPart (Nexar) credentials</h2>
         <p className="mt-1 text-sm text-gray-600">
           Used to look up part information from OctoPart. Each account uses its own free Nexar

@@ -199,7 +199,7 @@ export default function SpecDefinitionsPage() {
       {error && <p className="text-red-600">{error}</p>}
 
       {!loading && (
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="rounded-xl border border-gray-200 bg-surface shadow-sm overflow-hidden">
           {specs.length === 0 ? (
             <p className="p-6 text-sm text-gray-400">
               No spec fields defined yet. Create one to get started.

@@ -13,6 +13,11 @@
  * identity without per-page edits. Use `blue-*` for accent, `gray-*` for
  * neutral; red/amber/green keep their semantic meaning.
  */
+/* Manual dark mode: toggled by adding `.dark` to <html> (see theme/ThemeContext.tsx). We don't
+ * use Tailwind's default prefers-color-scheme `dark:` behaviour since the mode is a user setting,
+ * not just a media query. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
@@ -42,6 +47,77 @@
   --color-blue-700: #115e59;
   --color-blue-800: #134e4a;
   --color-blue-900: #134e4a;
+
+  /* Card/panel surface — distinct from the page background (gray-100). Plain `bg-white` doesn't
+   * follow the neutral ramp, so it needs its own theme-aware variable. */
+  --color-surface: #ffffff;
+}
+
+/* Dark theme — a muted "Darcula" register: low-contrast slate-blue neutrals and a soft foreground
+ * (never pure white) so long reading sessions don't glare. Every ramp used for real UI surfaces
+ * (gray, the teal accent, and the semantic status colors) is redefined here; since Tailwind v4
+ * utilities reference these as CSS variables, every existing `bg-gray-100`/`text-blue-600`/etc.
+ * across the app repaints automatically — no per-component `dark:` classes needed for those.
+ * Fixed-dark chrome that must NOT flip (the sidebar, modal backdrops) intentionally uses the
+ * untouched `neutral-*`/`black` palette instead of `gray-*`, so it's exempt from this remap. */
+:root.dark {
+  --color-surface: #292b2f;
+
+  --color-gray-50: #242629;
+  --color-gray-100: #1c1e21;
+  --color-gray-200: #34383e;
+  --color-gray-300: #454a52;
+  --color-gray-400: #5b6570;
+  --color-gray-500: #78838f;
+  --color-gray-600: #8b96a1;
+  --color-gray-700: #9aa7b3;
+  --color-gray-800: #a9b7c6;
+  --color-gray-900: #ccd6df;
+  --color-gray-950: #e4e9ee;
+
+  --color-blue-50: #0d2b28;
+  --color-blue-100: #123a35;
+  --color-blue-200: #1a4d46;
+  --color-blue-300: #3fcdb8;
+  --color-blue-400: #52dcc7;
+  --color-blue-500: #3ecbb0;
+  --color-blue-600: #2bb39c;
+  --color-blue-700: #249c88;
+  --color-blue-800: #4fd6c0;
+  --color-blue-900: #166f61;
+
+  --color-red-50: #2a1717;
+  --color-red-100: #331c1c;
+  --color-red-200: #4a2626;
+  --color-red-500: #e57373;
+  --color-red-600: #ef8b83;
+  --color-red-700: #f4a19c;
+  --color-red-800: #f8bcb6;
+  --color-red-900: #fcd8d4;
+
+  --color-green-50: #16241a;
+  --color-green-100: #1c2e21;
+  --color-green-200: #28402d;
+  --color-green-600: #7fc98a;
+  --color-green-700: #98d1a1;
+  --color-green-800: #b7ddbc;
+  --color-green-900: #d6ead8;
+
+  --color-amber-50: #2a2114;
+  --color-amber-100: #332818;
+  --color-amber-600: #dba75c;
+  --color-amber-700: #e5ba7c;
+  --color-amber-900: #f5ddb3;
+
+  --color-yellow-100: #332c14;
+  --color-yellow-600: #d3b656;
+  --color-yellow-700: #ddc476;
+  --color-yellow-800: #ecd8a0;
+
+  --color-emerald-50: #142621;
+  --color-emerald-200: #24463b;
+  --color-emerald-600: #6cc79f;
+  --color-emerald-700: #8ad2b3;
 }
 
 /* Changelog panel content — styles the admin-authored HTML snippets. */
@@ -107,6 +183,13 @@
 }
 
 @layer base {
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
     background-color: var(--color-gray-100);
     color: var(--color-gray-800);

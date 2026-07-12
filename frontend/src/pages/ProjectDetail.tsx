@@ -207,7 +207,7 @@ export default function ProjectDetailPage() {
       )}
 
       {/* Header card */}
-      <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3">
@@ -268,7 +268,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* BOM card */}
-      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className="rounded-lg border border-gray-200 bg-surface shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <h2 className="font-semibold text-gray-900">Bill of Materials</h2>
           {canEdit && (
@@ -355,7 +355,7 @@ export default function ProjectDetailPage() {
 
       {/* Stock card — only shown if any stock has been pulled */}
       {(stock.length > 0 || project.status !== 'PLANNING') && (
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="rounded-lg border border-gray-200 bg-surface shadow-sm">
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
             <h2 className="font-semibold text-gray-900">Parts in Project</h2>
             {canBuild && (
@@ -425,7 +425,7 @@ export default function ProjectDetailPage() {
               />
               {searchLoading && <p className="text-xs text-gray-400 mt-1">Searching…</p>}
               {searchResults.length > 0 && (
-                <div className="mt-1 max-h-64 overflow-auto rounded-lg border border-gray-200 bg-white shadow-sm">
+                <div className="mt-1 max-h-64 overflow-auto rounded-lg border border-gray-200 bg-surface shadow-sm">
                   <table className="min-w-full divide-y divide-gray-100">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>

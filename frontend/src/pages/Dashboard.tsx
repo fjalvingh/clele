@@ -115,7 +115,7 @@ export default function DashboardPage() {
         <div className="mt-10">
           <h2 className="mb-4 text-lg font-semibold text-gray-900">By User</h2>
           <div className="inline-block max-w-full overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
-            <table className="w-auto divide-y divide-gray-200 bg-white text-sm">
+            <table className="w-auto divide-y divide-gray-200 bg-surface text-sm">
               <thead className="bg-blue-50">
                 <tr>
                   {['User', 'Locations', 'Parts', 'On Hand', 'Stock Value', 'Low Stock'].map(

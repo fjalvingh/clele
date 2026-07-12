@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { SettingsProvider } from './settings/SettingsContext';
+import { ThemeProvider } from './theme/ThemeContext';
 import Layout from './components/Layout';
 import CategoriesPage from './pages/Categories';
 import DashboardPage from './pages/Dashboard';
@@ -40,6 +41,7 @@ const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
 export default function App() {
   return (
     <BrowserRouter basename={basename}>
+      <ThemeProvider>
       <AuthProvider>
         <SettingsProvider>
         <Routes>
@@ -69,6 +71,7 @@ export default function App() {
         </Routes>
         </SettingsProvider>
       </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }

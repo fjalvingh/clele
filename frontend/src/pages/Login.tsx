@@ -31,7 +31,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-xl bg-white p-8 shadow-2xl"
+        className="w-full max-w-sm rounded-xl bg-surface p-8 shadow-2xl"
       >
         <div className="mb-6 flex items-center gap-2">
           <span className="text-2xl">🔩</span>

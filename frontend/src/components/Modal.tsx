@@ -14,12 +14,12 @@ export default function Modal({ open, onClose, title, children, wide }: ModalPro
     <Dialog open={open} onClose={onClose} className="relative z-50">
       <DialogBackdrop
         transition
-        className="fixed inset-0 bg-gray-900/40 backdrop-blur-sm transition-opacity duration-200 data-[closed]:opacity-0"
+        className="fixed inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-200 data-[closed]:opacity-0"
       />
       <div className="fixed inset-0 flex items-center justify-center p-4">
         <DialogPanel
           transition
-          className={`w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 transition duration-200 ease-out data-[closed]:scale-95 data-[closed]:opacity-0`}
+          className={`w-full ${wide ? 'max-w-3xl' : 'max-w-lg'} rounded-2xl bg-surface shadow-2xl ring-1 ring-black/5 dark:ring-white/10 transition duration-200 ease-out data-[closed]:scale-95 data-[closed]:opacity-0`}
         >
           <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
             <DialogTitle className="text-lg font-semibold text-gray-900">{title}</DialogTitle>

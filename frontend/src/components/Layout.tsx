@@ -157,13 +157,14 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* Sidebar */}
-      <aside className="flex w-60 flex-col bg-gray-900 text-gray-300">
+      {/* Sidebar — intentionally always-dark chrome, independent of the light/dark app theme, so
+          it uses the untouched `neutral-*` palette rather than the theme-remapped `gray-*` ramp. */}
+      <aside className="flex w-60 flex-col bg-neutral-900 text-neutral-300">
         <div className="flex h-16 items-center gap-2.5 px-5 text-white">
           <span className="text-blue-400">{BrandMark}</span>
           <div className="leading-none">
             <div className="text-base font-semibold tracking-tight">Clele</div>
-            <div className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em] text-gray-500">
+            <div className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em] text-neutral-500">
               Parts Inventory
             </div>
           </div>
@@ -179,7 +180,7 @@ export default function Layout() {
                 `relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-blue-600/15 text-white'
-                    : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                    : 'text-neutral-400 hover:bg-white/5 hover:text-white'
                 }`
               }
             >
@@ -191,7 +192,7 @@ export default function Layout() {
                       isActive ? 'opacity-100' : 'opacity-0'
                     }`}
                   />
-                  <span className={isActive ? 'text-blue-300' : 'text-gray-500'}>
+                  <span className={isActive ? 'text-blue-300' : 'text-neutral-500'}>
                     {item.icon}
                   </span>
                   {item.label}
@@ -211,15 +212,15 @@ export default function Layout() {
               }`
             }
           >
-            <div className="truncate font-medium text-gray-200">
+            <div className="truncate font-medium text-neutral-200">
               {user?.fullName || user?.email}
             </div>
-            {user?.fullName && <div className="truncate text-gray-500">{user.email}</div>}
+            {user?.fullName && <div className="truncate text-neutral-500">{user.email}</div>}
             <div className="mt-0.5 text-blue-400">My Account ›</div>
           </NavLink>
           <button
             onClick={handleLogout}
-            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-gray-400 transition-colors hover:bg-white/5 hover:text-white"
+            className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-neutral-400 transition-colors hover:bg-white/5 hover:text-white"
           >
             <svg {...icon} className="h-4 w-4 shrink-0">
               <path d="M14 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-2" />

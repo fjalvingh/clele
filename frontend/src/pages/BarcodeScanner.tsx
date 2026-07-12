@@ -361,7 +361,7 @@ export default function BarcodeScannerPage() {
         </div>
 
         {/* Scan input — always visible and always focusable */}
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-surface p-5 shadow-sm">
           <label className="mb-2 block text-sm font-medium text-gray-700">
             Barcode / Part number
           </label>
@@ -400,7 +400,7 @@ export default function BarcodeScannerPage() {
         {/* Phase-specific content */}
 
         {(phase.kind === 'searching' || phase.kind === 'adding') && (
-          <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-surface p-5 shadow-sm">
             <svg className="h-5 w-5 shrink-0 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
@@ -436,7 +436,7 @@ export default function BarcodeScannerPage() {
         )}
 
         {phase.kind === 'multiple' && (
-          <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="rounded-xl border border-gray-200 bg-surface shadow-sm">
             <div className="border-b border-gray-100 px-5 py-3">
               <p className="text-sm font-medium text-gray-700">
                 {phase.parts.length} existing local parts found for code{' '}
@@ -481,7 +481,7 @@ export default function BarcodeScannerPage() {
         )}
 
         {phase.kind === 'found-local' && (
-          <div className="rounded-xl border border-blue-200 bg-white shadow-sm">
+          <div className="rounded-xl border border-blue-200 bg-surface shadow-sm">
             <div className="border-b border-gray-100 bg-blue-50/50 px-5 py-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -534,7 +534,7 @@ export default function BarcodeScannerPage() {
         )}
 
         {phase.kind === 'found-online' && (
-          <div className="rounded-xl border border-emerald-200 bg-white shadow-sm">
+          <div className="rounded-xl border border-emerald-200 bg-surface shadow-sm">
             <div className="border-b border-gray-100 bg-emerald-50/50 px-5 py-3">
               <div>
                 <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
@@ -582,7 +582,7 @@ export default function BarcodeScannerPage() {
         )}
 
         {phase.kind === 'not-found' && (
-          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="rounded-xl border border-gray-200 bg-surface p-5 shadow-sm">
             <p className="text-sm font-medium text-gray-700">
               No part found for code{' '}
               <span className="font-mono text-gray-900">{phase.query}</span>
@@ -620,7 +620,7 @@ export default function BarcodeScannerPage() {
 
         {/* Recent scans */}
         {recentScans.length > 0 && (
-          <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+          <div className="rounded-xl border border-gray-200 bg-surface shadow-sm">
             <div className="border-b border-gray-100 px-5 py-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
                 Recent scans this session

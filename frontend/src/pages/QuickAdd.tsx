@@ -53,7 +53,7 @@ function ResultCard({
   const shown = result.specs.slice(0, maxSpecs);
   const overflow = result.specs.length - maxSpecs;
   return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+    <div className="rounded-lg border border-gray-200 bg-surface p-4 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -527,7 +527,7 @@ export default function QuickAddPage() {
 
       {/* ── Step 1: Search ── */}
       {step === 1 && localMatches.length === 0 && (
-        <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Search for a part (AI-powered)</h2>
           <form onSubmit={handleSearch} className="flex gap-3">
             <input
@@ -576,7 +576,7 @@ export default function QuickAddPage() {
           </p>
           <div className="space-y-3">
             {localMatches.map((p) => (
-              <div key={p.id} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+              <div key={p.id} className="rounded-lg border border-gray-200 bg-surface p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -640,7 +640,7 @@ export default function QuickAddPage() {
             </button>
           </div>
           {results.length === 0 ? (
-            <div className="rounded-lg border border-gray-200 bg-white p-6 text-center text-sm text-gray-500">
+            <div className="rounded-lg border border-gray-200 bg-surface p-6 text-center text-sm text-gray-500">
               No results found. Try a different search term.
             </div>
           ) : (
@@ -657,7 +657,7 @@ export default function QuickAddPage() {
       {step === 3 && (
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Part details */}
-          <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Part details</h2>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -721,7 +721,7 @@ export default function QuickAddPage() {
           </div>
 
           {/* Stock details */}
-          <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+          <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Stock details</h2>
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
@@ -786,7 +786,7 @@ export default function QuickAddPage() {
             );
             const showSearchForm = !imagesLoading && visibleSuggestions.length === 0;
             return (
-              <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+              <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
                 <h2 className="text-lg font-semibold text-gray-900 mb-1">Photos</h2>
                 <p className="text-xs text-gray-400 mb-4">
                   Select images to attach (optional). Only images that load are shown.
@@ -886,7 +886,7 @@ export default function QuickAddPage() {
             const shownDefs = specDefs.filter((d) => visibleSpecs.has(d.jsonName));
             const availableDefs = specDefs.filter((d) => !visibleSpecs.has(d.jsonName));
             return (
-              <div className="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+              <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
                 <h2 className="text-lg font-semibold text-gray-900 mb-1">Specifications</h2>
                 <p className="text-xs text-gray-400 mb-4">
                   Pre-filled from AI search results where names match. Add more fields below.

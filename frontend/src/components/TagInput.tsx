@@ -122,7 +122,7 @@ export default function TagInput({ value, onChange }: Props) {
             className="block w-full border-0 p-0.5 text-sm focus:outline-none focus:ring-0"
           />
           {showSuggestions && visibleSuggestions.length > 0 && (
-            <ul className="absolute z-10 mt-1 max-h-40 w-full min-w-[10rem] overflow-y-auto rounded-md border border-gray-200 bg-white shadow-lg">
+            <ul className="absolute z-10 mt-1 max-h-40 w-full min-w-[10rem] overflow-y-auto rounded-md border border-gray-200 bg-surface shadow-lg">
               {visibleSuggestions.map((t) => (
                 <li key={t.id}>
                   <button

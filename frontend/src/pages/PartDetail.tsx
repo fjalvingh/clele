@@ -768,7 +768,7 @@ export default function PartDetailPage() {
       </nav>
 
       {/* Part header card — image left, details right */}
-      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="mb-6 rounded-xl border border-gray-200 bg-surface p-6 shadow-sm">
         <div className="flex gap-6">
           {/* Image column */}
           <div className="flex shrink-0 flex-col gap-2">
@@ -1006,7 +1006,7 @@ export default function PartDetailPage() {
       </div>
 
       {/* Datasheets & attachments — original files stored as binary on the part */}
-      <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="mb-6 rounded-xl border border-gray-200 bg-surface p-6 shadow-sm">
         <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-gray-900">
           <span className="h-5 w-1 rounded-full bg-blue-500" />
           Documents
@@ -1217,7 +1217,7 @@ export default function PartDetailPage() {
 
       {/* Specifications — grouped into three columns by major type */}
       {hasSpecs && (
-        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="mb-6 rounded-xl border border-gray-200 bg-surface p-6 shadow-sm">
           <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-gray-900">
             <span className="h-5 w-1 rounded-full bg-blue-500" />
             Specifications
@@ -1250,7 +1250,7 @@ export default function PartDetailPage() {
       )}
 
       {/* Stock section — tabbed: locations / thresholds / movements */}
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="rounded-xl border border-gray-200 bg-surface shadow-sm">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 pt-4">
           <div className="flex gap-1">
             {(
@@ -1265,7 +1265,7 @@ export default function PartDetailPage() {
                 onClick={() => setStockTab(tab.key)}
                 className={`rounded-t-lg px-4 py-2 text-sm font-medium ${
                   stockTab === tab.key
-                    ? 'border border-b-0 border-gray-200 bg-white text-gray-900'
+                    ? 'border border-b-0 border-gray-200 bg-surface text-gray-900'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >

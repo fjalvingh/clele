@@ -29,7 +29,7 @@ export default function DataTable<T>({
 }: DataTableProps<T>) {
   return (
     <div
-      className={`overflow-x-auto rounded-xl bg-white ring-1 ring-gray-200 shadow-sm ${
+      className={`overflow-x-auto rounded-xl bg-surface ring-1 ring-gray-200 shadow-sm ${
         autoWidth ? 'inline-block max-w-full align-top' : ''
       }`}
     >

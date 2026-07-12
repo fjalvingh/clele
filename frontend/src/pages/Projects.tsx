@@ -87,11 +87,11 @@ export default function ProjectsPage() {
       {loading ? (
         <div className="text-center py-12 text-gray-400 text-sm">Loading…</div>
       ) : projects.length === 0 ? (
-        <div className="rounded-lg border border-gray-200 bg-white p-12 text-center text-gray-400">
+        <div className="rounded-lg border border-gray-200 bg-surface p-12 text-center text-gray-400">
           <p className="text-sm">No projects yet. Create one to start tracking a build.</p>
         </div>
       ) : (
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="rounded-lg border border-gray-200 bg-surface shadow-sm overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -169,7 +169,7 @@ export default function ProjectsPage() {
       {/* Create project modal */}
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-md rounded-xl bg-surface p-6 shadow-xl">
             <h2 className="mb-4 text-lg font-semibold text-gray-900">New Project</h2>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
