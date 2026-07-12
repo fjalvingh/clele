@@ -2,14 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createPart,
-  deletePart,
   getAutoCategorizeStatus,
   getCategories,
   getCategoryTree,
   getParts,
   getSpecsForCategory,
   startAutoCategorize,
-  updatePart,
 } from '../api';
 import type { CategorizationStatus, Category, CategoryTree, Part, PartRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
@@ -190,7 +188,6 @@ export default function PartsPage() {
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Part | null>(null);
   const [form, setForm] = useState<PartRequest>(emptyForm());
   const [specValues, setSpecValues] = useState<Record<string, string>>({});
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
@@ -313,34 +310,10 @@ export default function PartsPage() {
   };
 
   const openCreate = () => {
-    setEditing(null);
     const f = emptyForm();
     setForm(f);
     setSpecValues({});
     setSpecDefs([]);
-    setFormError(null);
-    setModalOpen(true);
-  };
-
-  const openEdit = (part: Part) => {
-    setEditing(part);
-    const f: PartRequest = {
-      partNumber: part.partNumber,
-      description: part.description ?? '',
-      details: part.details ?? '',
-      manufacturer: part.manufacturer ?? '',
-      datasheetUrl: part.datasheetUrl ?? '',
-      specs: part.specs ?? {},
-      categoryId: part.categoryId ?? null,
-      tags: part.tags ?? [],
-    };
-    setForm(f);
-    // Populate spec values from existing part specs; spec defs will be fetched by the effect
-    const existing: Record<string, string> = {};
-    for (const [k, v] of Object.entries(part.specs ?? {})) {
-      existing[k] = String(v);
-    }
-    setSpecValues(existing);
     setFormError(null);
     setModalOpen(true);
   };
@@ -357,27 +330,13 @@ export default function PartsPage() {
     }
     const payload: PartRequest = { ...form, specs: filteredSpecs };
     try {
-      if (editing) {
-        await updatePart(editing.id, payload);
-      } else {
-        await createPart(payload);
-      }
+      await createPart(payload);
       setModalOpen(false);
       loadParts(search || undefined, filterCategoryId);
     } catch (e: unknown) {
       setFormError((e as Error).message);
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleDelete = async (part: Part) => {
-    if (!confirm(`Delete part "${part.partNumber}"?`)) return;
-    try {
-      await deletePart(part.id);
-      loadParts(search || undefined, filterCategoryId);
-    } catch (e: unknown) {
-      alert((e as Error).message);
     }
   };
 
@@ -551,26 +510,6 @@ export default function PartsPage() {
               state: { from: searchParams.toString() ? `/parts?${searchParams.toString()}` : '/parts' },
             })
           }
-          actions={
-            canEdit
-              ? (part) => (
-                  <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={() => openEdit(part)}
-                      className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(part)}
-                      className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )
-              : undefined
-          }
         />
       )}
 
@@ -578,7 +517,7 @@ export default function PartsPage() {
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={editing ? 'Edit Part' : 'New Part'}
+        title="New Part"
       >
         <div className="max-h-[70vh] overflow-y-auto pr-1">
           <FormField

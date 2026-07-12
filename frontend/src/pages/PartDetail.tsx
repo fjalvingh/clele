@@ -5,6 +5,7 @@ import {
   addStock,
   applyOctopart,
   attachmentUrl,
+  deletePart,
   deletePartAttachment,
   deleteStockEntry,
   deleteStockThreshold,
@@ -402,6 +403,17 @@ export default function PartDetailPage() {
       getStockThresholds(partId).then(setThresholds).catch(() => {});
     } catch (e: unknown) {
       setThresholdError((e as Error).message);
+    }
+  };
+
+  const handleDeletePart = async () => {
+    if (!part) return;
+    if (!confirm(`Delete part "${part.partNumber}"? This cannot be undone.`)) return;
+    try {
+      await deletePart(part.id);
+      navigate(partsListUrl);
+    } catch (e: unknown) {
+      alert((e as Error).message);
     }
   };
 
@@ -908,6 +920,14 @@ export default function PartDetailPage() {
                     className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
                   >
                     Edit
+                  </button>
+                )}
+                {canEdit && (
+                  <button
+                    onClick={handleDeletePart}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50"
+                  >
+                    Delete
                   </button>
                 )}
                 <button
