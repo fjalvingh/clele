@@ -122,7 +122,7 @@ export default function PartDetailPage() {
   const [part, setPart] = useState<Part | null>(null);
   const [stock, setStock] = useState<StockEntry[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
-  const [movementsOpen, setMovementsOpen] = useState(false);
+  const [stockTab, setStockTab] = useState<'locations' | 'thresholds' | 'movements'>('locations');
   const [locations, setLocations] = useState<Location[]>([]);
   const [allLocations, setAllLocations] = useState<Location[]>([]);
   const [images, setImages] = useState<PartAttachment[]>([]);
@@ -1229,162 +1229,194 @@ export default function PartDetailPage() {
         </div>
       )}
 
-      {/* Stock section */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-            <span className="h-5 w-1 rounded-full bg-blue-500" />
-            Stock Locations
-          </h2>
-          {canEdit && (
+      {/* Stock section — tabbed: locations / thresholds / movements */}
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 pt-4">
+          <div className="flex gap-1">
+            {(
+              [
+                { key: 'locations', label: 'Locations' },
+                { key: 'thresholds', label: 'Thresholds' },
+                { key: 'movements', label: `Movements${movements.length ? ` (${movements.length})` : ''}` },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setStockTab(tab.key)}
+                className={`rounded-t-lg px-4 py-2 text-sm font-medium ${
+                  stockTab === tab.key
+                    ? 'border border-b-0 border-gray-200 bg-white text-gray-900'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {canEdit && stockTab === 'locations' && (
             <button
               onClick={() => openAddStock()}
-              className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+              className="mb-2 rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
             >
               + Add Stock
             </button>
           )}
-        </div>
-        {stock.length > 0 && (
-          <div className="mb-5 grid grid-cols-2 gap-3 sm:max-w-md">
-            <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
-              <div className="text-xs font-medium uppercase tracking-wide text-blue-800/70">
-                Total on hand
-              </div>
-              <div className="mt-1 font-mono text-2xl font-semibold text-gray-900">
-                {stock.reduce((sum, s) => sum + s.quantity, 0)}
-              </div>
-              <div className="text-xs text-gray-400">
-                across {stock.length} location{stock.length === 1 ? '' : 's'}
-              </div>
-            </div>
-            {(() => {
-              const priced = stock.filter((s) => s.unitPrice != null);
-              if (priced.length === 0) return null;
-              const total = priced.reduce((sum, s) => sum + s.quantity * Number(s.unitPrice), 0);
-              const partial = priced.length < stock.length;
-              return (
-                <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                  <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Total stock value
-                  </div>
-                  <div className="mt-1 font-mono text-2xl font-semibold text-gray-900">
-                    {formatMoney(total)}
-                  </div>
-                  {partial && (
-                    <div className="text-xs text-gray-400">some locations have no price</div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-        )}
-        <DataTable
-          autoWidth
-          columns={stockColumns}
-          data={stock}
-          keyExtractor={(s) => s.id}
-          emptyMessage="No stock entries. Add this part to a location."
-          actions={(entry) =>
-            // Only the owner of a location can change the stock held there.
-            canEdit && user && entry.ownerId === user.id ? (
-              <div className="flex justify-end gap-1">
-                <button
-                  onClick={() => openAddStock(entry)}
-                  className="rounded px-2 py-1 text-xs text-green-700 hover:bg-green-50"
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => openTakeStock(entry)}
-                  disabled={entry.quantity <= 0}
-                  className="rounded px-2 py-1 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-40"
-                >
-                  Take
-                </button>
-                <button
-                  onClick={() => openMoveStock(entry)}
-                  disabled={entry.quantity <= 0}
-                  className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 disabled:opacity-40"
-                >
-                  Move
-                </button>
-                <button
-                  onClick={() => handleDeleteStock(entry)}
-                  className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                >
-                  Remove
-                </button>
-              </div>
-            ) : null
-          }
-        />
-      </div>
-
-      {/* Stock thresholds — per root-location minimums */}
-      <div className="mt-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-            <span className="h-5 w-1 rounded-full bg-amber-500" />
-            Stock Thresholds
-          </h2>
-          {canEdit && (
+          {canEdit && stockTab === 'thresholds' && (
             <button
               onClick={openAddThreshold}
-              className="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600"
+              className="mb-2 rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600"
             >
               + Set Threshold
             </button>
           )}
         </div>
-        {thresholds.length === 0 ? (
-          <p className="text-sm text-gray-400">No minimum stock thresholds set for this part.</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                <th className="pb-2 pr-4">Location</th>
-                <th className="pb-2 pr-4">On Hand</th>
-                <th className="pb-2 pr-4">Minimum</th>
-                <th className="pb-2 pr-4">Status</th>
-                {canEdit && <th className="pb-2" />}
-              </tr>
-            </thead>
-            <tbody>
-              {thresholds.map((t) => (
-                <tr key={t.id} className="border-b border-gray-50 last:border-0">
-                  <td className="py-2 pr-4 font-medium text-gray-800">{t.locationName}</td>
-                  <td className="py-2 pr-4 font-mono">{t.totalQuantity}</td>
-                  <td className="py-2 pr-4 font-mono">{t.minimumQuantity}</td>
-                  <td className="py-2 pr-4">
-                    {t.lowStock ? (
-                      <Badge variant="red">Low — {t.minimumQuantity - t.totalQuantity} short</Badge>
-                    ) : (
-                      <Badge variant="green">OK</Badge>
-                    )}
-                  </td>
-                  {canEdit && (
-                    <td className="py-2">
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => openEditThreshold(t)}
-                          className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteThreshold(t)}
-                          className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                        >
-                          Remove
-                        </button>
+
+        {stockTab === 'locations' && (
+          <div className="p-6">
+            {stock.length > 0 && (
+              <div className="mb-5 grid grid-cols-2 gap-3 sm:max-w-md">
+                <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
+                  <div className="text-xs font-medium uppercase tracking-wide text-blue-800/70">
+                    Total on hand
+                  </div>
+                  <div className="mt-1 font-mono text-2xl font-semibold text-gray-900">
+                    {stock.reduce((sum, s) => sum + s.quantity, 0)}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    across {stock.length} location{stock.length === 1 ? '' : 's'}
+                  </div>
+                </div>
+                {(() => {
+                  const priced = stock.filter((s) => s.unitPrice != null);
+                  if (priced.length === 0) return null;
+                  const total = priced.reduce((sum, s) => sum + s.quantity * Number(s.unitPrice), 0);
+                  const partial = priced.length < stock.length;
+                  return (
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                        Total stock value
                       </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      <div className="mt-1 font-mono text-2xl font-semibold text-gray-900">
+                        {formatMoney(total)}
+                      </div>
+                      {partial && (
+                        <div className="text-xs text-gray-400">some locations have no price</div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+            <DataTable
+              autoWidth
+              columns={stockColumns}
+              data={stock}
+              keyExtractor={(s) => s.id}
+              emptyMessage="No stock entries. Add this part to a location."
+              actions={(entry) =>
+                // Only the owner of a location can change the stock held there.
+                canEdit && user && entry.ownerId === user.id ? (
+                  <div className="flex justify-end gap-1">
+                    <button
+                      onClick={() => openAddStock(entry)}
+                      className="rounded px-2 py-1 text-xs text-green-700 hover:bg-green-50"
+                    >
+                      Add
+                    </button>
+                    <button
+                      onClick={() => openTakeStock(entry)}
+                      disabled={entry.quantity <= 0}
+                      className="rounded px-2 py-1 text-xs text-amber-700 hover:bg-amber-50 disabled:opacity-40"
+                    >
+                      Take
+                    </button>
+                    <button
+                      onClick={() => openMoveStock(entry)}
+                      disabled={entry.quantity <= 0}
+                      className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 disabled:opacity-40"
+                    >
+                      Move
+                    </button>
+                    <button
+                      onClick={() => handleDeleteStock(entry)}
+                      className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : null
+              }
+            />
+          </div>
+        )}
+
+        {stockTab === 'thresholds' && (
+          <div className="p-6">
+            {thresholds.length === 0 ? (
+              <p className="text-sm text-gray-400">No minimum stock thresholds set for this part.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <th className="pb-2 pr-4">Location</th>
+                    <th className="pb-2 pr-4">On Hand</th>
+                    <th className="pb-2 pr-4">Minimum</th>
+                    <th className="pb-2 pr-4">Status</th>
+                    {canEdit && <th className="pb-2" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {thresholds.map((t) => (
+                    <tr key={t.id} className="border-b border-gray-50 last:border-0">
+                      <td className="py-2 pr-4 font-medium text-gray-800">{t.locationName}</td>
+                      <td className="py-2 pr-4 font-mono">{t.totalQuantity}</td>
+                      <td className="py-2 pr-4 font-mono">{t.minimumQuantity}</td>
+                      <td className="py-2 pr-4">
+                        {t.lowStock ? (
+                          <Badge variant="red">Low — {t.minimumQuantity - t.totalQuantity} short</Badge>
+                        ) : (
+                          <Badge variant="green">OK</Badge>
+                        )}
+                      </td>
+                      {canEdit && (
+                        <td className="py-2">
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => openEditThreshold(t)}
+                              className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteThreshold(t)}
+                              className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {stockTab === 'movements' && (
+          <div className="p-6">
+            {movements.length === 0 ? (
+              <p className="text-sm text-gray-500">No stock movements recorded for this part.</p>
+            ) : (
+              <DataTable
+                autoWidth
+                columns={movementColumns}
+                data={movements}
+                keyExtractor={(m) => m.id}
+              />
+            )}
+          </div>
         )}
       </div>
 
@@ -1436,36 +1468,6 @@ export default function PartDetailPage() {
         </div>
       </Modal>
 
-      {/* Stock movement history (collapsible) */}
-      <div className="mt-6 rounded-xl border border-gray-200 bg-white shadow-sm">
-        <button
-          onClick={() => setMovementsOpen((o) => !o)}
-          className="flex w-full items-center justify-between px-6 py-4 text-left"
-        >
-          <span className="flex items-center gap-2">
-            <span className="h-5 w-1 rounded-full bg-blue-500" />
-            <h2 className="text-lg font-semibold text-gray-900">Stock Movements</h2>
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-              {movements.length}
-            </span>
-          </span>
-          <span className="text-gray-400">{movementsOpen ? '▲' : '▼'}</span>
-        </button>
-        {movementsOpen && (
-          <div className="border-t border-gray-100 px-6 py-4">
-            {movements.length === 0 ? (
-              <p className="text-sm text-gray-500">No stock movements recorded for this part.</p>
-            ) : (
-              <DataTable
-                autoWidth
-                columns={movementColumns}
-                data={movements}
-                keyExtractor={(m) => m.id}
-              />
-            )}
-          </div>
-        )}
-      </div>
 
       {/* Stock operation modal (add / take / move) */}
       <Modal
