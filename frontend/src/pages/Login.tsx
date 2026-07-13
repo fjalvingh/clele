@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import loginIllustration from '../assets/login-illustration.svg';
+import loginPhoto from '../assets/clele.jpg';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -32,9 +32,10 @@ export default function LoginPage() {
     <div className="flex min-h-screen bg-gray-100">
       <div
         className="relative hidden w-1/2 flex-col justify-end bg-cover bg-center p-12 md:flex"
-        style={{ backgroundImage: `url(${loginIllustration})` }}
+        style={{ backgroundImage: `url(${loginPhoto})` }}
       >
-        <div className="max-w-md text-white">
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+        <div className="relative max-w-md text-white">
           <h2 className="text-2xl font-bold tracking-tight">Know what's on the bench.</h2>
           <p className="mt-2 text-sm text-teal-50/80">
             Track parts, stock and locations across your whole workshop — from a single reel of
