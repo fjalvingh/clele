@@ -33,6 +33,12 @@ function buildCatOptions(nodes: CategoryTree[], depth = 0): CatOption[] {
   return opts;
 }
 
+// Show the leaf category first (most specific / most useful when the select is narrow),
+// e.g. "Building A > Room B > Cupboard C" -> "Cupboard C < Room B < Building A".
+function reverseBreadcrumb(breadcrumb: string): string {
+  return breadcrumb.split(' > ').reverse().join(' < ');
+}
+
 const emptyForm = (): PartRequest => ({
   partNumber: '',
   description: '',
@@ -447,12 +453,17 @@ export default function PartsPage() {
         <select
           value={filterCategoryId ?? ''}
           onChange={(e) => setFilterCategoryId(e.target.value ? Number(e.target.value) : undefined)}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-48 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          title={
+            filterCategoryId != null
+              ? categories.find((c) => c.id === filterCategoryId)?.breadcrumb
+              : undefined
+          }
         >
           <option value="">All categories</option>
           {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.breadcrumb}
+            <option key={c.id} value={c.id} title={c.breadcrumb}>
+              {reverseBreadcrumb(c.breadcrumb)}
             </option>
           ))}
         </select>
