@@ -969,19 +969,6 @@ export default function PartDetailPage() {
                   </div>
                 </div>
               )}
-              {part.datasheetUrl && (
-                <div>
-                  <span className="font-medium text-gray-500">Datasheet:</span>{' '}
-                  <a
-                    href={part.datasheetUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline"
-                  >
-                    View
-                  </a>
-                </div>
-              )}
               {part.octopartId && (
                 <div>
                   <span className="font-medium text-gray-500">OctoPart:</span>{' '}
@@ -1060,7 +1047,7 @@ export default function PartDetailPage() {
             )}
             {part.datasheetUrl && (
               <div className="mt-2 flex items-center gap-2 text-xs text-gray-400">
-                <span className="shrink-0">Source:</span>
+                <span className="shrink-0">Octopart datasheet:</span>
                 <a
                   href={part.datasheetUrl}
                   target="_blank"
@@ -1071,6 +1058,14 @@ export default function PartDetailPage() {
                 </a>
                 {canEdit && (
                   <span className="ml-auto flex shrink-0 gap-2">
+                    <button
+                      onClick={handleDownloadDatasheet}
+                      disabled={fileBusy}
+                      title={`Download from ${part.datasheetUrl}`}
+                      className="hover:underline disabled:opacity-50"
+                    >
+                      Download
+                    </button>
                     <button
                       onClick={() => setEditModalOpen(true)}
                       className="hover:underline"
@@ -1103,30 +1098,6 @@ export default function PartDetailPage() {
                 >
                   + Upload datasheet
                 </button>
-                {part.datasheetUrl && (
-                  <button
-                    onClick={handleDownloadDatasheet}
-                    disabled={fileBusy}
-                    title={`Download from ${part.datasheetUrl}`}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
-                  >
-                    <svg
-                      className="h-3.5 w-3.5 shrink-0"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={1.8}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M12 3v12" />
-                      <path d="M7 10l5 5 5-5" />
-                      <path d="M5 21h14" />
-                    </svg>
-                    Download from URL
-                  </button>
-                )}
                 <button
                   onClick={openFindDatasheet}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
