@@ -244,10 +244,16 @@ public class AiPartSearchService {
     }
 
     public List<DatasheetSuggestionDTO> searchDatasheets(String query) {
-        // 1. Try DuckDuckGo — best relevance, no API key needed
-        List<DatasheetSuggestionDTO> ddg = duckDuckGoDatasheetService.search(query);
-        if (!ddg.isEmpty()) {
-            return ddg;
+        return searchDatasheets(query, false);
+    }
+
+    public List<DatasheetSuggestionDTO> searchDatasheets(String query, boolean forceAi) {
+        // 1. Try DuckDuckGo — best relevance, no API key needed (unless the caller asked to skip it)
+        if (!forceAi) {
+            List<DatasheetSuggestionDTO> ddg = duckDuckGoDatasheetService.search(query);
+            if (!ddg.isEmpty()) {
+                return ddg;
+            }
         }
 
         // Fall back to AI suggestions

@@ -34,8 +34,10 @@ public class PartSearchController {
     }
 
     @GetMapping("/api/parts-search/datasheets")
-    public List<DatasheetSuggestionDTO> searchDatasheets(@RequestParam String q) {
-        return aiPartSearchService.searchDatasheets(q);
+    public List<DatasheetSuggestionDTO> searchDatasheets(
+            @RequestParam String q,
+            @RequestParam(required = false, defaultValue = "false") boolean forceAi) {
+        return aiPartSearchService.searchDatasheets(q, forceAi);
     }
 
     @PostMapping("/api/parts/quick-add")

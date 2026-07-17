@@ -601,11 +601,11 @@ export default function PartDetailPage() {
     setImageModalOpen(false);
   };
 
-  const runDatasheetSearch = (q: string) => {
+  const runDatasheetSearch = (q: string, forceAi = false) => {
     if (!q.trim()) return;
     setDatasheetsLoading(true);
     setDatasheetSuggestions([]);
-    searchPartDatasheets(q.trim())
+    searchPartDatasheets(q.trim(), forceAi)
       .then(setDatasheetSuggestions)
       .catch(() => setDatasheetSuggestions([]))
       .finally(() => setDatasheetsLoading(false));
@@ -1754,13 +1754,31 @@ export default function PartDetailPage() {
           >
             Search
           </button>
+          <button
+            onClick={() => runDatasheetSearch(datasheetQuery, true)}
+            disabled={!datasheetQuery.trim() || datasheetsLoading}
+            title="Skip the web search and ask the AI to suggest datasheet links directly"
+            className="shrink-0 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+          >
+            Ask AI instead
+          </button>
         </div>
 
         <div className="min-h-[8rem]">
           {datasheetsLoading ? (
             <p className="text-sm text-gray-400">Searching for datasheets…</p>
           ) : datasheetSuggestions.length === 0 ? (
-            <p className="text-sm text-gray-400">No datasheets found. Try a different search term.</p>
+            <p className="text-sm text-gray-400">
+              No datasheets found. Try a different search term, or{' '}
+              <button
+                onClick={() => runDatasheetSearch(datasheetQuery, true)}
+                disabled={!datasheetQuery.trim()}
+                className="text-blue-600 hover:underline disabled:opacity-50"
+              >
+                ask the AI instead
+              </button>
+              .
+            </p>
           ) : (
             <ul className="space-y-2">
               {datasheetSuggestions.map((d) => (
