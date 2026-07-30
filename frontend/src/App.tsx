@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext';
 import { SettingsProvider } from './settings/SettingsContext';
 import { ThemeProvider } from './theme/ThemeContext';
 import Layout from './components/Layout';
+import AdminActionsPage from './pages/AdminActions';
 import CategoriesPage from './pages/Categories';
 import DashboardPage from './pages/Dashboard';
 import LocationsPage from './pages/Locations';
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="projects/:id" element={<ProjectDetailPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="users" element={<UsersPage />} />
+            <Route path="admin-actions" element={<AdminActionsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

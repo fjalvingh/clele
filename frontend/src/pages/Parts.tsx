@@ -2,14 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createPart,
-  getAutoCategorizeStatus,
   getCategories,
   getCategoryTree,
   getParts,
   getSpecsForCategory,
-  startAutoCategorize,
 } from '../api';
-import type { CategorizationStatus, Category, CategoryTree, Part, PartRequest, SpecDefinition } from '../api/types';
+import type { Category, CategoryTree, Part, PartRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import Badge from '../components/Badge';
 import DataTable from '../components/DataTable';
@@ -200,7 +198,6 @@ export default function PartsPage() {
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [catStatus, setCatStatus] = useState<CategorizationStatus | null>(null);
 
   const loadParts = (s?: string, cid?: number, sortBy: string = sort) => {
     setSearched(true);
@@ -217,36 +214,6 @@ export default function PartsPage() {
     if (sortBy !== 'partNumber') params.sort = sortBy;
     setSearchParams(params, { replace: true });
     loadParts(s.trim() || undefined, cid, sortBy);
-  };
-
-  // Poll the auto-categorization job until it finishes, then refresh the list + category tree.
-  const pollCategorize = () => {
-    getAutoCategorizeStatus()
-      .then((st) => {
-        setCatStatus(st);
-        if (st.running) {
-          setTimeout(pollCategorize, 1500);
-        } else {
-          // Only refresh the table if the user has an active search; otherwise leave it empty.
-          if (searched) loadParts(search.trim() || undefined, filterCategoryId);
-          getCategoryTree().then(setCategoryTree).catch(() => {});
-        }
-      })
-      .catch((e: Error) => setError(e.message));
-  };
-
-  const handleAutoCategorize = async (onlyUncategorized: boolean) => {
-    const msg = onlyUncategorized
-      ? 'Auto-categorize only the uncategorized parts using the local AI?'
-      : 'Auto-categorize ALL parts using the local AI? This overwrites existing categories.';
-    if (!confirm(msg)) return;
-    try {
-      const st = await startAutoCategorize(onlyUncategorized);
-      setCatStatus(st);
-      setTimeout(pollCategorize, 1000);
-    } catch (e: unknown) {
-      alert((e as Error).message);
-    }
   };
 
   // Load only the category lists up front — parts are fetched on demand once the user searches,
@@ -269,19 +236,6 @@ export default function PartsPage() {
     if (q.trim() || cid !== undefined) {
       loadParts(q.trim() || undefined, cid, sort);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Resume progress display if a categorization job is already running (e.g. after a reload).
-  useEffect(() => {
-    getAutoCategorizeStatus()
-      .then((st) => {
-        if (st.running) {
-          setCatStatus(st);
-          setTimeout(pollCategorize, 1500);
-        }
-      })
-      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -397,22 +351,6 @@ export default function PartsPage() {
         {canEdit && (
           <div className="flex gap-3">
             <button
-              onClick={() => handleAutoCategorize(true)}
-              disabled={catStatus?.running}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              title="Categorize only the parts that have no category yet (local AI / Ollama)"
-            >
-              ✨ Categorize uncategorized
-            </button>
-            <button
-              onClick={() => handleAutoCategorize(false)}
-              disabled={catStatus?.running}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              title="Re-categorize every part, overwriting existing assignments (local AI / Ollama)"
-            >
-              {catStatus?.running ? 'Categorizing…' : '✨ Re-categorize all'}
-            </button>
-            <button
               onClick={openCreate}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
@@ -421,36 +359,6 @@ export default function PartsPage() {
           </div>
         )}
       </div>
-
-      {/* Auto-categorization progress / result */}
-      {catStatus && (catStatus.running || catStatus.finishedAt) && (
-        <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4">
-          <div className="flex items-center justify-between text-sm">
-            <span className="font-medium text-gray-700">
-              {catStatus.running
-                ? `Auto-categorizing parts… ${catStatus.processed}/${catStatus.total}`
-                : `Auto-categorization complete — assigned ${catStatus.assigned}, skipped ${catStatus.skipped} of ${catStatus.total}`}
-            </span>
-            {!catStatus.running && (
-              <button
-                onClick={() => setCatStatus(null)}
-                className="text-xs text-gray-400 hover:text-gray-600"
-              >
-                Dismiss
-              </button>
-            )}
-          </div>
-          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200">
-            <div
-              className="h-full rounded-full bg-blue-600 transition-all"
-              style={{ width: `${catStatus.total ? (catStatus.processed / catStatus.total) * 100 : 0}%` }}
-            />
-          </div>
-          {catStatus.lastError && (
-            <p className="mt-2 text-xs text-red-600">{catStatus.lastError}</p>
-          )}
-        </div>
-      )}
 
       {/* Search / filter bar */}
       <form onSubmit={handleSearch} className="mb-6 flex gap-3">

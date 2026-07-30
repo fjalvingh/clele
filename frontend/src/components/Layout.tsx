@@ -83,6 +83,12 @@ const icons: Record<string, ReactNode> = {
       <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
     </svg>
   ),
+  adminActions: (
+    <svg {...icon}>
+      <path d="M12 3 4 6.5V11c0 4.9 3.4 9.4 8 10.5 4.6-1.1 8-5.6 8-10.5V6.5Z" />
+      <path d="m9.5 12 1.8 1.8L14.8 10" />
+    </svg>
+  ),
 };
 
 interface NavItem {
@@ -103,6 +109,7 @@ const navItems: NavItem[] = [
   { to: '/low-stock', label: 'Low Stock', icon: icons.lowStock },
   { to: '/projects', label: 'Projects', icon: icons.projects, permission: 'PARTS_EDIT' },
   { to: '/users', label: 'Users', icon: icons.users, permission: 'USERS_EDIT' },
+  { to: '/admin-actions', label: 'Admin Actions', icon: icons.adminActions, permission: 'USERS_EDIT' },
 ];
 
 // Bolt-in-hex brand mark — a fastener head, echoing the app's name.
