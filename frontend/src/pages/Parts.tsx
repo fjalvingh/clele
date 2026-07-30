@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createPart,
-  getCategories,
   getCategoryTree,
   getParts,
   getSpecsForCategory,
 } from '../api';
-import type { Category, CategoryTree, Part, PartRequest, SpecDefinition } from '../api/types';
+import type { CategoryTree, Part, PartRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import Badge from '../components/Badge';
+import CategoryPicker from '../components/CategoryPicker';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
@@ -17,25 +17,6 @@ import MetricNumberField from '../components/MetricNumberField';
 import Modal from '../components/Modal';
 import TagInput from '../components/TagInput';
 
-// Hierarchical category selector (same pattern as Categories page)
-interface CatOption { id: number; label: string }
-function buildCatOptions(nodes: CategoryTree[], depth = 0): CatOption[] {
-  const opts: CatOption[] = [];
-  for (const node of nodes) {
-    // Indent with non-breaking spaces — <option> collapses normal leading whitespace,
-    // which would otherwise flatten the visible hierarchy. A marker hints at nesting.
-    const prefix = depth > 0 ? '  '.repeat(depth) + '└ ' : '';
-    opts.push({ id: node.id, label: prefix + node.name });
-    opts.push(...buildCatOptions(node.children, depth + 1));
-  }
-  return opts;
-}
-
-// Show the leaf category first (most specific / most useful when the select is narrow),
-// e.g. "Building A > Room B > Cupboard C" -> "Cupboard C < Room B < Building A".
-function reverseBreadcrumb(breadcrumb: string): string {
-  return breadcrumb.split(' > ').reverse().join(' < ');
-}
 
 const emptyForm = (): PartRequest => ({
   partNumber: '',
@@ -180,7 +161,6 @@ export default function PartsPage() {
   // (or reloading) restores the same results instead of showing an empty list.
   const [searchParams, setSearchParams] = useSearchParams();
   const [parts, setParts] = useState<Part[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
   const [search, setSearch] = useState(searchParams.get('q') ?? '');
   const [filterCategoryId, setFilterCategoryId] = useState<number | undefined>(
@@ -216,15 +196,12 @@ export default function PartsPage() {
     loadParts(s.trim() || undefined, cid, sortBy);
   };
 
-  // Load only the category lists up front — parts are fetched on demand once the user searches,
+  // Load the category tree up front — parts are fetched on demand once the user searches,
   // so opening the page is fast even with a large catalogue.
   useEffect(() => {
     setLoading(true);
-    Promise.all([getCategories(), getCategoryTree()])
-      .then(([c, t]) => {
-        setCategories(c);
-        setCategoryTree(t);
-      })
+    getCategoryTree()
+      .then(setCategoryTree)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -301,8 +278,6 @@ export default function PartsPage() {
     }
   };
 
-  const catOptions = buildCatOptions(categoryTree);
-
   const columns: Column<Part>[] = [
     {
       key: 'partNumber',
@@ -369,23 +344,13 @@ export default function PartsPage() {
           placeholder="Search by part number or description…"
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        <select
-          value={filterCategoryId ?? ''}
-          onChange={(e) => setFilterCategoryId(e.target.value ? Number(e.target.value) : undefined)}
-          className="w-48 shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          title={
-            filterCategoryId != null
-              ? categories.find((c) => c.id === filterCategoryId)?.breadcrumb
-              : undefined
-          }
-        >
-          <option value="">All categories</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id} title={c.breadcrumb}>
-              {reverseBreadcrumb(c.breadcrumb)}
-            </option>
-          ))}
-        </select>
+        <CategoryPicker
+          categories={categoryTree}
+          value={filterCategoryId ?? null}
+          onChange={(id) => setFilterCategoryId(id ?? undefined)}
+          emptyLabel="All categories"
+          className="w-48 shrink-0"
+        />
         <select
           value={sort}
           onChange={(e) => {
@@ -489,21 +454,12 @@ export default function PartsPage() {
             onChange={(e) => setForm({ ...form, datasheetUrl: e.target.value })}
             type="url"
           />
-          <FormField
-            as="select"
+          <CategoryPicker
             label="Category"
-            value={form.categoryId ?? ''}
-            onChange={(e) =>
-              setForm({ ...form, categoryId: e.target.value ? Number(e.target.value) : null })
-            }
-          >
-            <option value="">— Uncategorized —</option>
-            {catOptions.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.label}
-              </option>
-            ))}
-          </FormField>
+            categories={categoryTree}
+            value={form.categoryId ?? null}
+            onChange={(id) => setForm({ ...form, categoryId: id })}
+          />
           <TagInput
             value={form.tags ?? []}
             onChange={(tags) => setForm({ ...form, tags })}

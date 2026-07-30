@@ -1,22 +1,11 @@
 import { useEffect, useState } from 'react';
 import { getCategoryTree, getSpecsForCategory, updatePart } from '../api';
 import type { CategoryTree, Part, PartRequest, SpecDefinition } from '../api/types';
+import CategoryPicker from './CategoryPicker';
 import FormField from './FormField';
 import MetricNumberField from './MetricNumberField';
 import Modal from './Modal';
 import TagInput from './TagInput';
-
-interface CatOption { id: number; label: string }
-
-function buildCatOptions(nodes: CategoryTree[], depth = 0): CatOption[] {
-  const opts: CatOption[] = [];
-  for (const node of nodes) {
-    const prefix = depth > 0 ? '  '.repeat(depth) + '└ ' : '';
-    opts.push({ id: node.id, label: prefix + node.name });
-    opts.push(...buildCatOptions(node.children, depth + 1));
-  }
-  return opts;
-}
 
 function parseMultiUnit(value: string, units: string[]): [string, string] {
   for (const u of units) {
@@ -225,8 +214,6 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
     }
   };
 
-  const catOptions = buildCatOptions(categoryTree);
-
   return (
     <Modal open={open} onClose={onClose} title="Edit Part">
       <div className="max-h-[70vh] overflow-y-auto pr-1">
@@ -269,21 +256,12 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
           onChange={(e) => setForm({ ...form, datasheetUrl: e.target.value })}
           type="url"
         />
-        <FormField
-          as="select"
+        <CategoryPicker
           label="Category"
-          value={form.categoryId ?? ''}
-          onChange={(e) =>
-            setForm({ ...form, categoryId: e.target.value ? Number(e.target.value) : null })
-          }
-        >
-          <option value="">— Uncategorized —</option>
-          {catOptions.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </FormField>
+          categories={categoryTree}
+          value={form.categoryId ?? null}
+          onChange={(id) => setForm({ ...form, categoryId: id })}
+        />
         <TagInput
           value={form.tags ?? []}
           onChange={(tags) => setForm({ ...form, tags })}

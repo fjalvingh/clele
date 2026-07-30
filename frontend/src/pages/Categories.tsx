@@ -8,6 +8,7 @@ import {
   updateCategory,
 } from '../api';
 import type { Category, CategoryRequest, CategoryTree, SpecDefinition } from '../api/types';
+import CategoryPicker from '../components/CategoryPicker';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
 
@@ -71,29 +72,6 @@ function TreeNode({ node, onEdit, onDelete, categories }: TreeNodeProps) {
       )}
     </div>
   );
-}
-
-// ---- Hierarchical parent selector ----
-interface ParentOption {
-  id: number;
-  label: string;
-}
-
-function buildParentOptions(
-  nodes: CategoryTree[],
-  excludeId: number | null,
-  depth = 0
-): ParentOption[] {
-  const options: ParentOption[] = [];
-  for (const node of nodes) {
-    if (node.id === excludeId) continue;
-    // Indent with non-breaking spaces — <option> collapses normal leading whitespace,
-    // which would otherwise flatten the visible hierarchy. A marker hints at nesting.
-    const prefix = depth > 0 ? '  '.repeat(depth) + '└ ' : '';
-    options.push({ id: node.id, label: prefix + node.name });
-    options.push(...buildParentOptions(node.children, excludeId, depth + 1));
-  }
-  return options;
 }
 
 // ---- Main page ----
@@ -178,8 +156,6 @@ export default function CategoriesPage() {
     setForm({ ...form, specIds: next });
   };
 
-  const parentOptions = buildParentOptions(tree, editing?.id ?? null);
-
   return (
     <div className="p-8">
       <div className="mb-6 flex items-center justify-between">
@@ -231,24 +207,14 @@ export default function CategoriesPage() {
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           rows={2}
         />
-        <FormField
-          as="select"
+        <CategoryPicker
           label="Parent Category"
-          value={form.parentId ?? ''}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              parentId: e.target.value ? Number(e.target.value) : null,
-            })
-          }
-        >
-          <option value="">— None (root) —</option>
-          {parentOptions.map((opt) => (
-            <option key={opt.id} value={opt.id}>
-              {opt.label}
-            </option>
-          ))}
-        </FormField>
+          categories={tree}
+          value={form.parentId ?? null}
+          onChange={(id) => setForm({ ...form, parentId: id })}
+          emptyLabel="— None (root) —"
+          excludeId={editing?.id ?? null}
+        />
 
         {allSpecs.length > 0 && (
           <div className="mb-4">
