@@ -44,6 +44,7 @@ const emptyForm = (): PartRequest => ({
   description: '',
   details: '',
   manufacturer: '',
+  personalNumber: false,
   datasheetUrl: '',
   specs: {},
   categoryId: null,
@@ -353,7 +354,17 @@ export default function PartsPage() {
       key: 'partNumber',
       header: 'Part #',
       render: (row) => (
-        <span className="font-mono text-blue-600">{row.partNumber}</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="font-mono text-blue-600">{row.partNumber}</span>
+          {row.personalNumber && (
+            <span
+              className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20"
+              title="Personal/internal number, not a real manufacturer part number"
+            >
+              P
+            </span>
+          )}
+        </span>
       ),
     },
     { key: 'description', header: 'Description', render: (r) => r.description ?? '—' },
@@ -537,6 +548,14 @@ export default function PartsPage() {
             onChange={(e) => setForm({ ...form, partNumber: e.target.value })}
             placeholder="e.g. BC547"
           />
+          <label className="mb-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              type="checkbox"
+              checked={form.personalNumber ?? false}
+              onChange={(e) => setForm({ ...form, personalNumber: e.target.checked })}
+            />
+            This is a personal/internal number, not a real manufacturer part number
+          </label>
           <FormField
             label="Manufacturer"
             value={form.manufacturer ?? ''}

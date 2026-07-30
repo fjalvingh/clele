@@ -24,6 +24,7 @@ public class QuickAddRequest {
     private String description;
     private String details;
     private String manufacturer;
+    private boolean personalNumber;
     private String datasheetUrl;
     private Map<String, Object> specs;
     private Long categoryId;

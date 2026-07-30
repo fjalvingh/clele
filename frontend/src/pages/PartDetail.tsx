@@ -508,6 +508,7 @@ export default function PartDetailPage() {
         description: part.description,
         details: part.details,
         manufacturer: part.manufacturer,
+        personalNumber: part.personalNumber,
         datasheetUrl: undefined,
         specs: part.specs,
         categoryId: part.categoryId ?? null,
@@ -869,7 +870,17 @@ export default function PartDetailPage() {
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between">
               <div className="min-w-0">
-                <h1 className="text-2xl font-bold font-mono text-gray-900">{part.partNumber}</h1>
+                <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold font-mono text-gray-900">
+                  {part.partNumber}
+                  {part.personalNumber && (
+                    <span
+                      className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium normal-case text-amber-700 ring-1 ring-inset ring-amber-600/20"
+                      title="This is a personal/internal number, not a real manufacturer part number"
+                    >
+                      Personal number
+                    </span>
+                  )}
+                </h1>
                 {part.description && (
                   <p className="mt-1 text-sm text-gray-600">{part.description}</p>
                 )}

@@ -43,6 +43,10 @@ public class Part {
     @Column(name = "octopart_id", length = 64)
     private String octopartId;
 
+    /** True when {@link #partNumber} is a user-assigned internal code rather than a real manufacturer part number. */
+    @Column(name = "personal_number", nullable = false)
+    private boolean personalNumber;
+
     @Column(name = "datasheet_url", columnDefinition = "TEXT")
     private String datasheetUrl;
 

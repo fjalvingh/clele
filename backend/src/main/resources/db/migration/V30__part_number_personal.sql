@@ -1,0 +1,1 @@
+ALTER TABLE part ADD COLUMN personal_number BOOLEAN NOT NULL DEFAULT false;

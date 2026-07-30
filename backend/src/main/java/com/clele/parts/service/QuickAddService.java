@@ -75,6 +75,7 @@ public class QuickAddService {
         part.setDescription(request.getDescription());
         part.setDetails(request.getDetails());
         part.setManufacturer(request.getManufacturer());
+        part.setPersonalNumber(request.isPersonalNumber());
         part.setDatasheetUrl(request.getDatasheetUrl());
         part.setSpecs(request.getSpecs());
         if (request.getCategoryId() != null) {

@@ -19,6 +19,7 @@ public class PartDTO {
     private String footprint;
     private String mpn;
     private String octopartId;
+    private boolean personalNumber;
     private String datasheetUrl;
     private Map<String, Object> specs;
     private Long categoryId;

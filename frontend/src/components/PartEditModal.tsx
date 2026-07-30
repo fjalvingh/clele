@@ -150,6 +150,7 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
     description: '',
     details: '',
     manufacturer: '',
+    personalNumber: false,
     datasheetUrl: '',
     specs: {},
     categoryId: null,
@@ -173,6 +174,7 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
       description: part.description ?? '',
       details: part.details ?? '',
       manufacturer: part.manufacturer ?? '',
+      personalNumber: part.personalNumber ?? false,
       datasheetUrl: part.datasheetUrl ?? '',
       specs: part.specs ?? {},
       categoryId: part.categoryId ?? null,
@@ -234,6 +236,14 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
           onChange={(e) => setForm({ ...form, partNumber: e.target.value })}
           placeholder="e.g. BC547"
         />
+        <label className="mb-3 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <input
+            type="checkbox"
+            checked={form.personalNumber ?? false}
+            onChange={(e) => setForm({ ...form, personalNumber: e.target.checked })}
+          />
+          This is a personal/internal number, not a real manufacturer part number
+        </label>
         <FormField
           label="Manufacturer"
           value={form.manufacturer ?? ''}

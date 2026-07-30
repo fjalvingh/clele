@@ -78,6 +78,7 @@ export interface Part {
   mpn?: string;
   footprint?: string;
   octopartId?: string;
+  personalNumber: boolean;
   datasheetUrl?: string;
   specs?: Record<string, string>;
   categoryId?: number;
@@ -96,6 +97,7 @@ export interface PartRequest {
   description?: string;
   details?: string;
   manufacturer?: string;
+  personalNumber?: boolean;
   datasheetUrl?: string;
   specs?: Record<string, string>;
   categoryId?: number | null;
@@ -342,6 +344,7 @@ export interface QuickAddRequest {
   description?: string;
   details?: string;
   manufacturer?: string;
+  personalNumber?: boolean;
   datasheetUrl?: string;
   specs?: Record<string, string>;
   categoryId?: number | null;
