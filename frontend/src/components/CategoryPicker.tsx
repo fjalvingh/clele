@@ -3,6 +3,11 @@ import type { CategoryTree } from '../api/types';
 
 interface FlatCategory {
   id: number;
+  /** Leaf name only — what the user actually recognizes. */
+  name: string;
+  /** Ancestor path without the leaf ("Semiconductors > ICs"), empty for a root category. */
+  parentPath: string;
+  /** Full path including the leaf — used for matching and tooltips. */
   breadcrumb: string;
 }
 
@@ -14,8 +19,9 @@ function flatten(nodes: CategoryTree[], excludeId: number | null | undefined, tr
   const out: FlatCategory[] = [];
   for (const node of nodes) {
     if (excludeId != null && node.id === excludeId) continue;
+    const parentPath = trail.join(' > ');
     const breadcrumb = [...trail, node.name].join(' > ');
-    out.push({ id: node.id, breadcrumb });
+    out.push({ id: node.id, name: node.name, parentPath, breadcrumb });
     out.push(...flatten(node.children, excludeId, [...trail, node.name]));
   }
   return out;
@@ -55,8 +61,11 @@ export default function CategoryPicker({
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Keep the input's text in sync with the current selection while the user isn't actively typing.
+  // Show the leaf name, not the full breadcrumb: the input is often narrow (48 in the Parts filter
+  // bar) and a long path truncates to its *front*, hiding the only part that identifies the choice.
+  // The full path stays available as the title tooltip and under the dropdown entry.
   useEffect(() => {
-    if (!open) setQuery(selected ? selected.breadcrumb : '');
+    if (!open) setQuery(selected ? selected.name : '');
   }, [selected, open]);
 
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -114,7 +123,7 @@ export default function CategoryPicker({
               }
             } else if (e.key === 'Escape') {
               setOpen(false);
-              setQuery(selected ? selected.breadcrumb : '');
+              setQuery(selected ? selected.name : '');
               inputRef.current?.blur();
             }
           }}
@@ -138,7 +147,10 @@ export default function CategoryPicker({
           </button>
         )}
         {open && (
-          <ul className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-gray-200 bg-surface shadow-lg">
+          // z-50: must beat DataTable's sticky `thead` (z-10), which sits later in the DOM.
+          // min-w-full + w-max: the input can be narrow (w-48 in the Parts filter bar) while
+          // category paths are long, so the list is allowed to outgrow it up to a cap.
+          <ul className="absolute z-50 mt-1 max-h-64 min-w-full w-max max-w-[26rem] overflow-y-auto rounded-md border border-gray-200 bg-surface shadow-lg">
             <li>
               <button
                 type="button"
@@ -159,9 +171,12 @@ export default function CategoryPicker({
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => commit(opt.id)}
                   title={opt.breadcrumb}
-                  className={`block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-50 ${highlight === i + 1 ? 'bg-gray-50' : ''}`}
+                  className={`block w-full px-3 py-1.5 text-left hover:bg-gray-50 ${highlight === i + 1 ? 'bg-gray-50' : ''}`}
                 >
-                  {opt.breadcrumb}
+                  <span className="block truncate text-sm text-gray-900">{opt.name}</span>
+                  {opt.parentPath && (
+                    <span className="block truncate text-xs text-gray-400">{opt.parentPath}</span>
+                  )}
                 </button>
               </li>
             ))}
