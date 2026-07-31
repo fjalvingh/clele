@@ -22,4 +22,11 @@ public class UserDTO {
     private boolean hasOctopartCredentials;
     /** 8-digit date of the last changelog entry the user acknowledged. Null if never read. */
     private String lastReadChanges;
+    /**
+     * How this user prints labels (BROWSER/DAEMON) and, for DAEMON, which daemon. Returned on
+     * {@code /auth/me} so any print entry point (e.g. the Part detail print button) can route to
+     * the right method without a second request.
+     */
+    private String printMethod;
+    private Long preferredDaemonId;
 }

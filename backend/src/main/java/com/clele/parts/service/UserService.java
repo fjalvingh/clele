@@ -128,6 +128,8 @@ public class UserService {
                         user.getOctopartClientId() != null && !user.getOctopartClientId().isBlank()
                         && user.getOctopartClientSecret() != null && !user.getOctopartClientSecret().isBlank())
                 .lastReadChanges(user.getLastReadChanges())
+                .printMethod(user.getPrintMethod() == null ? null : user.getPrintMethod().name())
+                .preferredDaemonId(user.getPreferredDaemon() == null ? null : user.getPreferredDaemon().getId())
                 .build();
     }
 }
