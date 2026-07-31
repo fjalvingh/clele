@@ -84,9 +84,28 @@ Check what a printer reports at any time:
 clele-print-daemon status --printer-ip 192.168.1.56
 ```
 
+### Print geometry (measured, not derived)
+
 The raster encoding (`internal/qlraster/raster.go`) follows the publicly documented Brother QL
-protocol. Print-head margins are computed by centering the media within the 720-dot head; if
-labels come out off-center, adjust `toRasterLines`.
+protocol. Three constants were measured on a QL-710W with 17×54mm die-cut labels, because they are
+physical properties that cannot be computed from the media size:
+
+| constant | value | how it was determined |
+|---|---|---|
+| horizontal offset | **dot 0** (left-aligned) | printed bands from different head zones; only the zone at dots 0–200 landed on the label |
+| leading feed | **~6mm** | measured gap before printed content on a full-width test print |
+| unreachable edge | **~2mm** | measured blank strip across the head on a full-width test print |
+
+Media is **left-aligned on the print head, not centred**. Centring content placed a 17mm label's
+data at dots 280–440 — entirely off the label — which produced correctly-sized, correctly-cut, but
+completely blank labels. `TestDieCutGeometryMatchesHardware` locks this in.
+
+Die-cut jobs must emit exactly `printableLines(lengthMm)` raster lines: too few and the printer
+cuts the label short (a 400-line job on a 54mm label cut at 44mm), too many overruns.
+
+These constants are mirrored in the frontend (`frontend/src/utils/labelPrint.ts`), which renders
+labels to the printable area so nothing is clipped — keep the two in sync. If you use a different
+QL model and labels come out misaligned, re-measure with a full-width black test print.
 
 ## Useful commands
 

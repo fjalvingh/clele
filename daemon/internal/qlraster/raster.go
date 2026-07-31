@@ -29,6 +29,23 @@ const printHeadDots = 720
 const printHeadBytes = printHeadDots / 8
 const dotsPerMm = 300.0 / 25.4
 
+// Print geometry, measured on a QL-710W with 17x54mm die-cut labels rather than derived — these
+// are physical properties of the printer that cannot be computed from the media size:
+//
+//   - Media is LEFT-ALIGNED on the print head: the label starts at dot 0, not centred. Verified by
+//     printing bands from different head zones and observing which landed on the label. Centring
+//     the content (the previous behaviour) placed it at dots 280-440, entirely off a 17mm label,
+//     which is why labels came out blank.
+//   - The printer feeds ~6mm before printing starts, so a die-cut label's printable length is its
+//     physical length minus that lead. Sending the full length overruns; sending too few lines
+//     makes the printer cut the label short.
+//   - The far edge across the head has ~2mm the head cannot reach.
+const (
+	mediaOffsetDots   = 0   // left-aligned
+	dieCutLeadMm      = 6.0 // fed before printing begins
+	unprintableEdgeMm = 2.0 // across the head, at the far edge
+)
+
 // BuildCommands decodes a PNG and returns the full Brother QL raster command stream for the given
 // media, which must match what is physically loaded in the printer.
 func BuildCommands(pngBytes []byte, media ipp.Media) ([]byte, error) {
@@ -43,8 +60,14 @@ func BuildCommands(pngBytes []byte, media ipp.Media) ([]byte, error) {
 		return nil, fmt.Errorf("die-cut media requires a label length")
 	}
 
-	mediaWidthDots := int(float64(media.WidthMm) * dotsPerMm)
-	lines := toRasterLines(img, mediaWidthDots)
+	lines := toRasterLines(img)
+
+	// Die-cut labels have a fixed printable length: the printer cuts at the die boundary, so it
+	// must receive exactly that many raster lines. Too few and it cuts the label short (a 400-line
+	// job on a 54mm label cut at 44mm); too many overruns into the next label.
+	if media.DieCut {
+		lines = fitLines(lines, printableLines(media.LengthMm))
+	}
 
 	var buf bytes.Buffer
 	buf.Write(initSequence())                 // invalidate + initialize
@@ -97,26 +120,41 @@ func BuildCommands(pngBytes []byte, media ipp.Media) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// toRasterLines rotates the image 90° (so its long edge feeds through the printer) and
-// thresholds it to 1-bit-per-pixel raster lines, each printHeadBytes long, with the image
-// centered within the tape's actual printable width (not the full 720-dot head).
-func toRasterLines(img image.Image, tapeWidthDots int) [][]byte {
+// printableLines is how many raster lines fit on a die-cut label of the given physical length,
+// allowing for the lead the printer feeds before it starts printing.
+func printableLines(lengthMm int) int {
+	n := int((float64(lengthMm) - dieCutLeadMm) * dotsPerMm)
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// fitLines pads with blank lines or truncates so exactly want lines are emitted.
+func fitLines(lines [][]byte, want int) [][]byte {
+	if len(lines) > want {
+		return lines[:want]
+	}
+	for len(lines) < want {
+		lines = append(lines, make([]byte, printHeadBytes))
+	}
+	return lines
+}
+
+// toRasterLines turns the image into 1-bit-per-pixel raster lines, each printHeadBytes wide.
+// The image's x axis is the feed direction (one raster line per column) and its y axis spans the
+// print head. The image is placed LEFT-ALIGNED at mediaOffsetDots — see the geometry constants
+// above; centring it misses narrow labels entirely.
+func toRasterLines(img image.Image) [][]byte {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
-
-	headOffset := (printHeadDots - tapeWidthDots) / 2
-	contentOffset := (tapeWidthDots - h) / 2
-	if contentOffset < 0 {
-		contentOffset = 0
-	}
-	offsetBits := headOffset + contentOffset
 
 	lines := make([][]byte, w)
 	for x := 0; x < w; x++ {
 		line := make([]byte, printHeadBytes)
 		for y := 0; y < h; y++ {
 			if isDark(img.At(b.Min.X+x, b.Min.Y+y)) {
-				bitPos := offsetBits + y
+				bitPos := mediaOffsetDots + y
 				if bitPos >= 0 && bitPos < printHeadDots {
 					line[bitPos/8] |= 0x80 >> (bitPos % 8)
 				}

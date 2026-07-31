@@ -6,10 +6,17 @@ import { createPrintJob, getPrintJobStatus } from '../api';
 export const LABEL_W_MM = 50;
 export const LABEL_H_MM = 18;
 
+// Printer geometry measured on the QL-710W — must match the daemon's constants in
+// internal/qlraster/raster.go. The printer feeds a lead before printing and cannot reach the far
+// edge across the head, so the printable area is smaller than the physical label. Rendering to
+// the printable area (rather than the full label) means nothing is clipped.
+const DIE_CUT_LEAD_MM = 6;
+const UNPRINTABLE_EDGE_MM = 2;
+
 /**
- * Physical label size to render for a daemon, taken from the media it detected in the printer.
- * Die-cut labels print along their length, so the longer dimension runs left-to-right on the
- * label. Falls back to the browser default when the daemon hasn't reported media yet.
+ * Physical size to render for a daemon, from the media it detected in the printer. Die-cut labels
+ * print along their length, so the longer dimension runs left-to-right on the label. Falls back to
+ * the browser default when the daemon hasn't reported media yet.
  */
 export function labelSizeFor(daemon?: {
   mediaWidthMm?: number;
@@ -19,11 +26,15 @@ export function labelSizeFor(daemon?: {
   if (!daemon?.mediaWidthMm) {
     return { widthMm: LABEL_W_MM, heightMm: LABEL_H_MM };
   }
+  const printableHeight = Math.max(1, daemon.mediaWidthMm - UNPRINTABLE_EDGE_MM);
   if (daemon.mediaKind === 'DIE_CUT' && daemon.mediaLengthMm) {
-    return { widthMm: daemon.mediaLengthMm, heightMm: daemon.mediaWidthMm };
+    return {
+      widthMm: Math.max(1, daemon.mediaLengthMm - DIE_CUT_LEAD_MM),
+      heightMm: printableHeight,
+    };
   }
   // Continuous tape: the width is fixed by the roll, the length is ours to choose.
-  return { widthMm: LABEL_W_MM, heightMm: daemon.mediaWidthMm };
+  return { widthMm: LABEL_W_MM, heightMm: printableHeight };
 }
 
 // DPI the daemon-rendered PNG is rasterized at, matching the Brother QL-710W's native resolution.

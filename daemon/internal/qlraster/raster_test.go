@@ -100,6 +100,70 @@ func TestBuildCommandsDeclaresMediaCorrectly(t *testing.T) {
 	}
 }
 
+// Locks in the print geometry measured on the hardware. Content must be left-aligned at dot 0 —
+// centring it (the old behaviour) placed a 17mm label's content at dots 280-440, off the label
+// entirely, producing blank output. Die-cut jobs must also emit exactly the printable line count,
+// or the printer cuts the label short.
+func TestDieCutGeometryMatchesHardware(t *testing.T) {
+	// A 17x54mm die-cut label rendered at its printable size (see labelSizeFor in the frontend).
+	img := solidBlock(t, 566, 177)
+	cmds, err := BuildCommands(img, ipp.Media{WidthMm: 17, LengthMm: 54, DieCut: true})
+	if err != nil {
+		t.Fatalf("BuildCommands: %v", err)
+	}
+
+	minBit, maxBit, lines := 9999, -1, 0
+	i := 0
+	for i < len(cmds)-2 {
+		if cmds[i] == 0x67 && cmds[i+1] == 0x00 {
+			n := int(cmds[i+2])
+			for bi, b := range cmds[i+3 : i+3+n] {
+				for k := 0; k < 8; k++ {
+					if b&(0x80>>k) != 0 {
+						pos := bi*8 + k
+						if pos < minBit {
+							minBit = pos
+						}
+						if pos > maxBit {
+							maxBit = pos
+						}
+					}
+				}
+			}
+			lines++
+			i += 3 + n
+		} else {
+			i++
+		}
+	}
+
+	if minBit != 0 {
+		t.Errorf("content must be left-aligned at dot 0, starts at %d", minBit)
+	}
+	if maxBit >= 201 {
+		t.Errorf("content must stay within the 17mm label (201 dots), reaches dot %d", maxBit)
+	}
+	if want := printableLines(54); lines != want {
+		t.Errorf("die-cut job must emit exactly %d lines, got %d", want, lines)
+	}
+}
+
+// solidBlock builds an all-black PNG of the given size.
+func solidBlock(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.Set(x, y, color.Black)
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+	return buf.Bytes()
+}
+
 func TestBuildCommandsRejectsDieCutWithoutLength(t *testing.T) {
 	if _, err := BuildCommands(buildTestPng(t), ipp.Media{WidthMm: 17, DieCut: true}); err == nil {
 		t.Error("expected an error for die-cut media with no length")
