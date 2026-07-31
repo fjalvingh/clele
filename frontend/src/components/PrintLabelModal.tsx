@@ -146,15 +146,22 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
   const [daemonState, setDaemonState] = useState<DaemonPrintState>('idle');
   const [daemonError, setDaemonError] = useState<string | null>(null);
   const [daemons, setDaemons] = useState<PrintDaemon[]>([]);
+  // The text label is the normal case, so it is always on when the dialog opens — unticking it is
+  // for the odd job where only a fresh barcode is wanted. Unlike the barcode choice it isn't
+  // remembered: the next print starts from "print the label" again.
+  const [withText, setWithText] = useState(true);
   const [withBarcode, setWithBarcode] = useState(!!user?.printBarcodeLabel);
   const [printingStep, setPrintingStep] = useState<'text' | 'barcode' | null>(null);
 
   const useDaemon = user?.printMethod === 'DAEMON' && !!user.preferredDaemonId;
   const code = partBarcode(part.id);
 
-  // Follow the saved preference whenever the dialog is (re)opened.
+  // Follow the saved barcode preference whenever the dialog is (re)opened.
   useEffect(() => {
-    if (open) setWithBarcode(!!user?.printBarcodeLabel);
+    if (open) {
+      setWithText(true);
+      setWithBarcode(!!user?.printBarcodeLabel);
+    }
   }, [open, user?.printBarcodeLabel]);
 
   // Load daemons only when the modal opens in daemon mode — needed for the detected media size.
@@ -180,15 +187,17 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
     () => labelDocument([barcodeLabelBody(code, widthMm, heightMm)], widthMm, heightMm),
     [code, widthMm, heightMm],
   );
-  // What actually gets printed in the browser path: one document, one dialog, two pages when the
-  // barcode label is wanted.
+  // What actually gets printed in the browser path: one document, one dialog, one page per
+  // selected label.
   const printDoc = useMemo(() => {
-    const bodies = [textLabelBody(part)];
+    const bodies: string[] = [];
+    if (withText) bodies.push(textLabelBody(part));
     if (withBarcode) bodies.push(barcodeLabelBody(code, widthMm, heightMm));
     return labelDocument(bodies, widthMm, heightMm);
-  }, [part, code, withBarcode, widthMm, heightMm]);
+  }, [part, code, withText, withBarcode, widthMm, heightMm]);
 
   const barcodeTooNarrow = withBarcode && barcodeModuleWidthMm(code, widthMm) === null;
+  const nothingSelected = !withText && !withBarcode;
 
   // Zoom enough to be readable, but never wider than the dialog.
   const previewScale = Math.min(PREVIEW_MAX_SCALE, PREVIEW_MAX_WIDTH_MM / widthMm);
@@ -221,16 +230,18 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
       }
     };
 
-    setPrintingStep('text');
-    await printLabelViaDaemon(
-      user.preferredDaemonId,
-      part.partNumber,
-      part.description,
-      onUpdate,
-      { widthMm, heightMm },
-    );
+    if (withText) {
+      setPrintingStep('text');
+      await printLabelViaDaemon(
+        user.preferredDaemonId,
+        part.partNumber,
+        part.description,
+        onUpdate,
+        { widthMm, heightMm },
+      );
+    }
 
-    // The labels go out as two separate jobs, in order — only start the second if the first worked.
+    // The labels go out as separate jobs, in order — only start the second if the first worked.
     if (withBarcode && !failed) {
       setPrintingStep('barcode');
       await printBarcodeLabelViaDaemon(user.preferredDaemonId, code, onUpdate, { widthMm, heightMm });
@@ -241,15 +252,17 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
   return (
     <Modal open={open} onClose={onClose} title="Print label">
       <p className="mb-3 text-sm text-gray-600">
-        Preview of the {widthMm} × {heightMm} mm {withBarcode ? 'labels' : 'label'}. The part number
-        is on top, with as much of the description as fits below.
-        {withBarcode ? ' The barcode goes on a second label.' : ''}
+        Preview of the {widthMm} × {heightMm} mm {withText && withBarcode ? 'labels' : 'label'}.
+        {withText
+          ? ' The part number is on top, with as much of the description as fits below.'
+          : ''}
+        {withBarcode ? ` The barcode goes on ${withText ? 'a second' : 'its own'} label.` : ''}
       </p>
 
       {/* Actual-size labels rendered in isolated iframes, scaled up for readability. */}
       <div className="mb-2 flex max-w-full flex-col items-center gap-2 overflow-hidden">
         {[
-          { title: 'Label preview', doc: textDoc },
+          ...(withText ? [{ title: 'Label preview', doc: textDoc }] : []),
           ...(withBarcode ? [{ title: 'Barcode label preview', doc: barcodeDoc }] : []),
         ].map((preview) => (
           <div
@@ -285,20 +298,32 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
       <label className="mb-1 flex items-start gap-2 text-sm text-gray-700">
         <input
           type="checkbox"
+          checked={withText}
+          onChange={(e) => setWithText(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>Print the part label (part number and description).</span>
+      </label>
+      <label className="mb-1 flex items-start gap-2 text-sm text-gray-700">
+        <input
+          type="checkbox"
           checked={withBarcode}
           onChange={(e) => toggleBarcode(e.target.checked)}
           className="mt-0.5"
         />
         <span>
-          Also print a barcode label (<span className="font-mono">{code}</span>) — scan it to jump
+          Print a barcode label (<span className="font-mono">{code}</span>) — scan it to jump
           straight to this part.
         </span>
       </label>
       {barcodeTooNarrow && (
-        <p className="mb-3 text-xs text-amber-600">
+        <p className="mb-1 text-xs text-amber-600">
           This label is too narrow for a scannable barcode — only the code will be printed. Use a
           wider label for the bars.
         </p>
+      )}
+      {nothingSelected && (
+        <p className="mb-1 text-xs text-amber-600">Pick at least one label to print.</p>
       )}
       <div className="mb-4" />
 
@@ -337,7 +362,7 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
         {useDaemon ? (
           <button
             onClick={printViaDaemon}
-            disabled={daemonState === 'sending' || daemonState === 'printing'}
+            disabled={nothingSelected || daemonState === 'sending' || daemonState === 'printing'}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {daemonState === 'sending' || daemonState === 'printing' ? 'Printing…' : 'Print'}
@@ -345,7 +370,8 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
         ) : (
           <button
             onClick={() => printLabel(printDoc)}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            disabled={nothingSelected}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             🏷️ Print
           </button>
