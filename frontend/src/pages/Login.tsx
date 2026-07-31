@@ -70,7 +70,7 @@ export default function LoginPage() {
               <line x1="18" y1="9" x2="22" y2="9" />
               <line x1="18" y1="15" x2="22" y2="15" />
             </svg>
-            <h1 className="text-xl font-bold tracking-tight text-gray-900">Clele</h1>
+            <h1 className="text-xl font-bold tracking-tight text-gray-900">Sortiment</h1>
           </div>
           <h2 className="mb-6 text-sm font-medium text-gray-500">Sign in to continue</h2>
 

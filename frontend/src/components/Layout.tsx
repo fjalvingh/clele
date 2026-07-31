@@ -170,7 +170,7 @@ export default function Layout() {
         <div className="flex h-16 items-center gap-2.5 px-5 text-white">
           <span className="text-blue-400">{BrandMark}</span>
           <div className="leading-none">
-            <div className="text-base font-semibold tracking-tight">Clele</div>
+            <div className="text-base font-semibold tracking-tight">Sortiment</div>
             <div className="mt-1 text-[10px] font-medium uppercase tracking-[0.18em] text-neutral-500">
               Parts Inventory
             </div>

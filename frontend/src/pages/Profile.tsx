@@ -67,7 +67,7 @@ export default function ProfilePage() {
 
       <section className="mt-6 rounded-lg border border-gray-200 bg-surface p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-gray-900">Appearance</h2>
-        <p className="mt-1 text-sm text-gray-600">Choose how Clele looks on this device.</p>
+        <p className="mt-1 text-sm text-gray-600">Choose how Sortiment looks on this device.</p>
 
         <div className="mt-4 inline-flex rounded-lg border border-gray-300 p-1">
           {THEME_OPTIONS.map((opt) => (
@@ -246,7 +246,7 @@ function LabelPrintingSection() {
     await printLabelViaDaemon(
       id,
       'TEST LABEL',
-      'Clele test print',
+      'Sortiment test print',
       (state, error) => {
         setTestPrintState((prev) => ({ ...prev, [id]: state }));
         if (error) setTestPrintError((prev) => ({ ...prev, [id]: error }));
