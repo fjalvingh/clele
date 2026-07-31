@@ -453,7 +453,13 @@ export interface PrintDaemon {
   name: string;
   status: 'PENDING' | 'ACTIVE';
   printerIp?: string;
-  tapeWidthMm: number;
+  /** Media detected in the printer over IPP; absent until the daemon has read it. */
+  mediaKind?: 'CONTINUOUS' | 'DIE_CUT';
+  mediaWidthMm?: number;
+  mediaLengthMm?: number;
+  mediaName?: string;
+  /** Human-readable media summary, e.g. "17 × 54 mm die-cut labels". */
+  mediaDescription?: string;
   owned: boolean;
   /** Version the daemon reports; absent if it never reported one (pre-versioning build). */
   version?: string;
@@ -466,11 +472,7 @@ export interface PrintDaemon {
 export interface PrintDaemonUpdateRequest {
   name?: string;
   printerIp?: string;
-  tapeWidthMm?: number;
 }
-
-// Standard Brother QL continuous tape widths (mm).
-export const TAPE_WIDTHS_MM = [12, 29, 38, 50, 54, 62] as const;
 
 export interface PrintingPreference {
   printMethod: PrintMethod;

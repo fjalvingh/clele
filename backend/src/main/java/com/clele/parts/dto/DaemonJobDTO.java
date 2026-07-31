@@ -11,5 +11,4 @@ public class DaemonJobDTO {
     private Long jobId;
     private String labelPngBase64;
     private String printerIp;
-    private Integer tapeWidthMm;
 }

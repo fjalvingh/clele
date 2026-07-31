@@ -8,5 +8,4 @@ import lombok.*;
 public class PrintDaemonUpdateRequest {
     private String name;
     private String printerIp;
-    private Integer tapeWidthMm;
 }

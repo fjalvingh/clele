@@ -1,7 +1,14 @@
-import { useMemo, useState } from 'react';
-import type { Part } from '../api/types';
+import { useEffect, useMemo, useState } from 'react';
+import { getPrintDaemons } from '../api';
+import type { Part, PrintDaemon } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
-import { LABEL_H_MM, LABEL_W_MM, printLabelViaDaemon, type DaemonPrintState } from '../utils/labelPrint';
+import {
+  LABEL_H_MM,
+  LABEL_W_MM,
+  labelSizeFor,
+  printLabelViaDaemon,
+  type DaemonPrintState,
+} from '../utils/labelPrint';
 import Modal from './Modal';
 
 // Both the Dymo LabelWriter 320 and the Brother QL-710W install as ordinary system printers, so
@@ -98,16 +105,34 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
   const { user } = useAuth();
   const [daemonState, setDaemonState] = useState<DaemonPrintState>('idle');
   const [daemonError, setDaemonError] = useState<string | null>(null);
+  const [daemons, setDaemons] = useState<PrintDaemon[]>([]);
 
   const useDaemon = user?.printMethod === 'DAEMON' && !!user.preferredDaemonId;
+
+  // Load daemons only when the modal opens in daemon mode — needed for the detected media size.
+  useEffect(() => {
+    if (!open || !useDaemon) return;
+    getPrintDaemons()
+      .then(setDaemons)
+      .catch(() => setDaemons([]));
+  }, [open, useDaemon]);
 
   const printViaDaemon = async () => {
     if (!user?.preferredDaemonId) return;
     setDaemonError(null);
-    await printLabelViaDaemon(user.preferredDaemonId, part.partNumber, part.description, (state, error) => {
-      setDaemonState(state);
-      if (error) setDaemonError(error);
-    });
+    // Size the label to the media the daemon detected in the printer, falling back to the
+    // browser default until it has reported any.
+    const daemon = daemons.find((d) => d.id === user.preferredDaemonId);
+    await printLabelViaDaemon(
+      user.preferredDaemonId,
+      part.partNumber,
+      part.description,
+      (state, error) => {
+        setDaemonState(state);
+        if (error) setDaemonError(error);
+      },
+      labelSizeFor(daemon),
+    );
   };
 
   return (

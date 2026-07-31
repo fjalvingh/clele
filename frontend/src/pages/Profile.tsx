@@ -10,11 +10,11 @@ import {
   updatePrintingPreference,
 } from '../api';
 import type { OctopartCredentialsStatus, PrintDaemon, PrintingPreference, PrintMethod } from '../api/types';
-import { TAPE_WIDTHS_MM } from '../api/types';
+
 import { useAuth } from '../auth/AuthContext';
 import FormField from '../components/FormField';
 import { useTheme, type ThemePreference } from '../theme/ThemeContext';
-import { printLabelViaDaemon, type DaemonPrintState } from '../utils/labelPrint';
+import { labelSizeFor, printLabelViaDaemon, type DaemonPrintState } from '../utils/labelPrint';
 
 const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -164,7 +164,6 @@ function LabelPrintingSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [printerIpDrafts, setPrinterIpDrafts] = useState<Record<number, string>>({});
-  const [tapeWidthDrafts, setTapeWidthDrafts] = useState<Record<number, number>>({});
   const [busyDaemonId, setBusyDaemonId] = useState<number | null>(null);
   const [testPrintState, setTestPrintState] = useState<Record<number, DaemonPrintState>>({});
   const [testPrintError, setTestPrintError] = useState<Record<number, string | undefined>>({});
@@ -177,7 +176,6 @@ function LabelPrintingSection() {
         setPreferenceState(pref);
         setDaemons(list);
         setPrinterIpDrafts(Object.fromEntries(list.map((d) => [d.id, d.printerIp ?? ''])));
-        setTapeWidthDrafts(Object.fromEntries(list.map((d) => [d.id, d.tapeWidthMm])));
       })
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
@@ -216,10 +214,7 @@ function LabelPrintingSection() {
     setBusyDaemonId(id);
     setError(null);
     try {
-      const updated = await updatePrintDaemon(id, {
-        printerIp: printerIpDrafts[id],
-        tapeWidthMm: tapeWidthDrafts[id],
-      });
+      const updated = await updatePrintDaemon(id, { printerIp: printerIpDrafts[id] });
       setDaemons((prev) => prev.map((d) => (d.id === id ? updated : d)));
     } catch (err) {
       setError((err as Error).message);
@@ -247,10 +242,17 @@ function LabelPrintingSection() {
   const handleTestPrint = async (id: number) => {
     setTestPrintState((prev) => ({ ...prev, [id]: 'sending' }));
     setTestPrintError((prev) => ({ ...prev, [id]: undefined }));
-    await printLabelViaDaemon(id, 'TEST LABEL', 'Clele test print', (state, error) => {
-      setTestPrintState((prev) => ({ ...prev, [id]: state }));
-      if (error) setTestPrintError((prev) => ({ ...prev, [id]: error }));
-    });
+    const daemon = daemons.find((d) => d.id === id);
+    await printLabelViaDaemon(
+      id,
+      'TEST LABEL',
+      'Clele test print',
+      (state, error) => {
+        setTestPrintState((prev) => ({ ...prev, [id]: state }));
+        if (error) setTestPrintError((prev) => ({ ...prev, [id]: error }));
+      },
+      labelSizeFor(daemon),
+    );
   };
 
   const installOrigin = window.location.origin;
@@ -373,8 +375,17 @@ function LabelPrintingSection() {
                   {d.owned && (
                     <div className="mt-2">
                     <p className="mb-1 text-xs text-gray-500">
-                      Tape width must match the label tape physically loaded in the printer, or it
-                      will refuse the job as a media error.
+                      {d.mediaDescription ? (
+                        <>
+                          Loaded media: <span className="font-medium text-gray-700">{d.mediaDescription}</span>{' '}
+                          — read from the printer, so labels are sized to it automatically.
+                        </>
+                      ) : (
+                        <>
+                          Media not detected yet. Set the printer address below; the daemon reads the
+                          loaded label stock from the printer and sizes labels to it automatically.
+                        </>
+                      )}
                     </p>
                     <div className="flex items-end gap-2">
                       <FormField
@@ -385,22 +396,6 @@ function LabelPrintingSection() {
                         }
                         placeholder="192.168.1.50"
                       />
-                      <label className="mb-4 flex flex-col text-sm">
-                        <span className="mb-1 text-gray-700">Tape width</span>
-                        <select
-                          value={tapeWidthDrafts[d.id] ?? 62}
-                          onChange={(e) =>
-                            setTapeWidthDrafts((prev) => ({ ...prev, [d.id]: Number(e.target.value) }))
-                          }
-                          className="rounded-md border border-gray-300 px-2 py-2"
-                        >
-                          {TAPE_WIDTHS_MM.map((mm) => (
-                            <option key={mm} value={mm}>
-                              {mm} mm
-                            </option>
-                          ))}
-                        </select>
-                      </label>
                       <button
                         type="button"
                         onClick={() => handleSavePrinterConfig(d.id)}

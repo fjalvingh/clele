@@ -1,21 +1,46 @@
 import { createPrintJob, getPrintJobStatus } from '../api';
 
-// Physical label size. A typical roll/tape is 50 × 18 mm; tweak here if you change media.
-// Shared by the browser print path (PrintLabelModal) and the daemon print path (both the modal
-// and the Profile page's "Test print" button), so a label always prints at the same size
-// regardless of which method delivers it.
+// Fallback label size for the browser print path, which has no way to ask the printer what is
+// loaded — the user picks the printer in the OS dialog. The daemon path does not use this: it
+// renders to the media the daemon detected over IPP (see labelSizeFor).
 export const LABEL_W_MM = 50;
 export const LABEL_H_MM = 18;
+
+/**
+ * Physical label size to render for a daemon, taken from the media it detected in the printer.
+ * Die-cut labels print along their length, so the longer dimension runs left-to-right on the
+ * label. Falls back to the browser default when the daemon hasn't reported media yet.
+ */
+export function labelSizeFor(daemon?: {
+  mediaWidthMm?: number;
+  mediaLengthMm?: number;
+  mediaKind?: string;
+}): { widthMm: number; heightMm: number } {
+  if (!daemon?.mediaWidthMm) {
+    return { widthMm: LABEL_W_MM, heightMm: LABEL_H_MM };
+  }
+  if (daemon.mediaKind === 'DIE_CUT' && daemon.mediaLengthMm) {
+    return { widthMm: daemon.mediaLengthMm, heightMm: daemon.mediaWidthMm };
+  }
+  // Continuous tape: the width is fixed by the roll, the length is ours to choose.
+  return { widthMm: LABEL_W_MM, heightMm: daemon.mediaWidthMm };
+}
 
 // DPI the daemon-rendered PNG is rasterized at, matching the Brother QL-710W's native resolution.
 const DAEMON_DPI = 300;
 const PX_PER_MM = DAEMON_DPI / 25.4;
 
 // Renders label content (part number + optional description) onto an offscreen canvas PNG, for
-// the daemon print path (which needs a bitmap, not a browser-printable HTML document).
-export function renderLabelToPngDataUrl(title: string, description?: string): string {
-  const w = Math.round(LABEL_W_MM * PX_PER_MM);
-  const h = Math.round(LABEL_H_MM * PX_PER_MM);
+// the daemon print path (which needs a bitmap, not a browser-printable HTML document), at the
+// given physical size in millimetres.
+export function renderLabelToPngDataUrl(
+  title: string,
+  description?: string,
+  widthMm: number = LABEL_W_MM,
+  heightMm: number = LABEL_H_MM,
+): string {
+  const w = Math.round(widthMm * PX_PER_MM);
+  const h = Math.round(heightMm * PX_PER_MM);
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -76,16 +101,18 @@ async function pollJobStatus(jobId: number, onUpdate: (state: DaemonPrintState, 
   onUpdate('failed', 'Timed out waiting for the daemon to print');
 }
 
-// Renders a label and sends it to the given daemon, reporting progress via onUpdate.
+// Renders a label at the daemon's detected media size and sends it, reporting progress via
+// onUpdate.
 export async function printLabelViaDaemon(
   daemonId: number,
   title: string,
   description: string | undefined,
   onUpdate: (state: DaemonPrintState, error?: string) => void,
+  size: { widthMm: number; heightMm: number } = { widthMm: LABEL_W_MM, heightMm: LABEL_H_MM },
 ) {
   onUpdate('sending');
   try {
-    const dataUrl = renderLabelToPngDataUrl(title, description);
+    const dataUrl = renderLabelToPngDataUrl(title, description, size.widthMm, size.heightMm);
     const base64 = dataUrl.split(',')[1];
     const job = await createPrintJob(daemonId, base64);
     onUpdate('printing');

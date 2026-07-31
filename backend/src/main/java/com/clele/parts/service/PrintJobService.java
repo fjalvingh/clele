@@ -120,7 +120,6 @@ public class PrintJobService {
                 .jobId(job.getId())
                 .labelPngBase64(Base64.getEncoder().encodeToString(job.getLabelPng()))
                 .printerIp(job.getDaemon().getPrinterIp())
-                .tapeWidthMm(job.getDaemon().getTapeWidthMm())
                 .build();
     }
 

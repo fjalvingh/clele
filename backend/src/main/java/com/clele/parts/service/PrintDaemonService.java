@@ -3,6 +3,7 @@ package com.clele.parts.service;
 import com.clele.parts.dto.*;
 import com.clele.parts.model.AppUser;
 import com.clele.parts.model.DaemonStatus;
+import com.clele.parts.model.MediaKind;
 import com.clele.parts.model.PrintDaemon;
 import com.clele.parts.repository.PrintDaemonRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -79,12 +80,6 @@ public class PrintDaemonService {
             daemon.setName(request.getName().trim());
         }
         daemon.setPrinterIp(blankToNull(request.getPrinterIp()));
-        if (request.getTapeWidthMm() != null) {
-            if (request.getTapeWidthMm() <= 0 || request.getTapeWidthMm() > 62) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tape width must be 1-62mm");
-            }
-            daemon.setTapeWidthMm(request.getTapeWidthMm());
-        }
         return toDto(printDaemonRepository.save(daemon));
     }
 
@@ -95,9 +90,13 @@ public class PrintDaemonService {
         printDaemonRepository.delete(daemon);
     }
 
-    /** Called on every daemon-facing request to keep last-seen IP/time and reported version fresh. */
+    /**
+     * Called on every daemon-facing request to keep last-seen IP/time, reported version and
+     * detected printer media fresh. Media is reported by the daemon from the printer itself, so a
+     * changed label roll shows up here without any user action.
+     */
     @Transactional
-    public PrintDaemon touch(Long daemonId, String ip, String version) {
+    public PrintDaemon touch(Long daemonId, String ip, String version, DaemonMediaReport media) {
         PrintDaemon daemon = printDaemonRepository.findById(daemonId)
                 .orElseThrow(() -> new EntityNotFoundException("Daemon not found"));
         daemon.setLastSeenIp(ip);
@@ -106,7 +105,20 @@ public class PrintDaemonService {
         if (reported != null) {
             daemon.setVersion(reported);
         }
+        if (media != null && media.widthMm() != null && media.widthMm() > 0) {
+            daemon.setMediaKind(media.dieCut() ? MediaKind.DIE_CUT : MediaKind.CONTINUOUS);
+            daemon.setMediaWidthMm(media.widthMm());
+            daemon.setMediaLengthMm(media.dieCut() ? media.lengthMm() : null);
+            daemon.setMediaName(blankToNull(media.name()));
+        }
         return printDaemonRepository.save(daemon);
+    }
+
+    /** Media as reported by a daemon on its poll (headers), before validation. */
+    public record DaemonMediaReport(String kind, Integer widthMm, Integer lengthMm, String name) {
+        public boolean dieCut() {
+            return "DIE_CUT".equalsIgnoreCase(kind);
+        }
     }
 
     PrintDaemon requireOwned(Long daemonId, AppUser owner) {
@@ -136,12 +148,27 @@ public class PrintDaemonService {
                 .name(daemon.getName())
                 .status(daemon.getStatus().name())
                 .printerIp(daemon.getPrinterIp())
-                .tapeWidthMm(daemon.getTapeWidthMm())
+                .mediaKind(daemon.getMediaKind() == null ? null : daemon.getMediaKind().name())
+                .mediaWidthMm(daemon.getMediaWidthMm())
+                .mediaLengthMm(daemon.getMediaLengthMm())
+                .mediaName(daemon.getMediaName())
+                .mediaDescription(describeMedia(daemon))
                 .owned(daemon.getOwner() != null && daemon.getOwner().getId().equals(me.getId()))
                 .version(daemon.getVersion())
                 .expectedVersion(daemonVersionService.getExpectedVersion())
                 .outdated(daemonVersionService.isOutdated(daemon.getVersion()))
                 .build();
+    }
+
+    /** Human-readable summary of the detected media, or null when the daemon hasn't reported any. */
+    private static String describeMedia(PrintDaemon daemon) {
+        if (daemon.getMediaKind() == null || daemon.getMediaWidthMm() == null) {
+            return null;
+        }
+        if (daemon.getMediaKind() == MediaKind.DIE_CUT && daemon.getMediaLengthMm() != null) {
+            return daemon.getMediaWidthMm() + " × " + daemon.getMediaLengthMm() + " mm die-cut labels";
+        }
+        return daemon.getMediaWidthMm() + " mm continuous tape";
     }
 
     private static String generateApiKey() {

@@ -36,13 +36,25 @@ public class PrintDaemon {
     private String printerIp;
 
     /**
-     * Width (mm) of the continuous label tape physically loaded in the printer — must match, or
-     * the printer rejects the job as a media error. Not discoverable from software; set by the
-     * owner. Standard Brother QL continuous widths: 12/29/38/50/54/62mm.
+     * The label media the daemon detected in the printer over IPP, reported on every poll. Read
+     * only — it reflects what is physically loaded, so changing the roll updates it automatically.
+     * Null until the daemon has managed to read the printer.
      */
-    @Column(name = "tape_width_mm", nullable = false)
-    @Builder.Default
-    private Integer tapeWidthMm = 62;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "media_kind", length = 20)
+    private MediaKind mediaKind;
+
+    /** Width (mm) across the print head — the narrow edge of the label. */
+    @Column(name = "media_width_mm")
+    private Integer mediaWidthMm;
+
+    /** Length (mm) along the feed direction; null/0 for continuous tape, which has no fixed length. */
+    @Column(name = "media_length_mm")
+    private Integer mediaLengthMm;
+
+    /** Raw IPP media keyword, e.g. "om_brother-label-17x54mm_17x54mm". Diagnostic aid. */
+    @Column(name = "media_name", length = 128)
+    private String mediaName;
 
     /**
      * Version the daemon reports on every call ({@code X-Daemon-Version}), so it reflects the

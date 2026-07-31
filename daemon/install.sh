@@ -39,7 +39,17 @@ if [[ ! -f "$SCRIPT_DIR/clele-print-daemon" ]]; then
   exit 1
 fi
 
-echo "Installing binary to /usr/local/bin/clele-print-daemon"
+# Report both versions before overwriting: re-running an installer from a stale extraction
+# directory silently downgrades the daemon, which is otherwise only visible as "unknown" (or an
+# old version) on the Settings page.
+NEW_VERSION="$("$SCRIPT_DIR/clele-print-daemon" version 2>/dev/null || echo "unknown")"
+if [[ -x /usr/local/bin/clele-print-daemon ]]; then
+  OLD_VERSION="$(/usr/local/bin/clele-print-daemon version 2>/dev/null || echo "unknown (pre-versioning build)")"
+  echo "Replacing installed daemon version $OLD_VERSION with $NEW_VERSION"
+else
+  echo "Installing daemon version $NEW_VERSION"
+fi
+
 install -m 0755 "$SCRIPT_DIR/clele-print-daemon" /usr/local/bin/clele-print-daemon
 
 if ! id -u clele-print >/dev/null 2>&1; then

@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/clele/print-daemon/internal/apiclient"
 	"github.com/clele/print-daemon/internal/config"
+	"github.com/clele/print-daemon/internal/ipp"
 	"github.com/clele/print-daemon/internal/qlraster"
 )
 
@@ -21,7 +23,7 @@ var version = "unknown"
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: clele-print-daemon <register|run|version> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: clele-print-daemon <register|run|status|version> [flags]")
 		os.Exit(1)
 	}
 
@@ -30,6 +32,8 @@ func main() {
 		cmdRegister(os.Args[2:])
 	case "run":
 		cmdRun(os.Args[2:])
+	case "status":
+		cmdStatus(os.Args[2:])
 	case "version", "--version", "-version":
 		fmt.Println(version)
 	default:
@@ -77,8 +81,32 @@ func cmdRun(args []string) {
 	client := apiclient.New(cfg.BackendURL, cfg.DaemonID, cfg.APIKey, version)
 	log.Printf("clele-print-daemon #%d (version %s) started, polling %s", cfg.DaemonID, version, cfg.BackendURL)
 
+	// Cached media, refreshed periodically and reported on each poll so the web app can size
+	// labels to the stock actually loaded. Detection needs the printer address, which the backend
+	// returns with every poll.
+	var media *ipp.Media
+	var mediaCheckedAt time.Time
+	const mediaTTL = time.Minute
+
+	var printerIP string
 	for {
-		job, err := client.NextJob(25)
+		if printerIP != "" && time.Since(mediaCheckedAt) > mediaTTL {
+			mediaCheckedAt = time.Now()
+			if status, err := ipp.GetPrinterStatus(printerIP); err != nil {
+				log.Printf("could not read printer status from %s: %v", printerIP, err)
+			} else {
+				if media == nil || status.Media == nil || *status.Media != *media {
+					log.Printf("printer %s: %s (%s)", printerIP, status.Media, status.State)
+				}
+				media = status.Media
+			}
+		}
+
+		job, ip, err := client.NextJob(25, media)
+		if ip != "" && ip != printerIP {
+			printerIP = ip
+			mediaCheckedAt = time.Time{} // new printer address, re-detect immediately
+		}
 		if err != nil {
 			log.Printf("poll error: %v", err)
 			continue
@@ -90,6 +118,37 @@ func cmdRun(args []string) {
 			log.Printf("job %d failed: %v", job.JobID, err)
 		}
 	}
+}
+
+// cmdStatus queries a printer and prints what it reports — media loaded, error state, raw packet.
+// Diagnostic aid for "the printer shows an error but I can't tell why".
+func cmdStatus(args []string) {
+	fs := flag.NewFlagSet("status", flag.ExitOnError)
+	printerIP := fs.String("printer-ip", "", "printer IP address (as configured on the Settings page)")
+	fs.Parse(args)
+
+	ip := *printerIP
+	if ip == "" {
+		log.Fatal("--printer-ip is required, e.g. clele-print-daemon status --printer-ip 192.168.1.50")
+	}
+
+	status, err := ipp.GetPrinterStatus(ip)
+	if err != nil {
+		log.Fatalf("could not read status from %s: %v", ip, err)
+	}
+
+	fmt.Printf("Printer:   %s\n", ip)
+	fmt.Printf("State:     %s\n", status.State)
+	fmt.Printf("Media:     %s\n", status.Media)
+	if status.Media != nil {
+		fmt.Printf("           (IPP name: %s)\n", status.Media.Name)
+	}
+	fmt.Printf("Accepting: %v\n", status.AcceptingJobs)
+	if problem := status.Problem(); problem != "" {
+		fmt.Printf("Problem:   %s\n", problem)
+		os.Exit(1)
+	}
+	fmt.Printf("Problem:   none\n")
 }
 
 func printJob(client *apiclient.Client, job *apiclient.Job) error {
@@ -107,17 +166,14 @@ func printJob(client *apiclient.Client, job *apiclient.Job) error {
 		return fmt.Errorf("decode label png: %w", err)
 	}
 
-	commands, err := qlraster.BuildCommands(png, job.TapeWidthMm)
+	// Print checks the printer over IPP first, so failures come back as the printer's own reason
+	// ("cover open", "media empty", …) rather than succeeding silently on a write-only port.
+	media, err := qlraster.Print(job.PrinterIP, png)
 	if err != nil {
 		client.Complete(job.JobID, "FAILED", err.Error())
 		return err
 	}
 
-	if err := qlraster.SendToPrinter(job.PrinterIP, commands); err != nil {
-		client.Complete(job.JobID, "FAILED", err.Error())
-		return err
-	}
-
-	log.Printf("printed job %d on %s", job.JobID, job.PrinterIP)
+	log.Printf("printed job %d on %s (%s)", job.JobID, job.PrinterIP, media)
 	return client.Complete(job.JobID, "DONE", "")
 }
