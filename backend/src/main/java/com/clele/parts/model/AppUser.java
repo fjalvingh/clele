@@ -48,6 +48,17 @@ public class AppUser {
     @Column(name = "last_read_changes", length = 8)
     private String lastReadChanges;
 
+    /** Whether label prints go through the browser print dialog or a paired daemon. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "print_method", nullable = false, length = 20)
+    @Builder.Default
+    private PrintMethod printMethod = PrintMethod.BROWSER;
+
+    /** The daemon to use when printMethod is DAEMON. Optional. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "preferred_daemon_id")
+    private PrintDaemon preferredDaemon;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "app_user_permission", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "permission", nullable = false)

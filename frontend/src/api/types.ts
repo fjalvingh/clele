@@ -150,6 +150,8 @@ export interface User {
   hasOctopartCredentials?: boolean;
   /** 8-digit date of the last changelog entry the user acknowledged, e.g. "20260623". */
   lastReadChanges?: string;
+  printMethod?: PrintMethod;
+  preferredDaemonId?: number;
 }
 
 export interface UnreadChanges {
@@ -441,6 +443,49 @@ export interface UserDashboard {
   totalQuantity: number;
   totalStockValue: number;
   lowStockCount: number;
+}
+
+// Label printing: browser print dialog vs a paired local daemon
+export type PrintMethod = 'BROWSER' | 'DAEMON';
+
+export interface PrintDaemon {
+  id: number;
+  name: string;
+  status: 'PENDING' | 'ACTIVE';
+  printerIp?: string;
+  tapeWidthMm: number;
+  owned: boolean;
+  /** Version the daemon reports; absent if it never reported one (pre-versioning build). */
+  version?: string;
+  /** Version this build of the app ships; absent when the app doesn't know one. */
+  expectedVersion?: string;
+  /** True only when both versions are known and differ. */
+  outdated: boolean;
+}
+
+export interface PrintDaemonUpdateRequest {
+  name?: string;
+  printerIp?: string;
+  tapeWidthMm?: number;
+}
+
+// Standard Brother QL continuous tape widths (mm).
+export const TAPE_WIDTHS_MM = [12, 29, 38, 50, 54, 62] as const;
+
+export interface PrintingPreference {
+  printMethod: PrintMethod;
+  preferredDaemonId?: number;
+}
+
+export interface PrintingPreferenceRequest {
+  printMethod: PrintMethod;
+  preferredDaemonId?: number | null;
+}
+
+export interface PrintJob {
+  id: number;
+  status: 'QUEUED' | 'SENT' | 'DONE' | 'FAILED';
+  errorMessage?: string;
 }
 
 export interface Dashboard {

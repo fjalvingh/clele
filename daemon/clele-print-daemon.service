@@ -1,0 +1,15 @@
+[Unit]
+Description=Clele label print daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/clele-print-daemon run
+Restart=on-failure
+RestartSec=5
+User=clele-print
+Group=clele-print
+
+[Install]
+WantedBy=multi-user.target

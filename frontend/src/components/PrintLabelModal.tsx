@@ -1,13 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { Part } from '../api/types';
+import { useAuth } from '../auth/AuthContext';
+import { LABEL_H_MM, LABEL_W_MM, printLabelViaDaemon, type DaemonPrintState } from '../utils/labelPrint';
 import Modal from './Modal';
 
-// Physical label size. A typical roll/tape is 50 × 18 mm; tweak here if you change media.
-// Both the Dymo LabelWriter 320 and the Brother QL-710W install as ordinary system printers,
-// so printing goes through the browser's print dialog (the user picks the right printer there)
-// with @page driving the page size — no drivers or backend printing needed.
-const LABEL_W_MM = 50;
-const LABEL_H_MM = 18;
+// Both the Dymo LabelWriter 320 and the Brother QL-710W install as ordinary system printers, so
+// browser printing goes through the print dialog (the user picks the right printer there) with
+// @page driving the page size — no drivers or backend printing needed. LABEL_W_MM/LABEL_H_MM come
+// from utils/labelPrint so the daemon print path renders the exact same physical label size.
 const PREVIEW_SCALE = 3; // on-screen zoom so the actual-size label is readable
 
 function escapeHtml(s: string): string {
@@ -95,6 +95,20 @@ interface Props {
 
 export default function PrintLabelModal({ open, onClose, part }: Props) {
   const doc = useMemo(() => buildLabelDoc(part), [part]);
+  const { user } = useAuth();
+  const [daemonState, setDaemonState] = useState<DaemonPrintState>('idle');
+  const [daemonError, setDaemonError] = useState<string | null>(null);
+
+  const useDaemon = user?.printMethod === 'DAEMON' && !!user.preferredDaemonId;
+
+  const printViaDaemon = async () => {
+    if (!user?.preferredDaemonId) return;
+    setDaemonError(null);
+    await printLabelViaDaemon(user.preferredDaemonId, part.partNumber, part.description, (state, error) => {
+      setDaemonState(state);
+      if (error) setDaemonError(error);
+    });
+  };
 
   return (
     <Modal open={open} onClose={onClose} title="Print label">
@@ -128,11 +142,26 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
         Shown at {PREVIEW_SCALE}× — actual size {LABEL_W_MM} × {LABEL_H_MM} mm
       </p>
 
-      <p className="mb-4 text-xs text-gray-500">
-        Pick your label printer (Dymo LabelWriter 320 or Brother QL-710W) in the print dialog. Set
-        margins to <span className="font-medium">None</span> and scale to{' '}
-        <span className="font-medium">100%</span> for an exact fit.
-      </p>
+      {useDaemon ? (
+        <>
+          <p className="mb-4 text-xs text-gray-500">
+            Prints silently through your paired daemon — no dialog will appear.
+          </p>
+          {daemonState === 'printing' && (
+            <p className="mb-3 text-sm text-blue-600">Sending to the printer…</p>
+          )}
+          {daemonState === 'done' && <p className="mb-3 text-sm text-green-600">Printed.</p>}
+          {daemonState === 'failed' && (
+            <p className="mb-3 text-sm text-red-600">Failed to print{daemonError ? `: ${daemonError}` : '.'}</p>
+          )}
+        </>
+      ) : (
+        <p className="mb-4 text-xs text-gray-500">
+          Pick your label printer (Dymo LabelWriter 320 or Brother QL-710W) in the print dialog. Set
+          margins to <span className="font-medium">None</span> and scale to{' '}
+          <span className="font-medium">100%</span> for an exact fit.
+        </p>
+      )}
 
       <div className="flex justify-end gap-3">
         <button
@@ -141,12 +170,22 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
         >
           Cancel
         </button>
-        <button
-          onClick={() => printLabel(doc)}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          🏷️ Print
-        </button>
+        {useDaemon ? (
+          <button
+            onClick={printViaDaemon}
+            disabled={daemonState === 'sending' || daemonState === 'printing'}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {daemonState === 'sending' || daemonState === 'printing' ? 'Printing…' : 'Print'}
+          </button>
+        ) : (
+          <button
+            onClick={() => printLabel(doc)}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            🏷️ Print
+          </button>
+        )}
       </div>
     </Modal>
   );

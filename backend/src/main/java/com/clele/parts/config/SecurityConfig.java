@@ -1,11 +1,13 @@
 package com.clele.parts.config;
 
+import com.clele.parts.repository.PrintDaemonRepository;
 import com.clele.parts.service.AppUserDetailsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.ProviderManager;
@@ -17,6 +19,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
 
@@ -57,7 +60,38 @@ public class SecurityConfig {
         return new HttpSessionSecurityContextRepository();
     }
 
+    /**
+     * Daemon-facing endpoints: authenticated via the {@code X-Daemon-Id}/{@code X-Daemon-Key}
+     * headers ({@link DaemonApiKeyAuthFilter}), not the session cookie. Must come before the
+     * session-cookie chain below since {@code securityMatcher} scopes it to just this prefix.
+     */
     @Bean
+    @Order(1)
+    public SecurityFilterChain daemonSecurityFilterChain(HttpSecurity http,
+                                                          PrintDaemonRepository printDaemonRepository,
+                                                          PasswordEncoder passwordEncoder)
+            throws Exception {
+        http
+                .securityMatcher("/api/daemon/**")
+                .csrf(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
+                .sessionManagement(sm -> sm.sessionCreationPolicy(
+                        org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
+                .addFilterBefore(new DaemonApiKeyAuthFilter(printDaemonRepository, passwordEncoder),
+                        UsernamePasswordAuthenticationFilter.class)
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/api/daemon/register").permitAll()
+                        .anyRequest().authenticated())
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((req, res, e) -> writeError(res,
+                                HttpServletResponse.SC_UNAUTHORIZED, "Invalid daemon credentials")));
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    SecurityContextRepository securityContextRepository)
             throws Exception {

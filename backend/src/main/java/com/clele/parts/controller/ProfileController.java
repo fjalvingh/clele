@@ -2,6 +2,8 @@ package com.clele.parts.controller;
 
 import com.clele.parts.dto.OctopartCredentialsRequest;
 import com.clele.parts.dto.OctopartCredentialsStatusDTO;
+import com.clele.parts.dto.PrintingPreferenceDTO;
+import com.clele.parts.dto.PrintingPreferenceRequest;
 import com.clele.parts.service.ProfileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -31,5 +33,17 @@ public class ProfileController {
     public OctopartCredentialsStatusDTO updateOctopartCredentials(
             @RequestBody OctopartCredentialsRequest request) {
         return profileService.updateOctopartCredentials(request);
+    }
+
+    @GetMapping("/printing")
+    @Operation(summary = "The current user's label-printing method (browser or daemon)")
+    public PrintingPreferenceDTO getPrintingPreference() {
+        return profileService.getPrintingPreference();
+    }
+
+    @PutMapping("/printing")
+    @Operation(summary = "Set the current user's label-printing method and preferred daemon")
+    public PrintingPreferenceDTO updatePrintingPreference(@RequestBody PrintingPreferenceRequest request) {
+        return profileService.updatePrintingPreference(request);
     }
 }

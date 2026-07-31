@@ -18,6 +18,11 @@ import type {
   OctopartCredentialsStatus,
   OctopartResult,
   OctopartUsage,
+  PrintDaemon,
+  PrintDaemonUpdateRequest,
+  PrintingPreference,
+  PrintingPreferenceRequest,
+  PrintJob,
   AttachmentType,
   ConvertToNumberRequest,
   ConvertToNumberResult,
@@ -302,6 +307,31 @@ export const getOctopartCredentials = () =>
 
 export const updateOctopartCredentials = (data: OctopartCredentialsRequest) =>
   client.put<OctopartCredentialsStatus>('/profile/octopart', data).then((r) => r.data);
+
+// Label printing: browser vs daemon
+export const getPrintingPreference = () =>
+  client.get<PrintingPreference>('/profile/printing').then((r) => r.data);
+
+export const updatePrintingPreference = (data: PrintingPreferenceRequest) =>
+  client.put<PrintingPreference>('/profile/printing', data).then((r) => r.data);
+
+export const getPrintDaemons = () =>
+  client.get<PrintDaemon[]>('/profile/print-daemons').then((r) => r.data);
+
+export const claimPrintDaemon = (id: number) =>
+  client.post<PrintDaemon>(`/profile/print-daemons/${id}/claim`).then((r) => r.data);
+
+export const updatePrintDaemon = (id: number, data: PrintDaemonUpdateRequest) =>
+  client.put<PrintDaemon>(`/profile/print-daemons/${id}`, data).then((r) => r.data);
+
+export const deletePrintDaemon = (id: number) =>
+  client.delete(`/profile/print-daemons/${id}`);
+
+export const createPrintJob = (daemonId: number, labelPngBase64: string) =>
+  client.post<PrintJob>('/print-jobs', { daemonId, labelPngBase64 }).then((r) => r.data);
+
+export const getPrintJobStatus = (id: number) =>
+  client.get<PrintJob>(`/print-jobs/${id}`).then((r) => r.data);
 
 // Changelog
 export const getUnreadChanges = () =>

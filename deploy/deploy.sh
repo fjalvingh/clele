@@ -60,6 +60,5 @@ sudo systemctl --no-pager --full status ${SERVICE_NAME} || true
 echo "==> Local health check (expect HTTP 200/302 or a redirect to login):"
 curl -s -o /dev/null -w '  GET / -> %{http_code}\n' http://127.0.0.1:8080/ || true
 EOF
+echo "Done"
 
-echo "==> Done. Remember: add the Apache snippet (deploy/clele-apache.conf), reload Apache,"
-echo "    and change the bootstrap admin password (admin@clele.local / admin) after first login."

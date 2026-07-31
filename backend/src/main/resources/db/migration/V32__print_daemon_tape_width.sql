@@ -1,0 +1,1 @@
+ALTER TABLE print_daemon ADD COLUMN tape_width_mm INTEGER NOT NULL DEFAULT 62;
