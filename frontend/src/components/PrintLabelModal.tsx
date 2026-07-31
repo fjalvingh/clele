@@ -13,9 +13,15 @@ import Modal from './Modal';
 
 // Both the Dymo LabelWriter 320 and the Brother QL-710W install as ordinary system printers, so
 // browser printing goes through the print dialog (the user picks the right printer there) with
-// @page driving the page size — no drivers or backend printing needed. LABEL_W_MM/LABEL_H_MM come
-// from utils/labelPrint so the daemon print path renders the exact same physical label size.
-const PREVIEW_SCALE = 3; // on-screen zoom so the actual-size label is readable
+// @page driving the page size — no drivers or backend printing needed.
+//
+// The preview is drawn at the size actually being printed: the daemon's detected media when
+// printing via a daemon, otherwise the browser default. Preview zoom is capped so a long label
+// (e.g. 54mm die-cut) can't overflow the dialog.
+const PREVIEW_MAX_SCALE = 3; // on-screen zoom so a small label is readable
+// Keeps the scaled preview inside the modal: Modal is max-w-lg (512px) with px-6 padding, so the
+// usable width is ~464px. 100mm is ~378px at the CSS 96dpi reference, leaving room to spare.
+const PREVIEW_MAX_WIDTH_MM = 100;
 
 function escapeHtml(s: string): string {
   return s
@@ -28,7 +34,7 @@ function escapeHtml(s: string): string {
 // A complete, self-contained HTML document for one label. Used both for the on-screen preview
 // (rendered into an isolated iframe so the app's CSS can't leak in) and for the actual print.
 // The description simply overflows-hidden: whatever fits on the label shows, the rest is clipped.
-function buildLabelDoc(part: Part): string {
+function buildLabelDoc(part: Part, widthMm: number, heightMm: number): string {
   const partNumber = escapeHtml(part.partNumber ?? '');
   const description = escapeHtml(part.description ?? '');
   return `<!DOCTYPE html>
@@ -36,12 +42,12 @@ function buildLabelDoc(part: Part): string {
 <head>
 <meta charset="utf-8" />
 <style>
-  @page { size: ${LABEL_W_MM}mm ${LABEL_H_MM}mm; margin: 0; }
+  @page { size: ${widthMm}mm ${heightMm}mm; margin: 0; }
   html, body { margin: 0; padding: 0; background: #fff; }
   .label {
     box-sizing: border-box;
-    width: ${LABEL_W_MM}mm;
-    height: ${LABEL_H_MM}mm;
+    width: ${widthMm}mm;
+    height: ${heightMm}mm;
     padding: 1mm 1.5mm;
     overflow: hidden;
     display: flex;
@@ -101,7 +107,6 @@ interface Props {
 }
 
 export default function PrintLabelModal({ open, onClose, part }: Props) {
-  const doc = useMemo(() => buildLabelDoc(part), [part]);
   const { user } = useAuth();
   const [daemonState, setDaemonState] = useState<DaemonPrintState>('idle');
   const [daemonError, setDaemonError] = useState<string | null>(null);
@@ -117,12 +122,24 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
       .catch(() => setDaemons([]));
   }, [open, useDaemon]);
 
+  // The size actually being printed: the daemon's detected media, or the browser default. Drives
+  // both the preview and the printed output, so what's shown is what comes out.
+  const daemon = useDaemon ? daemons.find((d) => d.id === user?.preferredDaemonId) : undefined;
+  const { widthMm, heightMm } = useDaemon
+    ? labelSizeFor(daemon)
+    : { widthMm: LABEL_W_MM, heightMm: LABEL_H_MM };
+
+  const doc = useMemo(
+    () => buildLabelDoc(part, widthMm, heightMm),
+    [part, widthMm, heightMm],
+  );
+
+  // Zoom enough to be readable, but never wider than the dialog.
+  const previewScale = Math.min(PREVIEW_MAX_SCALE, PREVIEW_MAX_WIDTH_MM / widthMm);
+
   const printViaDaemon = async () => {
     if (!user?.preferredDaemonId) return;
     setDaemonError(null);
-    // Size the label to the media the daemon detected in the printer, falling back to the
-    // browser default until it has reported any.
-    const daemon = daemons.find((d) => d.id === user.preferredDaemonId);
     await printLabelViaDaemon(
       user.preferredDaemonId,
       part.partNumber,
@@ -131,31 +148,35 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
         setDaemonState(state);
         if (error) setDaemonError(error);
       },
-      labelSizeFor(daemon),
+      { widthMm, heightMm },
     );
   };
 
   return (
     <Modal open={open} onClose={onClose} title="Print label">
       <p className="mb-3 text-sm text-gray-600">
-        Preview of the {LABEL_W_MM} × {LABEL_H_MM} mm label. The part number is on top, with as much
-        of the description as fits below.
+        Preview of the {widthMm} × {heightMm} mm label. The part number is on top, with as much of
+        the description as fits below.
       </p>
 
       {/* Actual-size label rendered in an isolated iframe, scaled up for readability. */}
-      <div className="mb-2 flex justify-center">
+      <div className="mb-2 flex max-w-full justify-center overflow-hidden">
         <div
           className="rounded border border-gray-300 shadow-sm"
-          style={{ width: `${LABEL_W_MM * PREVIEW_SCALE}mm`, height: `${LABEL_H_MM * PREVIEW_SCALE}mm` }}
+          style={{
+            width: `${widthMm * previewScale}mm`,
+            height: `${heightMm * previewScale}mm`,
+            maxWidth: '100%',
+          }}
         >
           <iframe
             title="Label preview"
             srcDoc={doc}
             scrolling="no"
             style={{
-              width: `${LABEL_W_MM}mm`,
-              height: `${LABEL_H_MM}mm`,
-              transform: `scale(${PREVIEW_SCALE})`,
+              width: `${widthMm}mm`,
+              height: `${heightMm}mm`,
+              transform: `scale(${previewScale})`,
               transformOrigin: 'top left',
               border: 'none',
               pointerEvents: 'none',
@@ -164,7 +185,8 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
         </div>
       </div>
       <p className="mb-4 text-center text-xs text-gray-400">
-        Shown at {PREVIEW_SCALE}× — actual size {LABEL_W_MM} × {LABEL_H_MM} mm
+        Shown at {previewScale.toFixed(1)}× — actual size {widthMm} × {heightMm} mm
+        {useDaemon && daemon?.mediaDescription ? ` on ${daemon.mediaDescription}` : ''}
       </p>
 
       {useDaemon ? (
