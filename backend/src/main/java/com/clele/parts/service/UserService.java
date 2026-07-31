@@ -130,6 +130,7 @@ public class UserService {
                 .lastReadChanges(user.getLastReadChanges())
                 .printMethod(user.getPrintMethod() == null ? null : user.getPrintMethod().name())
                 .preferredDaemonId(user.getPreferredDaemon() == null ? null : user.getPreferredDaemon().getId())
+                .printBarcodeLabel(user.isPrintBarcodeLabel())
                 .build();
     }
 }

@@ -183,12 +183,13 @@ function LabelPrintingSection() {
 
   useEffect(load, []);
 
-  const savePreference = async (method: PrintMethod, daemonId?: number) => {
+  const savePreference = async (method: PrintMethod, daemonId?: number, printBarcodeLabel?: boolean) => {
     setError(null);
     try {
       const pref = await updatePrintingPreference({
         printMethod: method,
         preferredDaemonId: method === 'DAEMON' ? (daemonId ?? null) : null,
+        printBarcodeLabel: printBarcodeLabel ?? preference?.printBarcodeLabel,
       });
       setPreferenceState(pref);
       await refresh();
@@ -294,6 +295,25 @@ function LabelPrintingSection() {
               Daemon
             </button>
           </div>
+
+          <label className="mt-4 flex items-start gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={preference.printBarcodeLabel}
+              onChange={(e) =>
+                savePreference(preference.printMethod, preference.preferredDaemonId, e.target.checked)
+              }
+              className="mt-0.5"
+            />
+            <span>
+              Print a barcode label alongside the part label
+              <span className="block text-xs text-gray-500">
+                A second label with a Code 128 barcode (CLE-000123) identifying the part. Scanning it
+                on the Barcode Scan page opens that part directly. This is only the default — you can
+                change it for each print.
+              </span>
+            </span>
+          </label>
 
           {preference.printMethod === 'DAEMON' && (
             <div className="mt-4 space-y-3">

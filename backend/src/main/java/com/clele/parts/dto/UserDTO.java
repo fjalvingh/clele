@@ -29,4 +29,5 @@ public class UserDTO {
      */
     private String printMethod;
     private Long preferredDaemonId;
+    private boolean printBarcodeLabel;
 }

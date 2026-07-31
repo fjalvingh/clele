@@ -1,3 +1,20 @@
+<h4>Barcode labels for parts</h4>
+<p>
+  Every part can now get its own <strong>barcode label</strong>. The barcode is a Code&nbsp;128
+  code of the form <strong>CLE-000123</strong> — the <code>CLE-</code> prefix makes it clearly
+  <em>ours</em>, so it can never be confused with a manufacturer's or distributor's barcode.
+  Scan it on the <strong>Barcode Scan</strong> page and you land on that exact part immediately,
+  with no searching and no guessing; scanning a Mouser or Digi-Key label keeps working exactly as
+  before.
+</p>
+<p>
+  In the <strong>Print label</strong> dialog, tick <strong>Also print a barcode label</strong>. The
+  barcode gets a label of its own (with the code printed underneath, so it stays usable if a scan
+  fails), printed right after the part label — through the print dialog or your daemon, whichever
+  you use. Your choice is remembered, and the default can also be set under
+  <strong>My Account → Label printing</strong>.
+</p>
+
 <h4>Print labels without the print dialog</h4>
 <p>
   Label printing no longer has to go through the browser's print dialog. A small

@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { addStock, findLocalParts, getMyLocations, quickAddPart, searchPartsOnline } from '../api';
+import {
+  addStock,
+  findLocalParts,
+  getMyLocations,
+  getPart,
+  quickAddPart,
+  searchPartsOnline,
+} from '../api';
 import type { Location, Part, PartSearchResult } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import PrintLabelModal from '../components/PrintLabelModal';
+import { parsePartBarcode } from '../utils/code128';
 
 type Phase =
   | { kind: 'scan' }
@@ -210,6 +218,29 @@ export default function BarcodeScannerPage() {
   const handleScan = useCallback(async (code: string) => {
     const q = code.trim().replace(/[{}]/g, '');
     if (!q) return;
+
+    // One of our own labels (CLE-000123): it names the part outright, so skip the fuzzy match, the
+    // online search and the rescan guard — scanning the same shelf label twice should just work.
+    const ownPartId = parsePartBarcode(q);
+    if (ownPartId !== null) {
+      lastQueryRef.current = q;
+      const gen = ++searchGenRef.current;
+      setSuccess('');
+      setError('');
+      setPhase({ kind: 'searching', step: 'local', query: q });
+      try {
+        const part = await getPart(ownPartId);
+        if (gen !== searchGenRef.current) return;
+        setBarcode('');
+        setPhase({ kind: 'found-local', part, query: q });
+      } catch {
+        if (gen !== searchGenRef.current) return;
+        setBarcode('');
+        setError(`Barcode ${q} is not a known part`);
+        setPhase({ kind: 'scan' });
+      }
+      return;
+    }
 
     // Reject suspiciously short all-numeric codes
     if (/^\d+$/.test(q) && q.length < 4) {

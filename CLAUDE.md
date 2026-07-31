@@ -126,9 +126,10 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   - V31–V34 add label printing (see Label Printing below): V31 `print_daemon` + `print_job` +
     `app_user.print_method`/`preferred_daemon_id`; V32 a manual tape width (V34 drops it again);
     V33 `print_daemon.version`; V34 replaces the manual width with the media the daemon detects
-    from the printer (`media_kind`/`media_width_mm`/`media_length_mm`/`media_name`)
+    from the printer (`media_kind`/`media_width_mm`/`media_length_mm`/`media_name`); V35 adds
+    `app_user.print_barcode_label` (also print a barcode label — see Barcode labels below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V35** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V36** (always check `db/migration/` for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
@@ -393,6 +394,33 @@ Two delivery methods, chosen per user (`app_user.print_method`, `PrintMethod` BR
 - **DAEMON**: silent printing to a network label printer via the Go daemon in `daemon/`. The
   browser renders the label to a PNG on a canvas, POSTs it as a job, and the daemon long-polls for
   it and drives the printer.
+
+### Barcode labels
+
+A part can additionally be labelled with a **Code 128** barcode identifying it *in this app*:
+`CLE-` + the zero-padded part id (`CLE-000123`). The prefix is the whole point — it makes our label
+distinguishable from a manufacturer/distributor barcode, so `pages/BarcodeScanner.tsx` `handleScan`
+can `parsePartBarcode` it and go straight to the part, skipping the pg_trgm fuzzy match, the AI web
+search *and* the rescan-dedupe guard. Anything without the prefix takes the old path unchanged.
+
+- **`frontend/src/utils/code128.ts`** is the only implementation: `partBarcode` / `parsePartBarcode`,
+  the subset-B encoder `code128bModules` (start 104, checksum `(104 + Σ i·value) % 103`, 13-module
+  stop), and both renderers — `drawCode128` (canvas, daemon path) and `code128Svg` (inline SVG,
+  browser path). One module list feeds both so they cannot drift.
+- **Bars must survive a 1-bit 300 dpi raster** (the daemon thresholds, it does not dither): the
+  module width is always an **integer number of device dots**, 2–4, chosen by `pickModuleWidth` from
+  the available width, with a ≥10-module quiet zone each side. Too narrow for even 2 dots ⇒ the
+  label falls back to the code as text and the modal says so (`barcodeFits` /
+  `barcodeModuleWidthMm` in `utils/labelPrint.ts`).
+- **It is a separate label**, never mixed with the text label. Browser path:
+  `PrintLabelModal.labelDocument([...])` emits one page per label, so two labels come out of a
+  single print dialog. Daemon path: two sequential jobs (`printLabelViaDaemon` then
+  `printBarcodeLabelViaDaemon`, both via the shared `sendPngToDaemon`); the second is skipped if the
+  first fails.
+- Opt-in per print via a checkbox in `PrintLabelModal`, defaulted from and saved back to
+  `app_user.print_barcode_label` (V35) through the existing `PUT /api/profile/printing`; the same
+  checkbox is on My Account. Nothing changed in `PrintJob`, the daemon protocol or the Go daemon —
+  a barcode label is just another PNG.
 
 ### Job flow (daemon path)
 

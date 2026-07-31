@@ -59,6 +59,9 @@ public class ProfileService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid print method");
         }
         user.setPrintMethod(method);
+        if (request.getPrintBarcodeLabel() != null) {
+            user.setPrintBarcodeLabel(request.getPrintBarcodeLabel());
+        }
         if (request.getPreferredDaemonId() == null) {
             user.setPreferredDaemon(null);
         } else {
@@ -76,6 +79,7 @@ public class ProfileService {
         return PrintingPreferenceDTO.builder()
                 .printMethod(user.getPrintMethod().name())
                 .preferredDaemonId(user.getPreferredDaemon() == null ? null : user.getPreferredDaemon().getId())
+                .printBarcodeLabel(user.isPrintBarcodeLabel())
                 .build();
     }
 

@@ -8,4 +8,5 @@ import lombok.*;
 public class PrintingPreferenceRequest {
     private String printMethod;
     private Long preferredDaemonId;
+    private Boolean printBarcodeLabel;
 }

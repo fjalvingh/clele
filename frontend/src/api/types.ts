@@ -152,6 +152,8 @@ export interface User {
   lastReadChanges?: string;
   printMethod?: PrintMethod;
   preferredDaemonId?: number;
+  /** Whether printing a label also prints a second label with the part's barcode. */
+  printBarcodeLabel?: boolean;
 }
 
 export interface UnreadChanges {
@@ -477,11 +479,13 @@ export interface PrintDaemonUpdateRequest {
 export interface PrintingPreference {
   printMethod: PrintMethod;
   preferredDaemonId?: number;
+  printBarcodeLabel: boolean;
 }
 
 export interface PrintingPreferenceRequest {
   printMethod: PrintMethod;
   preferredDaemonId?: number | null;
+  printBarcodeLabel?: boolean;
 }
 
 export interface PrintJob {

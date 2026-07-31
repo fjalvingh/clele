@@ -54,6 +54,11 @@ public class AppUser {
     @Builder.Default
     private PrintMethod printMethod = PrintMethod.BROWSER;
 
+    /** Whether printing a label also prints a second label with the part's Clele barcode. */
+    @Column(name = "print_barcode_label", nullable = false)
+    @Builder.Default
+    private boolean printBarcodeLabel = false;
+
     /** The daemon to use when printMethod is DAEMON. Optional. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "preferred_daemon_id")

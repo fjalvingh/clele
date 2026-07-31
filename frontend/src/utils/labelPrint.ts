@@ -1,4 +1,5 @@
 import { createPrintJob, getPrintJobStatus } from '../api';
+import { code128bModules, drawCode128, pickModuleWidth } from './code128';
 
 // Fallback label size for the browser print path, which has no way to ask the printer what is
 // loaded — the user picks the printer in the OS dialog. The daemon path does not use this: it
@@ -98,6 +99,87 @@ export function renderLabelToPngDataUrl(
   return canvas.toDataURL('image/png');
 }
 
+// Label padding, shared by the text and barcode labels.
+const PAD_X_MM = 1.5;
+const PAD_Y_MM = 1;
+
+/**
+ * Whether a scannable barcode fits on a label of this width. Below the minimum bar width scanners
+ * start misreading, so it is better to say so than to print an unreadable label.
+ */
+export function barcodeFits(code: string, widthMm: number): boolean {
+  const modules = code128bModules(code).length;
+  const availablePx = (widthMm - 2 * PAD_X_MM) * PX_PER_MM;
+  return pickModuleWidth(modules, availablePx) !== null;
+}
+
+/**
+ * Module width in mm for a barcode on a label of this width, or null when it doesn't fit. The
+ * browser (SVG) path uses this so its bars land on exactly the same geometry as the daemon path.
+ */
+export function barcodeModuleWidthMm(code: string, widthMm: number): number | null {
+  const modules = code128bModules(code).length;
+  const availablePx = (widthMm - 2 * PAD_X_MM) * PX_PER_MM;
+  const dots = pickModuleWidth(modules, availablePx);
+  return dots === null ? null : dots / PX_PER_MM;
+}
+
+/** Height of the bars on a barcode label, in mm — the rest is padding and the readable code. */
+export function barcodeBarHeightMm(heightMm: number): number {
+  return Math.max(3, heightMm - 2 * PAD_Y_MM - BARCODE_TEXT_MM);
+}
+
+// Space reserved under the bars for the human-readable code (~7pt line plus a little air).
+const BARCODE_TEXT_MM = 3.2;
+
+/**
+ * Renders a barcode-only label (bars plus the code printed underneath) for the daemon path. Falls
+ * back to the code as plain text if the label is too narrow for a scannable symbol.
+ */
+export function renderBarcodeLabelToPngDataUrl(
+  code: string,
+  widthMm: number = LABEL_W_MM,
+  heightMm: number = LABEL_H_MM,
+): string {
+  const w = Math.round(widthMm * PX_PER_MM);
+  const h = Math.round(heightMm * PX_PER_MM);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas not supported');
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#000';
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'center';
+
+  const padX = PAD_X_MM * PX_PER_MM;
+  const padY = PAD_Y_MM * PX_PER_MM;
+  const textSize = 7 * (DAEMON_DPI / 72);
+  const modules = code128bModules(code);
+  const moduleWidth = pickModuleWidth(modules.length, w - 2 * padX);
+
+  if (moduleWidth === null) {
+    // Too narrow for bars — at least print something readable rather than an unscannable symbol.
+    ctx.font = `700 ${textSize}px Arial, Helvetica, sans-serif`;
+    ctx.fillText(code, w / 2, (h - textSize) / 2, w - 2 * padX);
+    return canvas.toDataURL('image/png');
+  }
+
+  const barHeight = Math.max(3 * PX_PER_MM, h - 2 * padY - BARCODE_TEXT_MM * PX_PER_MM);
+  // Centre the symbol; its quiet zones are white space either side, which the padding provides.
+  const symbolWidth = modules.length * moduleWidth;
+  const x = Math.round((w - symbolWidth) / 2);
+  drawCode128(ctx, modules, x, padY, moduleWidth, barHeight);
+
+  ctx.font = `${textSize}px Arial, Helvetica, sans-serif`;
+  ctx.fillText(code, w / 2, padY + barHeight + 0.4 * PX_PER_MM, w - 2 * padX);
+
+  return canvas.toDataURL('image/png');
+}
+
 export type DaemonPrintState = 'idle' | 'sending' | 'printing' | 'done' | 'failed';
 
 async function pollJobStatus(jobId: number, onUpdate: (state: DaemonPrintState, error?: string) => void) {
@@ -112,6 +194,24 @@ async function pollJobStatus(jobId: number, onUpdate: (state: DaemonPrintState, 
   onUpdate('failed', 'Timed out waiting for the daemon to print');
 }
 
+// Queues a rendered label with the daemon and follows it to completion. Shared by every label
+// kind — the backend only ever sees a PNG.
+async function sendPngToDaemon(
+  daemonId: number,
+  dataUrl: string,
+  onUpdate: (state: DaemonPrintState, error?: string) => void,
+) {
+  onUpdate('sending');
+  try {
+    const base64 = dataUrl.split(',')[1];
+    const job = await createPrintJob(daemonId, base64);
+    onUpdate('printing');
+    await pollJobStatus(job.id, onUpdate);
+  } catch (err) {
+    onUpdate('failed', (err as Error).message);
+  }
+}
+
 // Renders a label at the daemon's detected media size and sends it, reporting progress via
 // onUpdate.
 export async function printLabelViaDaemon(
@@ -121,14 +221,27 @@ export async function printLabelViaDaemon(
   onUpdate: (state: DaemonPrintState, error?: string) => void,
   size: { widthMm: number; heightMm: number } = { widthMm: LABEL_W_MM, heightMm: LABEL_H_MM },
 ) {
-  onUpdate('sending');
+  let dataUrl: string;
   try {
-    const dataUrl = renderLabelToPngDataUrl(title, description, size.widthMm, size.heightMm);
-    const base64 = dataUrl.split(',')[1];
-    const job = await createPrintJob(daemonId, base64);
-    onUpdate('printing');
-    await pollJobStatus(job.id, onUpdate);
+    dataUrl = renderLabelToPngDataUrl(title, description, size.widthMm, size.heightMm);
   } catch (err) {
-    onUpdate('failed', (err as Error).message);
+    return onUpdate('failed', (err as Error).message);
   }
+  await sendPngToDaemon(daemonId, dataUrl, onUpdate);
+}
+
+/** Prints the part's barcode on its own label through the daemon. */
+export async function printBarcodeLabelViaDaemon(
+  daemonId: number,
+  code: string,
+  onUpdate: (state: DaemonPrintState, error?: string) => void,
+  size: { widthMm: number; heightMm: number } = { widthMm: LABEL_W_MM, heightMm: LABEL_H_MM },
+) {
+  let dataUrl: string;
+  try {
+    dataUrl = renderBarcodeLabelToPngDataUrl(code, size.widthMm, size.heightMm);
+  } catch (err) {
+    return onUpdate('failed', (err as Error).message);
+  }
+  await sendPngToDaemon(daemonId, dataUrl, onUpdate);
 }
