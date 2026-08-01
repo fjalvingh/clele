@@ -3,10 +3,18 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   createPart,
   getCategoryTree,
+  getLocations,
   getParts,
   getSpecsForCategory,
 } from '../api';
-import type { CategoryTree, Part, PartRequest, SpecDefinition } from '../api/types';
+import type {
+  CategoryTree,
+  Location,
+  Part,
+  PartFilters,
+  PartRequest,
+  SpecDefinition,
+} from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import Badge from '../components/Badge';
 import CategoryPicker from '../components/CategoryPicker';
@@ -153,6 +161,64 @@ function SpecField({
 
 type SortKey = 'partNumber' | 'manufacturer';
 
+/** Tri-state for the "Personal product code" filter: unset means "don't filter on it". */
+type TriState = '' | 'yes' | 'no';
+
+/** Everything the Parts search runs on. Mirrored in the URL so Back / reload restores the search. */
+interface Criteria {
+  search: string;
+  categoryId?: number;
+  sort: SortKey;
+  personalNumber: TriState;
+  manufacturer: string;
+  locationId?: number;
+  tags: string[];
+}
+
+const criteriaFromParams = (p: URLSearchParams): Criteria => ({
+  search: p.get('q') ?? '',
+  categoryId: p.get('cat') ? Number(p.get('cat')) : undefined,
+  sort: p.get('sort') === 'manufacturer' ? 'manufacturer' : 'partNumber',
+  personalNumber: p.get('pn') === 'yes' || p.get('pn') === 'no' ? (p.get('pn') as TriState) : '',
+  manufacturer: p.get('mfr') ?? '',
+  locationId: p.get('loc') ? Number(p.get('loc')) : undefined,
+  tags: p.get('tags') ? p.get('tags')!.split(',').filter(Boolean) : [],
+});
+
+const paramsFromCriteria = (c: Criteria): Record<string, string> => {
+  const params: Record<string, string> = {};
+  if (c.search.trim()) params.q = c.search.trim();
+  if (c.categoryId !== undefined) params.cat = String(c.categoryId);
+  if (c.sort !== 'partNumber') params.sort = c.sort;
+  if (c.personalNumber) params.pn = c.personalNumber;
+  if (c.manufacturer.trim()) params.mfr = c.manufacturer.trim();
+  if (c.locationId !== undefined) params.loc = String(c.locationId);
+  if (c.tags.length > 0) params.tags = c.tags.join(',');
+  return params;
+};
+
+const filtersFromCriteria = (c: Criteria): PartFilters => ({
+  personalNumber: c.personalNumber ? c.personalNumber === 'yes' : undefined,
+  manufacturer: c.manufacturer.trim() || undefined,
+  locationId: c.locationId,
+  tags: c.tags,
+});
+
+/** True when the criteria narrow anything down — an empty search must not list the whole catalogue. */
+const hasCriteria = (c: Criteria) =>
+  Boolean(
+    c.search.trim() ||
+      c.categoryId !== undefined ||
+      c.personalNumber ||
+      c.manufacturer.trim() ||
+      c.locationId !== undefined ||
+      c.tags.length > 0,
+  );
+
+/** True when any of the *advanced* (panel) filters are in use — used to auto-open the panel. */
+const hasAdvanced = (c: Criteria) =>
+  Boolean(c.personalNumber || c.manufacturer.trim() || c.locationId !== undefined || c.tags.length > 0);
+
 export default function PartsPage() {
   const { hasPermission } = useAuth();
   const canEdit = hasPermission('PARTS_EDIT');
@@ -162,13 +228,11 @@ export default function PartsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [parts, setParts] = useState<Part[]>([]);
   const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
-  const [search, setSearch] = useState(searchParams.get('q') ?? '');
-  const [filterCategoryId, setFilterCategoryId] = useState<number | undefined>(
-    searchParams.get('cat') ? Number(searchParams.get('cat')) : undefined,
-  );
-  const [sort, setSort] = useState<SortKey>(
-    searchParams.get('sort') === 'manufacturer' ? 'manufacturer' : 'partNumber',
-  );
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [criteria, setCriteria] = useState<Criteria>(() => criteriaFromParams(searchParams));
+  // The advanced panel is closed by default, but opens itself when the restored URL uses it —
+  // otherwise the results would be filtered by controls the user cannot see.
+  const [advancedOpen, setAdvancedOpen] = useState(() => hasAdvanced(criteriaFromParams(searchParams)));
   const [loading, setLoading] = useState(true);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -179,40 +243,36 @@ export default function PartsPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const loadParts = (s?: string, cid?: number, sortBy: string = sort) => {
+  const loadParts = (c: Criteria) => {
     setSearched(true);
-    getParts(s, cid, sortBy)
+    getParts(c.search.trim() || undefined, c.categoryId, c.sort, filtersFromCriteria(c))
       .then(setParts)
       .catch((e: Error) => setError(e.message));
   };
 
   // Persist the criteria to the URL (so Back / reload restores them) and run the search.
-  const runSearch = (s: string, cid: number | undefined, sortBy: SortKey) => {
-    const params: Record<string, string> = {};
-    if (s.trim()) params.q = s.trim();
-    if (cid !== undefined) params.cat = String(cid);
-    if (sortBy !== 'partNumber') params.sort = sortBy;
-    setSearchParams(params, { replace: true });
-    loadParts(s.trim() || undefined, cid, sortBy);
+  const runSearch = (c: Criteria) => {
+    setSearchParams(paramsFromCriteria(c), { replace: true });
+    loadParts(c);
   };
 
-  // Load the category tree up front — parts are fetched on demand once the user searches,
-  // so opening the page is fast even with a large catalogue.
+  // Load the category tree and locations up front — parts are fetched on demand once the user
+  // searches, so opening the page is fast even with a large catalogue.
   useEffect(() => {
     setLoading(true);
-    getCategoryTree()
-      .then(setCategoryTree)
+    Promise.all([getCategoryTree(), getLocations()])
+      .then(([tree, locs]) => {
+        setCategoryTree(tree);
+        setLocations(locs);
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
   // Restore results when the page mounts with search criteria in the URL (back navigation / reload).
   useEffect(() => {
-    const q = searchParams.get('q') ?? '';
-    const cid = searchParams.get('cat') ? Number(searchParams.get('cat')) : undefined;
-    if (q.trim() || cid !== undefined) {
-      loadParts(q.trim() || undefined, cid, sort);
-    }
+    const restored = criteriaFromParams(searchParams);
+    if (hasCriteria(restored)) loadParts(restored);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -237,14 +297,14 @@ export default function PartsPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!search.trim() && filterCategoryId === undefined) {
+    if (!hasCriteria(criteria)) {
       // Nothing to search on — keep the page empty rather than loading the whole catalogue.
       setSearchParams({}, { replace: true });
       setParts([]);
       setSearched(false);
       return;
     }
-    runSearch(search, filterCategoryId, sort);
+    runSearch(criteria);
   };
 
   const openCreate = () => {
@@ -270,7 +330,7 @@ export default function PartsPage() {
     try {
       await createPart(payload);
       setModalOpen(false);
-      loadParts(search || undefined, filterCategoryId);
+      if (hasCriteria(criteria)) loadParts(criteria);
     } catch (e: unknown) {
       setFormError((e as Error).message);
     } finally {
@@ -335,55 +395,143 @@ export default function PartsPage() {
         )}
       </div>
 
-      {/* Search / filter bar */}
-      <form onSubmit={handleSearch} className="mb-6 flex gap-3">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by part number or description…"
-          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <CategoryPicker
-          categories={categoryTree}
-          value={filterCategoryId ?? null}
-          onChange={(id) => setFilterCategoryId(id ?? undefined)}
-          emptyLabel="All categories"
-          className="w-48 shrink-0"
-        />
-        <select
-          value={sort}
-          onChange={(e) => {
-            const next = e.target.value as SortKey;
-            setSort(next);
-            // Re-run the current search with the new ordering if results are showing.
-            if (searched) runSearch(search, filterCategoryId, next);
-          }}
-          title="Sort results by"
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="partNumber">Sort: Part #</option>
-          <option value="manufacturer">Sort: Manufacturer</option>
-        </select>
-        <button
-          type="submit"
-          className="rounded-lg bg-neutral-700 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
-        >
-          Search
-        </button>
+      {/* Search / filter bar, with a collapsible panel of extra fields underneath */}
+      <form onSubmit={handleSearch} className="mb-6">
+        <div className="flex gap-3">
+          <input
+            type="text"
+            value={criteria.search}
+            onChange={(e) => setCriteria({ ...criteria, search: e.target.value })}
+            placeholder="Search by part number or description…"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <CategoryPicker
+            categories={categoryTree}
+            value={criteria.categoryId ?? null}
+            onChange={(id) => setCriteria({ ...criteria, categoryId: id ?? undefined })}
+            emptyLabel="All categories"
+            className="w-48 shrink-0"
+          />
+          <select
+            value={criteria.sort}
+            onChange={(e) => {
+              const next = { ...criteria, sort: e.target.value as SortKey };
+              setCriteria(next);
+              // Re-run the current search with the new ordering if results are showing.
+              if (searched) runSearch(next);
+            }}
+            title="Sort results by"
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="partNumber">Sort: Part #</option>
+            <option value="manufacturer">Sort: Manufacturer</option>
+          </select>
+          <button
+            type="submit"
+            className="rounded-lg bg-neutral-700 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-800"
+          >
+            Search
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCriteria({ search: '', sort: criteria.sort, personalNumber: '', manufacturer: '', tags: [] });
+              setParts([]);
+              setSearched(false);
+              setSearchParams({}, { replace: true });
+            }}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Clear
+          </button>
+        </div>
+
         <button
           type="button"
-          onClick={() => {
-            setSearch('');
-            setFilterCategoryId(undefined);
-            setParts([]);
-            setSearched(false);
-            setSearchParams({}, { replace: true });
-          }}
-          className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+          onClick={() => setAdvancedOpen((v) => !v)}
+          className="mt-2 inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200"
         >
-          Clear
+          <svg
+            className={`h-4 w-4 transition-transform ${advancedOpen ? 'rotate-90' : ''}`}
+            viewBox="0 0 20 20"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M7 5l6 5-6 5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          More search options
+          {!advancedOpen && hasAdvanced(criteria) && (
+            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+              active
+            </span>
+          )}
         </button>
+
+        {advancedOpen && (
+          <div className="mt-2 grid grid-cols-1 gap-4 rounded-lg border border-gray-200 bg-gray-50 p-4 sm:grid-cols-2 lg:grid-cols-4 dark:border-gray-700 dark:bg-gray-800/50">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Personal product code
+              </label>
+              <select
+                value={criteria.personalNumber}
+                onChange={(e) =>
+                  setCriteria({ ...criteria, personalNumber: e.target.value as TriState })
+                }
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Any</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Location
+              </label>
+              <select
+                value={criteria.locationId ?? ''}
+                onChange={(e) =>
+                  setCriteria({
+                    ...criteria,
+                    locationId: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+                title="Parts with stock in this location or anywhere below it"
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Any location</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.id}>{l.breadcrumb}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Manufacturer
+              </label>
+              <input
+                type="text"
+                value={criteria.manufacturer}
+                onChange={(e) => setCriteria({ ...criteria, manufacturer: e.target.value })}
+                placeholder="e.g. Texas Instruments"
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div>
+              {/* TagInput renders its own "Tags" label. A part must carry every tag listed here. */}
+              <TagInput
+                value={criteria.tags}
+                onChange={(tags) => setCriteria({ ...criteria, tags })}
+                allowCreate={false}
+              />
+            </div>
+          </div>
+        )}
       </form>
 
       {loading && <p className="text-gray-500">Loading...</p>}
@@ -391,7 +539,8 @@ export default function PartsPage() {
 
       {!loading && !searched && (
         <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-10 text-center text-gray-500">
-          Enter a search term or pick a category, then press <span className="font-medium">Search</span> to find parts.
+          Enter a search term, pick a category or set one of the extra search options, then press{' '}
+          <span className="font-medium">Search</span> to find parts.
         </div>
       )}
 

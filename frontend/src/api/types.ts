@@ -104,6 +104,17 @@ export interface PartRequest {
   tags?: string[];
 }
 
+/**
+ * The Parts screen's advanced search filters (the collapsible panel under the search bar). Every
+ * field is optional; omitted ones are not filtered on. A part must carry *all* of `tags`.
+ */
+export interface PartFilters {
+  personalNumber?: boolean;
+  manufacturer?: string;
+  locationId?: number;
+  tags?: string[];
+}
+
 /** A saved tag name, as returned by the tag autocomplete endpoint. */
 export interface Tag {
   id: number;
@@ -125,6 +136,17 @@ export interface LocationTree {
   description?: string;
   parentId?: number;
   children: LocationTree[];
+}
+
+/** Stock roll-up for one location: held directly there, and across its whole subtree. */
+export interface LocationStats {
+  locationId: number;
+  directParts: number;
+  directQuantity: number;
+  directStockValue: number;
+  totalParts: number;
+  totalQuantity: number;
+  totalStockValue: number;
 }
 
 export interface LocationRequest {

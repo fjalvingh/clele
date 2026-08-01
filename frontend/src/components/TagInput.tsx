@@ -5,11 +5,17 @@ import type { Tag } from '../api/types';
 interface Props {
   value: string[];
   onChange: (tags: string[]) => void;
+  /**
+   * Whether an unknown name may become a new tag. On a part form it may (after confirming); as a
+   * search filter it may not — there the name is just taken as typed, and a name no part carries
+   * simply matches nothing.
+   */
+  allowCreate?: boolean;
 }
 
 const normalize = (name: string) => name.trim().replace(/\s+/g, ' ');
 
-export default function TagInput({ value, onChange }: Props) {
+export default function TagInput({ value, onChange, allowCreate = true }: Props) {
   const [input, setInput] = useState('');
   const [suggestions, setSuggestions] = useState<Tag[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -63,6 +69,10 @@ export default function TagInput({ value, onChange }: Props) {
     }
     if (exact) {
       addTag(exact.name);
+      return;
+    }
+    if (!allowCreate) {
+      addTag(name);
       return;
     }
     if (confirm(`Tag "${name}" doesn't exist yet. Create it?`)) {

@@ -3,14 +3,16 @@ import {
   createLocation,
   deleteLocation,
   getLocations,
+  getLocationStats,
   getLocationTree,
   mergeLocation,
   updateLocation,
 } from '../api';
-import type { Location, LocationRequest, LocationTree } from '../api/types';
+import type { Location, LocationRequest, LocationStats, LocationTree } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
+import { useSettings } from '../settings/SettingsContext';
 
 // ---- Tree node component ----
 interface TreeNodeProps {
@@ -21,13 +23,22 @@ interface TreeNodeProps {
   onAddChild: (parentId: number) => void;
   canManage: (loc: Location) => boolean;
   locations: Location[];
+  stats: Map<number, LocationStats>;
 }
 
-function TreeNode({ node, onEdit, onDelete, onMerge, onAddChild, canManage, locations }: TreeNodeProps) {
+function TreeNode({
+  node, onEdit, onDelete, onMerge, onAddChild, canManage, locations, stats,
+}: TreeNodeProps) {
+  const { formatMoney } = useSettings();
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children && node.children.length > 0;
   const fullLoc = locations.find((l) => l.id === node.id);
   const manageable = fullLoc ? canManage(fullLoc) : false;
+  // Totals cover the whole subtree, so a collapsed parent still accounts for everything below it;
+  // when some of it sits deeper, the tooltip splits out what is at this location itself.
+  const stat = stats.get(node.id);
+  const empty = !stat || stat.totalParts === 0;
+  const rolledUp = !!stat && hasChildren && stat.directParts !== stat.totalParts;
 
   return (
     <div className="ml-4">
@@ -76,6 +87,21 @@ function TreeNode({ node, onEdit, onDelete, onMerge, onAddChild, canManage, loca
             </button>
           )}
         </div>
+        <span
+          className={`flex shrink-0 items-center gap-4 text-xs tabular-nums ${
+            empty ? 'text-gray-300' : 'text-gray-500'
+          }`}
+          title={
+            rolledUp && stat
+              ? `Directly here: ${stat.directParts} parts, ${stat.directQuantity} on hand, ` +
+                formatMoney(stat.directStockValue)
+              : undefined
+          }
+        >
+          <span className="w-20 text-right">{stat ? `${stat.totalParts} parts` : ''}</span>
+          <span className="w-24 text-right">{stat ? `${stat.totalQuantity} on hand` : ''}</span>
+          <span className="w-24 text-right">{stat ? formatMoney(stat.totalStockValue) : ''}</span>
+        </span>
       </div>
       {hasChildren && expanded && (
         <div className="border-l border-gray-200 ml-2">
@@ -89,6 +115,7 @@ function TreeNode({ node, onEdit, onDelete, onMerge, onAddChild, canManage, loca
               onAddChild={onAddChild}
               canManage={canManage}
               locations={locations}
+              stats={stats}
             />
           ))}
         </div>
@@ -131,6 +158,7 @@ export default function LocationsPage() {
     hasPermission('ORG_ADMIN') || hasPermission('PARTS_EDIT');
   const [tree, setTree] = useState<LocationTree[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [stats, setStats] = useState<Map<number, LocationStats>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -145,10 +173,11 @@ export default function LocationsPage() {
 
   const load = () => {
     setLoading(true);
-    Promise.all([getLocationTree(), getLocations()])
-      .then(([t, l]) => {
+    Promise.all([getLocationTree(), getLocations(), getLocationStats()])
+      .then(([t, l, st]) => {
         setTree(t);
         setLocations(l);
+        setStats(new Map(st.map((row) => [row.locationId, row])));
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -251,18 +280,30 @@ export default function LocationsPage() {
           {tree.length === 0 ? (
             <p className="text-sm text-gray-400">No locations yet. Create one to get started.</p>
           ) : (
-            tree.map((root) => (
-              <TreeNode
-                key={root.id}
-                node={root}
-                onEdit={openEdit}
-                onDelete={handleDelete}
-                onMerge={openMerge}
-                onAddChild={(parentId) => openCreate(parentId)}
-                canManage={canManage}
-                locations={locations}
-              />
-            ))
+            <>
+              {/* Captions for the stat block each row renders on the right. The figures roll up the
+                  whole subtree, matching the dashboard's per-location table. */}
+              <div className="mb-1 flex items-center gap-2 border-b border-gray-100 px-2 pb-1 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                <span className="w-4" />
+                <span className="flex-1">Location</span>
+                <span className="w-20 text-right">Parts</span>
+                <span className="w-24 text-right">On Hand</span>
+                <span className="w-24 text-right">Stock Value</span>
+              </div>
+              {tree.map((root) => (
+                <TreeNode
+                  key={root.id}
+                  node={root}
+                  onEdit={openEdit}
+                  onDelete={handleDelete}
+                  onMerge={openMerge}
+                  onAddChild={(parentId) => openCreate(parentId)}
+                  canManage={canManage}
+                  locations={locations}
+                  stats={stats}
+                />
+              ))}
+            </>
           )}
         </div>
       )}

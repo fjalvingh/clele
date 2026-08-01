@@ -412,7 +412,10 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - `LocationDTO` carries `parentId`/`parentName`/`breadcrumb` ("Building A > Room B > Cupboard C", built
   by walking the parent chain). `GET /api/locations/tree` returns the nested `LocationTreeDTO` forest
   for the current organisation. The **Locations page** renders the tree (expand/collapse, per-node
-  "+ Sub"/Edit/Delete gated by `canManage`, now simply `PARTS_EDIT`-or-admin) with a hierarchical
+  "+ Sub"/Edit/Delete gated by `canManage`, now simply `PARTS_EDIT`-or-admin, and per-node stock
+  figures — parts / on-hand / value — from `LocationRepository.locationStats`, rolled up over each
+  node's subtree so a collapsed parent accounts for everything below it; the tooltip splits out what
+  is held directly at the node) with a hierarchical
   parent `<select>` over the organisation's locations minus the edited subtree. Stock-add pickers (Quick Add, Part Detail) show `breadcrumb`
   instead of the bare name.
 - **Breadcrumb everywhere a location is shown**: `Location.breadcrumb()` (entity method, walks the
@@ -673,7 +676,12 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
 - **User accounts & login** with permission-based UI gating + backend enforcement (see
   Authentication & Authorization above); Users management screen + add/edit modal
 - **Parts search screen**: searches on demand (name / part number / description full-text), filters
-  by category subtree, sortable by part number or manufacturer
+  by category subtree, sortable by part number or manufacturer. A **"More search options"** panel
+  under the search bar (collapsed by default, auto-opened when the restored URL uses it) adds
+  personal-product-code / location / tags / manufacturer filters. All criteria — basic and advanced
+  — live in one `Criteria` object mirrored in the URL query string (`q`/`cat`/`sort`/`pn`/`loc`/
+  `mfr`/`tags`), so Back and reload restore the same result set. Nothing is fetched unless at least
+  one criterion is set
 - **Dashboard** with low stock alerts
 - **Quick Add wizard** (3-step): AI part search → select result → confirm details + stock entry
   - **Local-match first**: before hitting the Internet, the typed term is fuzzy-matched against
@@ -765,11 +773,20 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
   `PUT /admin/users/{id}/organisations/{organisationId}/permissions` `{permissions}` — permissions
   in one named organisation. All `GLOBAL_ADMIN` (see All Users below)
 - `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`)
-  - `GET /parts?search=&categoryId=&sort=` — search runs in the DB: `search` matches name /
-    part_number (case-insensitive substring) + description (PostgreSQL full-text,
-    `websearch_to_tsquery`); `categoryId` matches the category **and all descendants** (recursive
-    CTE over `parent_id`); `sort` is `partNumber` (default) or `manufacturer`. The Parts page only
-    fetches results once a search/filter is applied (it does not list the whole catalogue on load).
+  - `GET /parts?search=&categoryId=&sort=&personalNumber=&manufacturer=&locationId=&tags=` — search
+    runs in the DB: `search` matches name / part_number (case-insensitive substring) + description
+    (PostgreSQL full-text, `websearch_to_tsquery`); `categoryId` matches the category **and all
+    descendants** (recursive CTE over `parent_id`); `sort` is `partNumber` (default) or
+    `manufacturer`. The Parts page only fetches results once a search/filter is applied (it does not
+    list the whole catalogue on load).
+    The last four are the **advanced filters** (the collapsible "More search options" panel under
+    the search bar), all optional and ANDed with the rest: `personalNumber` (exact boolean match on
+    the flag), `manufacturer` (case-insensitive substring), `locationId` (parts holding stock >0 in
+    that location **or any location below it** — the same recursive walk as categories), and `tags`
+    (repeated param; a part must carry **all** of them). Tags are matched in `PartService` rather
+    than SQL — they are already loaded for the DTO mapping, and "all of N" is awkward in a native
+    query with a variable-length list. The SPA sends them with axios `paramsSerializer: {indexes:
+    null}` so they arrive as `tags=a&tags=b` (the default `tags[]=` would not bind to a `List`).
 - `GET /parts/local-match?q=` — fuzzy-match existing parts by part number (pg_trgm), used by Quick
   Add to find an already-catalogued part before searching the Internet (authenticated)
 - `DELETE /parts/by-user/{userId}` — delete every part created by a user, with its stock entries,
@@ -787,7 +804,9 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
   filename for datasheets/attachments)
 - `GET/POST /categories`, `GET/PUT/DELETE /categories/{id}`, `GET /categories/tree`
 - `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`, `GET /locations/tree` (nested hierarchy),
-  `GET /locations/mine` (current user's own, for stock pickers); `POST /locations/{id}/merge`
+  `GET /locations/stats` (per-location stock roll-up — direct + subtree parts/quantity/value, drives
+  the figures on the Locations tree), `GET /locations/mine` (current user's own, for stock pickers);
+  `POST /locations/{id}/merge`
   (`{targetId}`) moves the location's stock into another location and deletes the source
 - `GET/POST /stock-entries`, `GET/PUT/DELETE /stock-entries/{id}`; `POST /stock/{add,take,move}` are
   the Part Detail stock verbs (add / take / move-between-locations, move's destination may be any

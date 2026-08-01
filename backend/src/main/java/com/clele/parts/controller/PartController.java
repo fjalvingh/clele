@@ -35,8 +35,12 @@ public class PartController {
     public List<PartDTO> search(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) Long categoryId,
-            @RequestParam(required = false, defaultValue = "partNumber") String sort) {
-        return partService.search(search, categoryId, sort);
+            @RequestParam(required = false, defaultValue = "partNumber") String sort,
+            @RequestParam(required = false) Boolean personalNumber,
+            @RequestParam(required = false) String manufacturer,
+            @RequestParam(required = false) Long locationId,
+            @RequestParam(required = false) List<String> tags) {
+        return partService.search(search, categoryId, sort, personalNumber, manufacturer, locationId, tags);
     }
 
     @GetMapping("/local-match")

@@ -2,6 +2,7 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.LocationDTO;
 import com.clele.parts.dto.LocationDashboardDTO;
+import com.clele.parts.dto.LocationStatsDTO;
 import com.clele.parts.dto.LocationRequest;
 import com.clele.parts.dto.LocationTreeDTO;
 import com.clele.parts.model.Location;
@@ -175,6 +176,13 @@ public class LocationService {
     public List<LocationDashboardDTO> perLocationStats() {
         return locationRepository.perLocationStats(currentOrganisationService.currentId()).stream()
                 .map(LocationRepository::toDTO)
+                .collect(Collectors.toList());
+    }
+
+    /** Stock roll-up for every location in this organisation (for the Locations tree). */
+    public List<LocationStatsDTO> locationStats() {
+        return locationRepository.locationStats(currentOrganisationService.currentId()).stream()
+                .map(LocationRepository::toStatsDTO)
                 .collect(Collectors.toList());
     }
 

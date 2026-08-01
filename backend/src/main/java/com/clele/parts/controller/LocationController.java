@@ -3,6 +3,7 @@ package com.clele.parts.controller;
 import com.clele.parts.dto.LocationDTO;
 import com.clele.parts.dto.LocationMergeRequest;
 import com.clele.parts.dto.LocationRequest;
+import com.clele.parts.dto.LocationStatsDTO;
 import com.clele.parts.dto.LocationTreeDTO;
 import com.clele.parts.service.LocationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,6 +34,12 @@ public class LocationController {
     @Operation(summary = "Get the full location hierarchy as a nested tree")
     public List<LocationTreeDTO> getTree() {
         return locationService.getTree();
+    }
+
+    @GetMapping("/stats")
+    @Operation(summary = "Stock roll-up (parts, quantity, value) per location, direct and by subtree")
+    public List<LocationStatsDTO> getStats() {
+        return locationService.locationStats();
     }
 
     @GetMapping("/mine")

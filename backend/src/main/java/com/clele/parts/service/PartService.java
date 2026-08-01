@@ -37,10 +37,35 @@ public class PartService {
     private final CurrentOrganisationService currentOrganisationService;
     private final TagService tagService;
 
-    public List<PartDTO> search(String search, Long categoryId, String sort) {
+    /**
+     * Search the catalogue. Everything but {@code sort} is an optional filter, combined with AND:
+     * the free-text {@code search} term, the category subtree, the personal-number flag, a
+     * manufacturer substring, a location subtree, and {@code tags} (a part must carry <em>all</em>
+     * of the named tags — narrowing is what a tag filter is for).
+     *
+     * <p>Tags are matched here rather than in SQL: they are already loaded for the DTO mapping, and
+     * an "all of N" match is awkward to express in a native query with a variable-length list.
+     */
+    public List<PartDTO> search(String search, Long categoryId, String sort,
+                                Boolean personalNumber, String manufacturer, Long locationId,
+                                List<String> tags) {
         String term = (search != null && !search.isBlank()) ? search.trim() : null;
+        String maker = (manufacturer != null && !manufacturer.isBlank()) ? manufacturer.trim() : null;
         Comparator<PartDTO> comparator = comparatorFor(sort);
-        List<Part> parts = partRepository.search(currentOrganisationService.currentId(), term, categoryId);
+        List<Part> parts = partRepository.search(currentOrganisationService.currentId(), term,
+                categoryId, personalNumber, maker, locationId);
+        Set<String> wanted = (tags == null) ? Set.of() : tags.stream()
+                .filter(t -> t != null && !t.isBlank())
+                .map(t -> t.trim().toLowerCase())
+                .collect(Collectors.toSet());
+        if (!wanted.isEmpty()) {
+            parts = parts.stream()
+                    .filter(p -> p.getTags().stream()
+                            .map(t -> t.getName().toLowerCase())
+                            .collect(Collectors.toSet())
+                            .containsAll(wanted))
+                    .collect(Collectors.toList());
+        }
         Map<Long, Long> stockByPart = stockByOrganisation(parts);
         return parts.stream()
                 .map(p -> toDTOWithStock(p, stockByPart))

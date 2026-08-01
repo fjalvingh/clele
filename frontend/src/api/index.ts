@@ -13,6 +13,7 @@ import type {
   ImageSuggestion,
   Location,
   LocationRequest,
+  LocationStats,
   LocationTree,
   OctopartApplyRequest,
   OctopartCredentialsRequest,
@@ -31,6 +32,7 @@ import type {
   ConvertToNumberResult,
   Part,
   PartAttachment,
+  PartFilters,
   PartRequest,
   PartSearchResult,
   Project,
@@ -79,12 +81,25 @@ export const deleteCategory = (id: number) =>
   client.delete(`/categories/${id}`);
 
 // Parts
-export const getParts = (search?: string, categoryId?: number, sort?: string) => {
-  const params: Record<string, string | number> = {};
+export const getParts = (
+  search?: string,
+  categoryId?: number,
+  sort?: string,
+  filters?: PartFilters,
+) => {
+  const params: Record<string, string | number | boolean | string[]> = {};
   if (search) params.search = search;
   if (categoryId) params.categoryId = categoryId;
   if (sort) params.sort = sort;
-  return client.get<Part[]>('/parts', { params }).then((r) => r.data);
+  if (filters?.personalNumber !== undefined) params.personalNumber = filters.personalNumber;
+  if (filters?.manufacturer) params.manufacturer = filters.manufacturer;
+  if (filters?.locationId !== undefined) params.locationId = filters.locationId;
+  if (filters?.tags && filters.tags.length > 0) params.tags = filters.tags;
+  // indexes:null → repeated `tags=a&tags=b` (Axios would otherwise emit `tags[]=`, which Spring
+  // does not bind to a List<String>).
+  return client
+    .get<Part[]>('/parts', { params, paramsSerializer: { indexes: null } })
+    .then((r) => r.data);
 };
 
 export const getPart = (id: number) =>
@@ -129,6 +144,9 @@ export const getLocations = () =>
 
 export const getLocationTree = () =>
   client.get<LocationTree[]>('/locations/tree').then((r) => r.data);
+
+export const getLocationStats = () =>
+  client.get<LocationStats[]>('/locations/stats').then((r) => r.data);
 
 // Locations owned by the current user (for stock-add pickers)
 export const getMyLocations = () =>

@@ -20,8 +20,14 @@ public interface PartRepository extends JpaRepository<Part, Long> {
      * matches the part number as a case-insensitive substring and the description via PostgreSQL
      * full-text search (websearch syntax). The category filter matches the given category <em>and
      * all of its descendants at any depth</em> (resolved via a recursive walk of category.parent_id),
-     * so picking a higher-level node returns parts in any of its sub-categories. When {@code term}
-     * is null only the category filter applies.
+     * so picking a higher-level node returns parts in any of its sub-categories.
+     *
+     * <p>The remaining parameters are the Parts screen's advanced filters; every one of them is
+     * optional and ignored when null. {@code personalNumber} matches the flag exactly;
+     * {@code manufacturer} is a case-insensitive substring; {@code locationId} keeps parts that
+     * hold stock in that location <em>or any location below it</em> (same recursive walk as
+     * categories, so filtering on "Building A" finds stock on a shelf three levels down). Tag
+     * filtering is not done here — see {@code PartService.search}.
      */
     @Query(value = """
             SELECT p.* FROM part p
@@ -37,11 +43,27 @@ public interface PartRepository extends JpaRepository<Part, Long> {
                        SELECT c.id FROM category c JOIN subtree s ON c.parent_id = s.id
                    )
                    SELECT id FROM subtree))
+              AND (:personalNumber IS NULL OR p.personal_number = :personalNumber)
+              AND (:manufacturer IS NULL OR p.manufacturer ILIKE '%' || :manufacturer || '%')
+              AND (:locationId IS NULL OR EXISTS (
+                   SELECT 1 FROM stock_entry se
+                   WHERE se.part_id = p.id
+                     AND se.quantity > 0
+                     AND se.location_id IN (
+                         WITH RECURSIVE loctree AS (
+                             SELECT id FROM location WHERE id = :locationId
+                             UNION ALL
+                             SELECT l.id FROM location l JOIN loctree lt ON l.parent_id = lt.id
+                         )
+                         SELECT id FROM loctree)))
             ORDER BY p.part_number
             """, nativeQuery = true)
     List<Part> search(@Param("orgId") Long organisationId,
                       @Param("term") String term,
-                      @Param("categoryId") Long categoryId);
+                      @Param("categoryId") Long categoryId,
+                      @Param("personalNumber") Boolean personalNumber,
+                      @Param("manufacturer") String manufacturer,
+                      @Param("locationId") Long locationId);
 
     /**
      * Fuzzy-match existing parts by part number within one organisation, for Quick Add's "do we
