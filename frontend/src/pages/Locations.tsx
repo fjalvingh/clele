@@ -125,10 +125,10 @@ const emptyForm: LocationRequest = { name: '', description: '', parentId: null }
 
 export default function LocationsPage() {
   const { hasPermission } = useAuth();
-  const isAdmin = hasPermission('USERS_EDIT');
-  // Locations are shared across the organisation, so any member with part-edit rights may manage
-  // them (admins too, who have it implicitly through the Users screen).
-  const canManage = (_loc: Location) => isAdmin || hasPermission('PARTS_EDIT');
+  // Locations are shared across the organisation, so any member who may edit parts — or administer
+  // the organisation — may manage them.
+  const canManage = (_loc: Location) =>
+    hasPermission('ORG_ADMIN') || hasPermission('PARTS_EDIT');
   const [tree, setTree] = useState<LocationTree[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);

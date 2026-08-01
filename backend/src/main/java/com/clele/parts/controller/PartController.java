@@ -87,7 +87,7 @@ public class PartController {
 
     @DeleteMapping("/by-user/{userId}")
     @Operation(summary = "Delete every part created by a user, with its stock and images (admin)")
-    @PreAuthorize("hasAuthority('" + Permissions.USERS_EDIT + "')")
+    @PreAuthorize("hasAuthority('" + Permissions.ORG_ADMIN + "')")
     public Map<String, Object> deleteByUser(@PathVariable Long userId) {
         return Map.of("deleted", partService.deleteByUser(userId));
     }

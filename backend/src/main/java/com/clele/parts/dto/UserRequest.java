@@ -26,11 +26,9 @@ public class UserRequest {
 
     private String phone;
 
+    /** Permissions to grant within the organisation currently in force (see Permissions). */
     private Set<String> permissions = new HashSet<>();
 
-    /**
-     * The organisations this user belongs to. At least one is required — locations and stock are
-     * organisation-owned, so a user without one has nothing to work on.
-     */
-    private Set<Long> organisationIds = new HashSet<>();
+    /** Global permissions (GLOBAL_ADMIN). Only a Global Administrator may set these. */
+    private Set<String> globalPermissions = new HashSet<>();
 }

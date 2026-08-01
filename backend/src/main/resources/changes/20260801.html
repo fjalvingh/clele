@@ -17,6 +17,43 @@
   data. The same switcher is on <strong>My Account</strong>.
 </p>
 
+<h4>Permissions are now per organisation</h4>
+<p>
+  A permission used to be a property of your account, and applied everywhere. That is the wrong
+  shape once there is more than one organisation: being allowed to edit parts in one says nothing
+  about another. From now on <strong>every permission except Global Administrator is held per
+  organisation</strong> — the same person can be an administrator in one organisation, an ordinary
+  member in the second, and absent from the third.
+</p>
+<p>
+  Nothing changed for anyone in practice: existing permissions were copied into every organisation
+  their holder belongs to, so everyone can do exactly what they could before.
+</p>
+<p>
+  There is a new <strong>Organisation Admin</strong> permission. It grants the organisation-level
+  administration tasks — the <strong>Admin Actions</strong> screen — and control over who belongs to
+  the organisation and what they may do <em>in it</em>. An Organisation Admin cannot see or change
+  what someone is allowed to do in an organisation they don't administer.
+</p>
+<p>
+  Your permissions follow you when you switch organisation, so a screen or button may appear or
+  disappear as you move between them. One thing to know: changing someone's permissions takes effect
+  the next time they switch organisation or log in, not in the middle of their current session.
+</p>
+
+<h4>The Users screen</h4>
+<p>
+  <strong>Users</strong> now lists the members of the organisation you are in, and the permission
+  checkboxes set what they may do there. Use <strong>Add existing user</strong> to bring someone
+  else's account into the organisation, and <strong>Remove</strong> to take them out again — their
+  account itself is untouched, as is their membership of other organisations.
+</p>
+<p>
+  User <em>accounts</em> stay global: an email address identifies one person across the whole
+  installation. Creating, editing and deleting accounts therefore requires Global Administrator.
+  Inviting people by email will come in a later change.
+</p>
+
 <h4>Managing organisations</h4>
 <p>
   A new <strong>Global Administrator</strong> permission grants access to the

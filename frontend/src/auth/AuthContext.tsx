@@ -43,7 +43,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u);
   };
 
-  const hasPermission = (key: string) => !!user?.permissions?.includes(key);
+  // Permissions come from two places: those held in the organisation currently in force, and the
+  // global ones (Global Administrator) that apply whatever organisation you are in.
+  const hasPermission = (key: string) =>
+    !!user?.permissions?.includes(key) || !!user?.globalPermissions?.includes(key);
 
   return (
     <AuthContext.Provider value={{ user, loading, hasPermission, login, logout, refresh }}>

@@ -15,7 +15,10 @@ public class UserDTO {
     private String email;
     private String fullName;
     private String phone;
+    /** Permissions this user holds in the organisation the response is scoped to. */
     private Set<String> permissions;
+    /** Permissions in force everywhere, independent of organisation (GLOBAL_ADMIN). */
+    private Set<String> globalPermissions;
     /** The user's last-used location (pre-selects the next stock add). */
     private Long lastLocationId;
     private String lastLocationName;

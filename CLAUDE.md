@@ -135,8 +135,13 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     and **drops `location.owner_id`** (locations are org-owned now). It seeds "Initial Organisation"
     (all existing data) + "Template" (a copy of the taxonomy/specs/tags), and grants the new
     `GLOBAL_ADMIN` permission to every `USERS_EDIT` holder
+  - V37 makes permissions **per-organisation**: adds `app_user_organisation_permission(user_id,
+    organisation_id, permission)` and the `ORG_ADMIN` permission, leaving `app_user_permission` for
+    global permissions only (`GLOBAL_ADMIN`). Existing permissions are copied into every
+    organisation the holder belongs to, and every `USERS_EDIT` holder also gains `ORG_ADMIN` — so
+    nobody gains or loses anything they could already do
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V37** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V38** (always check `db/migration/` for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
@@ -158,12 +163,27 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
 - **Session-cookie auth** via Spring Security (`config/SecurityConfig`). Users are `app_user` rows
   (email + BCrypt `password_hash` + full name + phone) with a set of **permission strings**
   (`app_user_permission`). Permission strings are used **directly as Spring Security authorities**.
-- **Permissions** are defined as constants in `model/Permissions.java` and mirrored in the frontend
-  `api/types.ts` `PERMISSIONS` list (key → label):
+- **Permissions are per-organisation** (V37), except `GLOBAL_ADMIN`. Defined as constants in
+  `model/Permissions.java` (`GLOBAL` / `PER_ORGANISATION` sets) and mirrored in the frontend
+  `api/types.ts` as `GLOBAL_PERMISSIONS` / `ORGANISATION_PERMISSIONS`:
+  - `ORG_ADMIN` — "Organisation Admin": organisation-level administration (the Admin Actions
+    screen), managing who belongs to the organisation and their permissions **within it**
+  - `USERS_EDIT` — "Invite users" into the organisation (the invitation flow is not built yet;
+    membership is currently managed by an `ORG_ADMIN`)
   - `PARTS_EDIT` — "Add/edit parts"
-  - `USERS_EDIT` — "Add/edit users"
-  - `GLOBAL_ADMIN` — "Global Administrator": add/edit organisations, and switch into **any**
-    organisation (including the template) rather than only one's memberships
+  - `GLOBAL_ADMIN` — **global**: add/edit organisations and user accounts, switch into any
+    organisation (including the template), and implicitly hold **every** per-organisation
+    permission everywhere. That implication is what makes a newly created, memberless organisation
+    usable at all (`AppUser.permissionsIn`)
+- **Authorities follow the current organisation.** `AppUserDetailsService` grants only the *global*
+  permissions at authentication time — the per-organisation set is unknown until an organisation is
+  in force, and changes when the user switches. `service/PermissionService.applyAuthorities`
+  re-issues the `Authentication` with `global + permissionsIn(currentOrg)` and re-saves it through
+  the `SecurityContextRepository` (required in Spring Security 6 — mutating the held context is not
+  persisted). It is called at login (`AuthController`) and on every switch (`ProfileController`).
+  **This is what keeps every existing `@PreAuthorize("hasAuthority('…')")` working unchanged.**
+  Consequence: editing a user's permissions does not affect their *current* session — the change
+  takes effect on their next switch or login.
 - **Login flow**: `POST /api/auth/login` runs the `AuthenticationManager`, persists the
   `SecurityContext` to the HTTP session via `HttpSessionSecurityContextRepository`, returns the
   `UserDTO`. `POST /api/auth/logout` invalidates the session. `GET /api/auth/me` returns the current
@@ -699,7 +719,12 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
   `GET/POST /organisations`, `GET/PUT/DELETE /organisations/{id}` — organisation management
   (requires `GLOBAL_ADMIN`); `PUT /profile/organisation` `{organisationId}` — switch the
   organisation in force for this session (authenticated). See Organisations above
-- `GET/POST /users`, `GET/PUT/DELETE /users/{id}` — user management (requires `USERS_EDIT`)
+- `GET /users`, `GET /users/{id}` — the **members of the current organisation** (requires
+  `ORG_ADMIN`); `PUT /users/{id}/permissions` — set a member's permissions in the current
+  organisation only (`ORG_ADMIN`); `POST /users/members` `{email}` / `DELETE /users/members/{id}` —
+  add an existing account to / remove it from the current organisation (`ORG_ADMIN`);
+  `POST /users`, `PUT/DELETE /users/{id}` — create, edit and delete the **account** itself
+  (requires `GLOBAL_ADMIN`: an email is unique across the installation)
 - `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`)
   - `GET /parts?search=&categoryId=&sort=` — search runs in the DB: `search` matches name /
     part_number (case-insensitive substring) + description (PostgreSQL full-text,

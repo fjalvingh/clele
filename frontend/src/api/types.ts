@@ -156,7 +156,10 @@ export interface User {
   email: string;
   fullName?: string;
   phone?: string;
+  /** Permissions in the organisation this response is scoped to (the current one). */
   permissions: string[];
+  /** Permissions in force everywhere, independent of organisation. */
+  globalPermissions?: string[];
   lastLocationId?: number;
   lastLocationName?: string;
   /** Organisations this user belongs to. */
@@ -185,20 +188,32 @@ export interface UserRequest {
   password?: string; // blank when editing keeps the existing password
   fullName?: string;
   phone?: string;
+  /** Permissions to grant within the organisation currently in force. */
   permissions: string[];
-  /** Organisations the user belongs to. At least one is required. */
-  organisationIds: number[];
+  /** Global permissions. Only a Global Administrator may set these. */
+  globalPermissions?: string[];
 }
 
 /** The currently authenticated user (same shape as User). */
 export type AuthUser = User;
 
-/** Known permission keys and their human-readable labels (shown in the user form). */
-export const PERMISSIONS: { key: string; label: string }[] = [
+/**
+ * Permissions held per (user, organisation) — what the Users screen edits. They apply only in the
+ * organisation you are currently in.
+ */
+export const ORGANISATION_PERMISSIONS: { key: string; label: string }[] = [
+  { key: 'ORG_ADMIN', label: 'Organisation Admin' },
+  { key: 'USERS_EDIT', label: 'Invite users' },
   { key: 'PARTS_EDIT', label: 'Add/edit parts' },
-  { key: 'USERS_EDIT', label: 'Add/edit users' },
+];
+
+/** Permissions that are a property of the account itself, in force in every organisation. */
+export const GLOBAL_PERMISSIONS: { key: string; label: string }[] = [
   { key: 'GLOBAL_ADMIN', label: 'Global Administrator' },
 ];
+
+/** Every known permission key → label, for rendering a user's permissions anywhere. */
+export const PERMISSIONS = [...ORGANISATION_PERMISSIONS, ...GLOBAL_PERMISSIONS];
 
 export interface StockEntry {
   id: number;

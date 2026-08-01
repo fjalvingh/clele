@@ -67,6 +67,11 @@ public class CurrentOrganisationService {
         return resolved;
     }
 
+    /** The authenticated user (convenience passthrough, so callers need one dependency less). */
+    public AppUser currentUser() {
+        return currentUserService.current();
+    }
+
     /** Convenience for the many repository calls that only need the id. */
     public Long currentId() {
         return current().getId();

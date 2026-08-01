@@ -2,12 +2,10 @@ package com.clele.parts.service;
 
 import com.clele.parts.model.AppUser;
 import com.clele.parts.model.Location;
-import com.clele.parts.model.Permissions;
 import com.clele.parts.repository.AppUserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,14 +38,5 @@ public class CurrentUserService {
         AppUser me = current();
         me.setLastLocation(location);
         userRepository.save(me);
-    }
-
-    /** Whether the current authentication carries the USERS_EDIT authority (admin). */
-    public boolean isAdmin() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null) return false;
-        return auth.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .anyMatch(Permissions.USERS_EDIT::equals);
     }
 }

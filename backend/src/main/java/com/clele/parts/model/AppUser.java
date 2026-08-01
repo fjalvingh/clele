@@ -80,11 +80,55 @@ public class AppUser {
     @JoinColumn(name = "last_organisation_id")
     private Organisation lastOrganisation;
 
+    /**
+     * Global permissions — in force whatever organisation the user is in. In practice only
+     * {@link Permissions#GLOBAL_ADMIN}; everything else lives in
+     * {@link #organisationPermissions}.
+     */
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "app_user_permission", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "permission", nullable = false)
     @Builder.Default
     private Set<String> permissions = new HashSet<>();
+
+    /** Permissions held per organisation (V37). */
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "app_user_organisation_permission",
+            joinColumns = @JoinColumn(name = "user_id"))
+    @Builder.Default
+    private Set<OrganisationPermission> organisationPermissions = new HashSet<>();
+
+    /** Whether this user is a Global Administrator (implies every per-organisation permission). */
+    public boolean isGlobalAdmin() {
+        return permissions.contains(Permissions.GLOBAL_ADMIN);
+    }
+
+    /**
+     * The permissions this user actually holds in the given organisation. A Global Administrator
+     * holds all of them everywhere — without that, a newly created organisation would have no
+     * member able to add its first user.
+     */
+    public Set<String> permissionsIn(Long organisationId) {
+        if (isGlobalAdmin()) {
+            return new HashSet<>(Permissions.PER_ORGANISATION);
+        }
+        return organisationPermissions.stream()
+                .filter(p -> p.getOrganisationId().equals(organisationId))
+                .map(OrganisationPermission::getPermission)
+                .collect(java.util.stream.Collectors.toCollection(HashSet::new));
+    }
+
+    public boolean hasPermissionIn(Long organisationId, String permission) {
+        return permissionsIn(organisationId).contains(permission);
+    }
+
+    /** Replace this user's permissions in one organisation, leaving the others untouched. */
+    public void setPermissionsIn(Long organisationId, Set<String> granted) {
+        organisationPermissions.removeIf(p -> p.getOrganisationId().equals(organisationId));
+        for (String permission : granted) {
+            organisationPermissions.add(new OrganisationPermission(organisationId, permission));
+        }
+    }
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

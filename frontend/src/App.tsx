@@ -37,6 +37,23 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
   return children;
 }
 
+/**
+ * Guards a route behind a permission. Hiding the sidebar link is not enough on its own — without
+ * this, typing the path renders the screen (and its action buttons) for anyone, and only the API
+ * calls fail. Redirects to the dashboard rather than showing an error: a screen you may not use
+ * should simply not exist for you.
+ */
+function RequirePermission({
+  permission,
+  children,
+}: {
+  permission: string;
+  children: React.ReactElement;
+}) {
+  const { hasPermission } = useAuth();
+  return hasPermission(permission) ? children : <Navigate to="/" replace />;
+}
+
 // Router basename derived from Vite's base ('/clele/' → '/clele'; '/' → '/').
 const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || '/';
 
@@ -67,9 +84,30 @@ export default function App() {
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:id" element={<ProjectDetailPage />} />
             <Route path="profile" element={<ProfilePage />} />
-            <Route path="users" element={<UsersPage />} />
-            <Route path="organisations" element={<OrganisationsPage />} />
-            <Route path="admin-actions" element={<AdminActionsPage />} />
+            <Route
+              path="users"
+              element={
+                <RequirePermission permission="ORG_ADMIN">
+                  <UsersPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="organisations"
+              element={
+                <RequirePermission permission="GLOBAL_ADMIN">
+                  <OrganisationsPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="admin-actions"
+              element={
+                <RequirePermission permission="ORG_ADMIN">
+                  <AdminActionsPage />
+                </RequirePermission>
+              }
+            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

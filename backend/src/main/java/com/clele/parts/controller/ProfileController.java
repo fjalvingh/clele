@@ -6,9 +6,14 @@ import com.clele.parts.dto.SwitchOrganisationRequest;
 import com.clele.parts.dto.OctopartCredentialsStatusDTO;
 import com.clele.parts.dto.PrintingPreferenceDTO;
 import com.clele.parts.dto.PrintingPreferenceRequest;
+import com.clele.parts.model.Organisation;
 import com.clele.parts.service.CurrentOrganisationService;
+import com.clele.parts.service.CurrentUserService;
+import com.clele.parts.service.PermissionService;
 import com.clele.parts.service.OrganisationService;
 import com.clele.parts.service.ProfileService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,13 +32,20 @@ public class ProfileController {
 
     private final ProfileService profileService;
     private final CurrentOrganisationService currentOrganisationService;
+    private final CurrentUserService currentUserService;
     private final OrganisationService organisationService;
+    private final PermissionService permissionService;
 
     @PutMapping("/organisation")
     @Operation(summary = "Switch the organisation in force for this session")
-    public OrganisationDTO switchOrganisation(@Valid @RequestBody SwitchOrganisationRequest request) {
-        return organisationService.toDTO(
-                currentOrganisationService.switchTo(request.getOrganisationId()));
+    public OrganisationDTO switchOrganisation(@Valid @RequestBody SwitchOrganisationRequest request,
+                                              HttpServletRequest httpRequest,
+                                              HttpServletResponse httpResponse) {
+        Organisation target = currentOrganisationService.switchTo(request.getOrganisationId());
+        // Permissions are per-organisation, so the session's authorities have to follow the switch.
+        permissionService.applyAuthorities(currentUserService.current(), target,
+                httpRequest, httpResponse);
+        return organisationService.toDTO(target);
     }
 
     @GetMapping("/octopart")

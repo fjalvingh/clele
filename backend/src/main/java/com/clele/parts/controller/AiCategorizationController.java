@@ -19,7 +19,7 @@ public class AiCategorizationController {
 
     @PostMapping
     @Operation(summary = "Start a background job that auto-assigns parts to categories via Ollama")
-    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
+    @PreAuthorize("hasAuthority('" + Permissions.ORG_ADMIN + "')")
     public CategorizationStatusDTO start(
             @RequestParam(defaultValue = "false") boolean onlyUncategorized) {
         return categorizationService.start(onlyUncategorized);
@@ -27,6 +27,7 @@ public class AiCategorizationController {
 
     @GetMapping("/status")
     @Operation(summary = "Get the current auto-categorization job progress")
+    @PreAuthorize("hasAuthority('" + Permissions.ORG_ADMIN + "')")
     public CategorizationStatusDTO status() {
         return categorizationService.status();
     }

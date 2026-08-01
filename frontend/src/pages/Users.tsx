@@ -1,13 +1,22 @@
 import { useEffect, useState } from 'react';
 import {
+  addOrganisationMember,
   createUser,
   deletePartsByUser,
   deleteUser,
-  getOrganisations,
   getUsers,
+  removeOrganisationMember,
   updateUser,
+  updateUserPermissions,
 } from '../api';
-import { PERMISSIONS, type Organisation, type User, type UserRequest } from '../api/types';
+import {
+  GLOBAL_PERMISSIONS,
+  ORGANISATION_PERMISSIONS,
+  PERMISSIONS,
+  type User,
+  type UserRequest,
+} from '../api/types';
+import { useAuth } from '../auth/AuthContext';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
@@ -19,15 +28,22 @@ const emptyForm = (): UserRequest => ({
   fullName: '',
   phone: '',
   permissions: [],
-  organisationIds: [],
+  globalPermissions: [],
 });
 
-const permLabel = (key: string) =>
-  PERMISSIONS.find((p) => p.key === key)?.label ?? key;
+const permLabel = (key: string) => PERMISSIONS.find((p) => p.key === key)?.label ?? key;
 
+/**
+ * Members of the organisation currently in force. Permissions edited here are per-organisation, so
+ * an Organisation Admin can never see or change what someone may do elsewhere; only a Global
+ * Administrator manages the accounts themselves (an email is unique across the installation).
+ */
 export default function UsersPage() {
+  const { user: me } = useAuth();
+  const isGlobalAdmin = !!me?.globalPermissions?.includes('GLOBAL_ADMIN');
+  const organisationName = me?.currentOrganisationName ?? 'this organisation';
+
   const [users, setUsers] = useState<User[]>([]);
-  const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -35,6 +51,10 @@ export default function UsersPage() {
   const [form, setForm] = useState<UserRequest>(emptyForm());
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addEmail, setAddEmail] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -45,14 +65,6 @@ export default function UsersPage() {
   };
 
   useEffect(load, []);
-
-  // Membership is assigned here, so the picker needs the full list (requires GLOBAL_ADMIN; a
-  // USERS_EDIT-only admin simply gets no options and cannot change membership).
-  useEffect(() => {
-    getOrganisations().then(setOrganisations).catch(() => setOrganisations([]));
-  }, []);
-
-  const orgName = (id: number) => organisations.find((o) => o.id === id)?.name ?? `#${id}`;
 
   const openCreate = () => {
     setEditing(null);
@@ -69,38 +81,35 @@ export default function UsersPage() {
       fullName: u.fullName ?? '',
       phone: u.phone ?? '',
       permissions: [...u.permissions],
-      organisationIds: [...(u.organisationIds ?? [])],
+      globalPermissions: [...(u.globalPermissions ?? [])],
     });
     setFormError(null);
     setModalOpen(true);
   };
 
-  const toggleOrganisation = (id: number) => {
-    setForm((prev) => ({
-      ...prev,
-      organisationIds: prev.organisationIds.includes(id)
-        ? prev.organisationIds.filter((o) => o !== id)
-        : [...prev.organisationIds, id],
-    }));
-  };
-
-  const togglePermission = (key: string) => {
-    setForm((prev) => ({
-      ...prev,
-      permissions: prev.permissions.includes(key)
-        ? prev.permissions.filter((p) => p !== key)
-        : [...prev.permissions, key],
-    }));
+  const toggle = (field: 'permissions' | 'globalPermissions', key: string) => {
+    setForm((prev) => {
+      const current = prev[field] ?? [];
+      return {
+        ...prev,
+        [field]: current.includes(key) ? current.filter((p) => p !== key) : [...current, key],
+      };
+    });
   };
 
   const handleSave = async () => {
     setSaving(true);
     setFormError(null);
     try {
-      if (editing) {
+      if (!editing) {
+        await createUser(form);
+      } else if (isGlobalAdmin) {
+        // A Global Administrator edits the account itself; the same request also carries this
+        // organisation's permissions.
         await updateUser(editing.id, form);
       } else {
-        await createUser(form);
+        // An Organisation Admin may only change what this user can do here.
+        await updateUserPermissions(editing.id, form.permissions);
       }
       setModalOpen(false);
       load();
@@ -111,8 +120,34 @@ export default function UsersPage() {
     }
   };
 
+  const handleAddMember = async () => {
+    setAdding(true);
+    setAddError(null);
+    try {
+      await addOrganisationMember(addEmail.trim());
+      setAddOpen(false);
+      setAddEmail('');
+      load();
+    } catch (e: unknown) {
+      setAddError((e as Error).message);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleRemoveMember = async (u: User) => {
+    if (!confirm(`Remove "${u.email}" from ${organisationName}?\n\nTheir account is not deleted.`))
+      return;
+    try {
+      await removeOrganisationMember(u.id);
+      load();
+    } catch (e: unknown) {
+      alert((e as Error).message);
+    }
+  };
+
   const handleDelete = async (u: User) => {
-    if (!confirm(`Delete user "${u.email}"?`)) return;
+    if (!confirm(`Delete the account "${u.email}" entirely, in every organisation?`)) return;
     try {
       await deleteUser(u.id);
       load();
@@ -124,9 +159,9 @@ export default function UsersPage() {
   const handleDeleteParts = async (u: User) => {
     if (
       !confirm(
-        `Delete every part created by "${u.email}"?\n\n` +
+        `Delete every part created by "${u.email}" in ${organisationName}?\n\n` +
           'This also removes their stock entries, photos and movement history, and cannot be undone. ' +
-          'Parts created by other users are not affected.',
+          'Parts in other organisations, and parts created by other users, are not affected.',
       )
     )
       return;
@@ -143,38 +178,50 @@ export default function UsersPage() {
     { key: 'email', header: 'Email' },
     { key: 'phone', header: 'Phone', render: (u) => u.phone || '—' },
     {
-      key: 'organisations',
-      header: 'Organisations',
-      render: (u) =>
-        u.organisationIds?.length ? u.organisationIds.map(orgName).join(', ') : '—',
+      key: 'permissions',
+      header: 'Permissions here',
+      render: (u) => (u.permissions.length ? u.permissions.map(permLabel).join(', ') : '—'),
     },
     {
-      key: 'permissions',
-      header: 'Permissions',
+      key: 'globalPermissions',
+      header: 'Global',
       render: (u) =>
-        u.permissions.length ? u.permissions.map(permLabel).join(', ') : '—',
+        u.globalPermissions?.length ? u.globalPermissions.map(permLabel).join(', ') : '—',
     },
   ];
 
-  // On create the password is required; on edit it is optional (blank keeps current). A user must
-  // always belong to at least one organisation — there is nothing for them to see otherwise.
-  const saveDisabled =
-    saving ||
-    !form.email.trim() ||
-    form.organisationIds.length === 0 ||
-    (!editing && !(form.password ?? '').trim());
+  const saveDisabled = saving || (!editing && (!form.email.trim() || !(form.password ?? '').trim()));
 
   return (
     <div className="p-8">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-        <button
-          onClick={openCreate}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          + New User
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => {
+              setAddEmail('');
+              setAddError(null);
+              setAddOpen(true);
+            }}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
+          >
+            Add existing user
+          </button>
+          {isGlobalAdmin && (
+            <button
+              onClick={openCreate}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              + New User
+            </button>
+          )}
+        </div>
       </div>
+      <p className="mb-6 text-sm text-gray-600">
+        Members of <strong>{organisationName}</strong>. Permissions set here apply in this
+        organisation only — the same person can have different rights elsewhere.
+        {!isGlobalAdmin && ' Creating and editing accounts requires Global Administrator.'}
+      </p>
 
       {loading && <p className="text-gray-500">Loading...</p>}
       {error && <p className="text-red-600">{error}</p>}
@@ -190,98 +237,146 @@ export default function UsersPage() {
                 onClick={() => openEdit(u)}
                 className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
               >
-                Edit
+                {isGlobalAdmin ? 'Edit' : 'Permissions'}
               </button>
               <button
                 onClick={() => handleDeleteParts(u)}
                 className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                title="Delete every part this user created, with its stock and images"
+                title="Delete every part this user created in this organisation"
               >
                 Delete parts
               </button>
               <button
-                onClick={() => handleDelete(u)}
-                className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                onClick={() => handleRemoveMember(u)}
+                className="rounded px-2 py-1 text-xs text-amber-700 hover:bg-amber-50"
+                title="Remove from this organisation; the account remains"
               >
-                Delete
+                Remove
               </button>
+              {isGlobalAdmin && (
+                <button
+                  onClick={() => handleDelete(u)}
+                  className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                  title="Delete the account entirely"
+                >
+                  Delete
+                </button>
+              )}
             </div>
           )}
         />
       )}
 
       <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={editing ? 'Edit User' : 'New User'}
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title={`Add a user to ${organisationName}`}
       >
+        <p className="mb-4 text-sm text-gray-600">
+          The account must already exist. They join with no permissions — set those afterwards.
+        </p>
         <FormField
           label="Email *"
           type="email"
-          value={form.email}
-          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          value={addEmail}
+          onChange={(e) => setAddEmail(e.target.value)}
           placeholder="e.g. jane@example.com"
         />
-        <FormField
-          label="Full Name"
-          value={form.fullName ?? ''}
-          onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-        />
-        <FormField
-          label="Phone"
-          value={form.phone ?? ''}
-          onChange={(e) => setForm({ ...form, phone: e.target.value })}
-        />
-        <FormField
-          label={editing ? 'Password' : 'Password *'}
-          type="password"
-          autoComplete="new-password"
-          value={form.password ?? ''}
-          onChange={(e) => setForm({ ...form, password: e.target.value })}
-          placeholder={editing ? 'Leave blank to keep current password' : ''}
-        />
-
-        <div className="mb-4">
-          <p className="mb-2 text-sm font-medium text-gray-700">Organisations *</p>
-          {organisations.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              No organisations available. Global Administrator permission is required to change
-              membership.
-            </p>
-          ) : (
-            organisations.map((org) => (
-              <label key={org.id} className="mb-1 flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={form.organisationIds.includes(org.id)}
-                  onChange={() => toggleOrganisation(org.id)}
-                  className="rounded border-gray-300 text-blue-600"
-                />
-                <span className="text-sm text-gray-700">{org.name}</span>
-                {org.template && (
-                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500">
-                    Template
-                  </span>
-                )}
-              </label>
-            ))
-          )}
+        {addError && <p className="mb-3 text-sm text-red-600">{addError}</p>}
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={() => setAddOpen(false)}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleAddMember}
+            disabled={adding || !addEmail.trim()}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {adding ? 'Adding…' : 'Add'}
+          </button>
         </div>
+      </Modal>
+
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editing ? (isGlobalAdmin ? 'Edit User' : 'Permissions') : 'New User'}
+      >
+        {(isGlobalAdmin || !editing) && (
+          <>
+            <FormField
+              label="Email *"
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              placeholder="e.g. jane@example.com"
+            />
+            <FormField
+              label="Full Name"
+              value={form.fullName ?? ''}
+              onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+            />
+            <FormField
+              label="Phone"
+              value={form.phone ?? ''}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            />
+            <FormField
+              label={editing ? 'Password' : 'Password *'}
+              type="password"
+              autoComplete="new-password"
+              value={form.password ?? ''}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              placeholder={editing ? 'Leave blank to keep current password' : ''}
+            />
+          </>
+        )}
+
+        {editing && !isGlobalAdmin && (
+          <p className="mb-4 text-sm text-gray-600">{form.fullName || form.email}</p>
+        )}
 
         <div className="mb-4">
-          <p className="mb-2 text-sm font-medium text-gray-700">Permissions</p>
-          {PERMISSIONS.map((perm) => (
-            <label key={perm.key} className="mb-1 flex items-center gap-2 cursor-pointer">
+          <p className="mb-1 text-sm font-medium text-gray-700">
+            Permissions in {organisationName}
+          </p>
+          <p className="mb-2 text-xs text-gray-500">These apply in this organisation only.</p>
+          {ORGANISATION_PERMISSIONS.map((perm) => (
+            <label key={perm.key} className="mb-1 flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
                 checked={form.permissions.includes(perm.key)}
-                onChange={() => togglePermission(perm.key)}
+                onChange={() => toggle('permissions', perm.key)}
                 className="rounded border-gray-300 text-blue-600"
               />
               <span className="text-sm text-gray-700">{perm.label}</span>
             </label>
           ))}
         </div>
+
+        {isGlobalAdmin && (
+          <div className="mb-4">
+            <p className="mb-1 text-sm font-medium text-gray-700">Global permissions</p>
+            <p className="mb-2 text-xs text-gray-500">
+              In force in every organisation. A Global Administrator implicitly holds every
+              organisation permission everywhere.
+            </p>
+            {GLOBAL_PERMISSIONS.map((perm) => (
+              <label key={perm.key} className="mb-1 flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={(form.globalPermissions ?? []).includes(perm.key)}
+                  onChange={() => toggle('globalPermissions', perm.key)}
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <span className="text-sm text-gray-700">{perm.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
 
         {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
         <div className="flex justify-end gap-3">

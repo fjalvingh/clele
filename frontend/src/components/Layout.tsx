@@ -115,9 +115,9 @@ const navItems: NavItem[] = [
   { to: '/locations', label: 'Locations', icon: icons.locations },
   { to: '/low-stock', label: 'Low Stock', icon: icons.lowStock },
   { to: '/projects', label: 'Projects', icon: icons.projects, permission: 'PARTS_EDIT' },
-  { to: '/users', label: 'Users', icon: icons.users, permission: 'USERS_EDIT' },
+  { to: '/users', label: 'Users', icon: icons.users, permission: 'ORG_ADMIN' },
   { to: '/organisations', label: 'Organisations', icon: icons.organisations, permission: 'GLOBAL_ADMIN' },
-  { to: '/admin-actions', label: 'Admin Actions', icon: icons.adminActions, permission: 'USERS_EDIT' },
+  { to: '/admin-actions', label: 'Admin Actions', icon: icons.adminActions, permission: 'ORG_ADMIN' },
 ];
 
 // Bolt-in-hex brand mark — a fastener head, echoing the app's name.

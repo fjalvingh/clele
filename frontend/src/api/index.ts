@@ -182,6 +182,17 @@ export const getSettings = () =>
   client.get<AppSettings>('/settings').then((r) => r.data);
 
 // Users
+/** Add an existing account to the current organisation, by email. */
+export const addOrganisationMember = (email: string) =>
+  client.post<User>('/users/members', { email }).then((r) => r.data);
+
+/** Remove a user from the current organisation (the account itself remains). */
+export const removeOrganisationMember = (id: number) => client.delete(`/users/members/${id}`);
+
+/** Set a member's permissions within the current organisation. */
+export const updateUserPermissions = (id: number, permissions: string[]) =>
+  client.put<User>(`/users/${id}/permissions`, { permissions }).then((r) => r.data);
+
 export const getUsers = () =>
   client.get<User[]>('/users').then((r) => r.data);
 

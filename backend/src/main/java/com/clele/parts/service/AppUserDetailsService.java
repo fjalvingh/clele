@@ -14,8 +14,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
- * Loads users for Spring Security by email. Each permission string becomes a granted authority, so
- * {@code @PreAuthorize("hasAuthority('PARTS_EDIT')")} works directly off the stored permissions.
+ * Loads users for Spring Security by email, granting their <em>global</em> permissions only.
+ *
+ * <p>Per-organisation permissions cannot be resolved here: authentication happens before an
+ * organisation is in force, and the answer changes when the user switches. {@code PermissionService}
+ * re-issues the authentication with the full set once the organisation is known (at login) and
+ * again on every switch.
  */
 @Service
 @RequiredArgsConstructor
