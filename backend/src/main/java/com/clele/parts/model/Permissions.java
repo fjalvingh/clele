@@ -27,15 +27,9 @@ public final class Permissions {
     public static final String PARTS_EDIT = "PARTS_EDIT";
 
     /**
-     * Invite new or existing users into the organisation. Per-organisation. The invitation flow
-     * itself is not built yet; membership is currently managed by an {@link #ORG_ADMIN}.
-     */
-    public static final String USERS_EDIT = "USERS_EDIT";
-
-    /**
-     * Organisation Admin: perform organisation-level administration (the Admin screen), manage who
-     * belongs to the organisation, and change those members' permissions <em>within this
-     * organisation only</em>. Per-organisation.
+     * Organisation Admin: perform organisation-level administration (the Admin screen), see the
+     * organisation's members, add users to it, and change those members' permissions <em>within
+     * this organisation only</em>. Per-organisation.
      */
     public static final String ORG_ADMIN = "ORG_ADMIN";
 
@@ -51,7 +45,7 @@ public final class Permissions {
     public static final Set<String> GLOBAL = Set.of(GLOBAL_ADMIN);
 
     /** Permissions held per (user, organisation), in the order the UI lists them. */
-    public static final List<String> PER_ORGANISATION = List.of(ORG_ADMIN, USERS_EDIT, PARTS_EDIT);
+    public static final List<String> PER_ORGANISATION = List.of(ORG_ADMIN, PARTS_EDIT);
 
     public static boolean isGlobal(String permission) {
         return GLOBAL.contains(permission);

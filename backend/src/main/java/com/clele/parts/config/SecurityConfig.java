@@ -21,6 +21,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 
 import java.util.Map;
@@ -93,7 +94,8 @@ public class SecurityConfig {
     @Bean
     @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
-                                                   SecurityContextRepository securityContextRepository)
+                                                   SecurityContextRepository securityContextRepository,
+                                                   OrganisationAuthoritiesFilter organisationAuthoritiesFilter)
             throws Exception {
         http
                 .cors(org.springframework.security.config.Customizer.withDefaults())
@@ -102,6 +104,10 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
                 .securityContext(c -> c.securityContextRepository(securityContextRepository))
+                // Authorities are derived from the DB per request, for the organisation in force —
+                // never trusted from the stored session. Must run after the context is loaded and
+                // before authorization decides.
+                .addFilterAfter(organisationAuthoritiesFilter, SecurityContextHolderFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login").permitAll()
                         .requestMatchers("/api/settings").permitAll()

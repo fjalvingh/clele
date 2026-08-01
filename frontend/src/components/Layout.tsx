@@ -90,6 +90,13 @@ const icons: Record<string, ReactNode> = {
       <path d="M5.5 20a6.5 6.5 0 0 1 13 0" />
     </svg>
   ),
+  allUsers: (
+    <svg {...icon}>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+      <path d="M16 5.5a3 3 0 0 1 0 5.9M17.5 19a5.5 5.5 0 0 0-2-4.2" />
+    </svg>
+  ),
   adminActions: (
     <svg {...icon}>
       <path d="M12 3 4 6.5V11c0 4.9 3.4 9.4 8 10.5 4.6-1.1 8-5.6 8-10.5V6.5Z" />
@@ -116,6 +123,7 @@ const navItems: NavItem[] = [
   { to: '/low-stock', label: 'Low Stock', icon: icons.lowStock },
   { to: '/projects', label: 'Projects', icon: icons.projects, permission: 'PARTS_EDIT' },
   { to: '/users', label: 'Users', icon: icons.users, permission: 'ORG_ADMIN' },
+  { to: '/all-users', label: 'All Users', icon: icons.allUsers, permission: 'GLOBAL_ADMIN' },
   { to: '/organisations', label: 'Organisations', icon: icons.organisations, permission: 'GLOBAL_ADMIN' },
   { to: '/admin-actions', label: 'Admin Actions', icon: icons.adminActions, permission: 'ORG_ADMIN' },
 ];

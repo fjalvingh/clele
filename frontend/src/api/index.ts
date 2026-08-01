@@ -1,5 +1,6 @@
 import client from './client';
 import type {
+  AdminUser,
   AppSettings,
   AuthUser,
   CancelRequest,
@@ -207,6 +208,33 @@ export const updateUser = (id: number, data: UserRequest) =>
 
 export const deleteUser = (id: number) =>
   client.delete(`/users/${id}`);
+
+// All Users — installation-wide administration (GLOBAL_ADMIN). Unlike the /users endpoints above,
+// these cross organisation boundaries: they see every account and its permissions everywhere.
+export const getAllUsers = () =>
+  client.get<AdminUser[]>('/admin/users').then((r) => r.data);
+
+export const getAdminUser = (id: number) =>
+  client.get<AdminUser>(`/admin/users/${id}`).then((r) => r.data);
+
+/** Update account details and global permissions (not per-organisation ones). */
+export const updateAdminUser = (id: number, data: UserRequest) =>
+  client.put<AdminUser>(`/admin/users/${id}`, data).then((r) => r.data);
+
+export const addUserToOrganisation = (id: number, organisationId: number) =>
+  client.post<AdminUser>(`/admin/users/${id}/organisations`, { organisationId }).then((r) => r.data);
+
+export const removeUserFromOrganisation = (id: number, organisationId: number) =>
+  client.delete<AdminUser>(`/admin/users/${id}/organisations/${organisationId}`).then((r) => r.data);
+
+export const setUserPermissionsInOrganisation = (
+  id: number,
+  organisationId: number,
+  permissions: string[],
+) =>
+  client
+    .put<AdminUser>(`/admin/users/${id}/organisations/${organisationId}/permissions`, { permissions })
+    .then((r) => r.data);
 
 // Stock
 export const getStock = () =>

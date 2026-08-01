@@ -36,15 +36,21 @@
   what someone is allowed to do in an organisation they don't administer.
 </p>
 <p>
+  The old <strong>Manage users</strong> permission is gone. Seeing the organisation's members,
+  adding people to it and changing what they may do are all part of administering an organisation,
+  so they now follow Organisation Admin and nothing else. Everyone who held the old permission was
+  made an Organisation Admin, so nobody lost anything.
+</p>
+<p>
   Your permissions follow you when you switch organisation, so a screen or button may appear or
-  disappear as you move between them. One thing to know: changing someone's permissions takes effect
-  the next time they switch organisation or log in, not in the middle of their current session.
+  disappear as you move between them. Changes to what someone may do take effect immediately, on
+  their very next action — they do not have to log out and back in.
 </p>
 
 <h4>The Users screen</h4>
 <p>
   <strong>Users</strong> now lists the members of the organisation you are in, and the permission
-  checkboxes set what they may do there. Use <strong>Add existing user</strong> to bring someone
+  checkboxes set what they may do there. It is visible to Organisation Admins only. Use <strong>Add existing user</strong> to bring someone
   else's account into the organisation, and <strong>Remove</strong> to take them out again — their
   account itself is untouched, as is their membership of other organisations.
 </p>
@@ -52,6 +58,27 @@
   User <em>accounts</em> stay global: an email address identifies one person across the whole
   installation. Creating, editing and deleting accounts therefore requires Global Administrator.
   Inviting people by email will come in a later change.
+</p>
+
+<h4>All Users</h4>
+<p>
+  The Users screen shows one organisation at a time, which is right for running an organisation but
+  no use for running the installation. <strong>All Users</strong> — a new screen for Global
+  Administrators — lists <em>every</em> account and the organisations each belongs to.
+</p>
+<p>
+  Select someone to open their full record: edit their name, email, phone and password, set their
+  Global Administrator permission, and manage each organisation they belong to. You can add them to
+  an organisation, remove them from one, and tick exactly what they may do in each — all from one
+  place, without switching organisation yourself. Membership and permission changes are saved as you
+  click them; account details have a Save button.
+</p>
+<p>
+  Two things the screen will not let you do, both to avoid a mess that cannot be cleaned up
+  afterwards: removing someone's <em>last</em> organisation (delete the account instead), and
+  removing your <em>own</em> Global Administrator permission — ask another Global Administrator, or
+  there may be nobody left who can give it back. Note that removing someone from an organisation
+  also drops the permissions they had there, so re-adding them starts from nothing.
 </p>
 
 <h4>Managing organisations</h4>

@@ -150,6 +150,28 @@ export interface OrganisationRequest {
   description?: string;
 }
 
+/**
+ * One user's membership of one organisation — what the All Users screen edits. `implied` marks
+ * permissions that come from GLOBAL_ADMIN rather than stored grants, so they render read-only.
+ */
+export interface UserMembership {
+  organisationId: number;
+  organisationName: string;
+  template: boolean;
+  permissions: string[];
+  implied: boolean;
+}
+
+/** A user account seen installation-wide: the account plus every organisation it belongs to. */
+export interface AdminUser {
+  id: number;
+  email: string;
+  fullName?: string;
+  phone?: string;
+  globalPermissions: string[];
+  memberships: UserMembership[];
+}
+
 // Users & auth
 export interface User {
   id: number;
@@ -203,7 +225,6 @@ export type AuthUser = User;
  */
 export const ORGANISATION_PERMISSIONS: { key: string; label: string }[] = [
   { key: 'ORG_ADMIN', label: 'Organisation Admin' },
-  { key: 'USERS_EDIT', label: 'Invite users' },
   { key: 'PARTS_EDIT', label: 'Add/edit parts' },
 ];
 

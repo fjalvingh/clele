@@ -19,6 +19,7 @@ import ProjectsPage from './pages/Projects';
 import SpecDefinitionsPage from './pages/SpecDefinitions';
 import OrganisationsPage from './pages/Organisations';
 import UsersPage from './pages/Users';
+import AllUsersPage from './pages/AllUsers';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
   const { user, loading } = useAuth();
@@ -89,6 +90,14 @@ export default function App() {
               element={
                 <RequirePermission permission="ORG_ADMIN">
                   <UsersPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="all-users"
+              element={
+                <RequirePermission permission="GLOBAL_ADMIN">
+                  <AllUsersPage />
                 </RequirePermission>
               }
             />

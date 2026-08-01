@@ -140,8 +140,11 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     global permissions only (`GLOBAL_ADMIN`). Existing permissions are copied into every
     organisation the holder belongs to, and every `USERS_EDIT` holder also gains `ORG_ADMIN` — so
     nobody gains or loses anything they could already do
+  - V38 deletes the `USERS_EDIT` permission rows from both permission tables. It granted nothing
+    once V37 gated the member list, membership and permission editing on `ORG_ADMIN`, and V37 had
+    already given `ORG_ADMIN` to every holder — so nothing is lost
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V38** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V39** (always check `db/migration/` for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
@@ -167,23 +170,34 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   `model/Permissions.java` (`GLOBAL` / `PER_ORGANISATION` sets) and mirrored in the frontend
   `api/types.ts` as `GLOBAL_PERMISSIONS` / `ORGANISATION_PERMISSIONS`:
   - `ORG_ADMIN` — "Organisation Admin": organisation-level administration (the Admin Actions
-    screen), managing who belongs to the organisation and their permissions **within it**
-  - `USERS_EDIT` — "Invite users" into the organisation (the invitation flow is not built yet;
-    membership is currently managed by an `ORG_ADMIN`)
+    screen), seeing the organisation's members, adding users to it, and setting their permissions
+    **within it**. This is the *only* permission that grants any of that — a separate `USERS_EDIT`
+    ("invite users") existed briefly but granted nothing and was dropped in V38
   - `PARTS_EDIT` — "Add/edit parts"
   - `GLOBAL_ADMIN` — **global**: add/edit organisations and user accounts, switch into any
     organisation (including the template), and implicitly hold **every** per-organisation
     permission everywhere. That implication is what makes a newly created, memberless organisation
     usable at all (`AppUser.permissionsIn`)
-- **Authorities follow the current organisation.** `AppUserDetailsService` grants only the *global*
-  permissions at authentication time — the per-organisation set is unknown until an organisation is
-  in force, and changes when the user switches. `service/PermissionService.applyAuthorities`
-  re-issues the `Authentication` with `global + permissionsIn(currentOrg)` and re-saves it through
-  the `SecurityContextRepository` (required in Spring Security 6 — mutating the held context is not
-  persisted). It is called at login (`AuthController`) and on every switch (`ProfileController`).
-  **This is what keeps every existing `@PreAuthorize("hasAuthority('…')")` working unchanged.**
-  Consequence: editing a user's permissions does not affect their *current* session — the change
-  takes effect on their next switch or login.
+- **Authorities are recomputed from the DB on every request**, for the organisation in force, by
+  `config/OrganisationAuthoritiesFilter` (registered `addFilterAfter(SecurityContextHolderFilter)`
+  in the session chain, so it runs after the context is loaded and before authorization). It sets
+  `global + permissionsIn(currentOrg)` on the `SecurityContextHolder` and deliberately **does not**
+  save the context back — the authority set is derived state, valid for one request and one
+  organisation; persisting it would re-freeze it. **This is what keeps every existing
+  `@PreAuthorize("hasAuthority('…')")` working unchanged**, and what makes permission edits take
+  effect immediately rather than at the target user's next login.
+  - `AppUserDetailsService` still grants only the *global* permissions at authentication time — the
+    per-organisation set is unknown until an organisation is in force.
+  - `service/PermissionService.applyAuthorities` re-issues and re-saves the `Authentication`
+    (`SecurityContextRepository.saveContext` — required in Spring Security 6, mutating the held
+    context is not persisted). It is still called at login (`AuthController`) and on every switch
+    (`ProfileController`) because those requests build their response *after* the filter has run.
+  - **Why the filter exists**: authorities used to be frozen in the session, which lives for a
+    7-day sliding window. A permission granted, revoked, or *introduced by a migration* stayed
+    invisible until the user next logged in — sessions created before V37 could never carry
+    `ORG_ADMIN`, so their holders were denied the very screens they administer while `/auth/me`
+    (which reads permissions live) showed them the navigation. Anything deriving access from the
+    session rather than the database will reintroduce this.
 - **Login flow**: `POST /api/auth/login` runs the `AuthenticationManager`, persists the
   `SecurityContext` to the HTTP session via `HttpSessionSecurityContextRepository`, returns the
   `UserDTO`. `POST /api/auth/logout` invalidates the session. `GET /api/auth/me` returns the current
@@ -199,7 +213,8 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   - Specific mutations are gated with method security (`@EnableMethodSecurity` +
     `@PreAuthorize("hasAuthority('…')")`): part mutations (create/update/delete, image
     upload/from-url/delete, quick-add, auto-categorize, OctoPart search/apply) require `PARTS_EDIT`;
-    all `/api/users` endpoints require `USERS_EDIT`. `/api/profile/**` (self-service settings) and
+    all `/api/users` endpoints require `ORG_ADMIN` (except account create/edit/delete, which require
+    `GLOBAL_ADMIN`). `/api/profile/**` (self-service settings) and
     `/api/parts/octopart/usage` are authenticated-only (no specific permission).
   - **Not yet gated** (authenticated-only, no specific permission): categories, locations, specs,
     stock-entry mutations — easy to tighten by adding `@PreAuthorize`.
@@ -353,11 +368,29 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   `{organisationId}` (switch). `/auth/me` returns `currentOrganisationId`/`Name` +
   `selectableOrganisations` so the sidebar renders in one round trip (`UserService.toCurrentUserDTO`,
   which also blanks a `lastLocation` belonging to another organisation).
+- **Two user screens, deliberately separate.** `UserService`/`UserController` (`/api/users`, the
+  **Users** screen) is organisation-scoped: it lists only members of the organisation in force and
+  reports/edits only their permissions *there* — that is exactly an `ORG_ADMIN`'s reach.
+  `AdminUserService`/`AdminUserController` (`/api/admin/users`, the **All Users** screen) is the
+  `GLOBAL_ADMIN` view and crosses every boundary: all accounts, all memberships, all
+  per-organisation permissions. They are not merged precisely because the first exists to *contain*
+  an Organisation Admin, and one over-wide method in a shared controller would silently undo that.
+  `AdminUserDTO` carries `memberships[]` (`UserMembershipDTO`: organisation + permissions +
+  `implied`); `implied` is true when the permissions come from `GLOBAL_ADMIN` rather than stored
+  grants, so the UI renders them read-only (editing them would change nothing).
+  - Guardrails in `AdminUserService`: removing a membership also clears the permissions held there
+    (otherwise re-adding silently restores access); the **last** organisation cannot be removed
+    (409 — delete the account instead); and you cannot strip your **own** `GLOBAL_ADMIN`, since this
+    screen is the only place it can be granted and the UI could not undo it.
 - **Frontend**: the switcher lives in the sidebar footer above the current user
   (`components/Layout.tsx`) and again on My Account; both **reload the page** after switching —
   every page fetches on mount, so only a full reload guarantees no stale cross-organisation data.
   `pages/Organisations.tsx` is the `GLOBAL_ADMIN` management screen; `pages/Users.tsx` assigns
-  membership (at least one required).
+  membership (at least one required); `pages/AllUsers.tsx` is the installation-wide **All Users**
+  screen (`GLOBAL_ADMIN`, route `/all-users`) — a table of every account with its organisations,
+  and a per-user panel editing account details, global permissions, memberships and the permissions
+  within each. Membership and permission changes save **per click** (one call each, since they are
+  independent facts about different organisations); account details keep an explicit Save.
 
 ## Locations
 
@@ -419,7 +452,7 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   (`CurrentUserService.current()`); the Partsbox importer attributes parts to the bootstrap admin
   (same owner it uses for imported locations). `PartDTO` exposes `createdById` / `createdByName`
   (full name, falling back to email); the Part Detail page shows "Added by".
-- **Bulk cleanup**: `DELETE /api/parts/by-user/{userId}` (`USERS_EDIT`) →
+- **Bulk cleanup**: `DELETE /api/parts/by-user/{userId}` (`ORG_ADMIN`) →
   `PartService.deleteByUser` removes every part that user created plus its stock entries, images and
   movements, and returns the count. `stock_entry` has no `ON DELETE CASCADE`, so it is cleared first
   (`StockEntryRepository.deleteByPartIdIn`) before the bulk `Part` delete (`part_attachment` and
@@ -725,6 +758,12 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
   add an existing account to / remove it from the current organisation (`ORG_ADMIN`);
   `POST /users`, `PUT/DELETE /users/{id}` — create, edit and delete the **account** itself
   (requires `GLOBAL_ADMIN`: an email is unique across the installation)
+- `GET /admin/users`, `GET /admin/users/{id}` — **every** account with **all** of its memberships;
+  `PUT /admin/users/{id}` — account details + global permissions;
+  `POST /admin/users/{id}/organisations` `{organisationId}` /
+  `DELETE /admin/users/{id}/organisations/{organisationId}` — membership;
+  `PUT /admin/users/{id}/organisations/{organisationId}/permissions` `{permissions}` — permissions
+  in one named organisation. All `GLOBAL_ADMIN` (see All Users below)
 - `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`)
   - `GET /parts?search=&categoryId=&sort=` — search runs in the DB: `search` matches name /
     part_number (case-insensitive substring) + description (PostgreSQL full-text,
@@ -734,7 +773,7 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
 - `GET /parts/local-match?q=` — fuzzy-match existing parts by part number (pg_trgm), used by Quick
   Add to find an already-catalogued part before searching the Internet (authenticated)
 - `DELETE /parts/by-user/{userId}` — delete every part created by a user, with its stock entries,
-  images and movements; returns `{deleted: n}` (requires `USERS_EDIT`)
+  images and movements; returns `{deleted: n}` (requires `ORG_ADMIN`)
 - `POST /parts/quick-add` — atomic create part + stock entry (requires `PARTS_EDIT`)
 - `GET /parts/{id}/stock` — on-hand stock entries per location for a part
 - `GET /parts/{id}/movements` — stock movement history for a part (most recent first)

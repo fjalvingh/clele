@@ -16,4 +16,7 @@ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
 
     /** The members of one organisation, for the (organisation-scoped) Users screen. */
     List<AppUser> findByOrganisationsIdOrderByEmail(Long organisationId);
+
+    /** Every account in the installation, for the Global Administrator's All Users screen. */
+    List<AppUser> findAllByOrderByEmail();
 }
