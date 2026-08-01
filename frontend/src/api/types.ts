@@ -89,6 +89,8 @@ export interface Part {
   createdAt: string;
   updatedAt: string;
   totalQuantity?: number;
+  /** First photo attachment id — set on list/search results only; absent when the part has no photo. */
+  thumbnailId?: number;
   tags?: string[];
 }
 

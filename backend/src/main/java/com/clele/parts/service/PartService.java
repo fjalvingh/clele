@@ -2,6 +2,7 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.PartDTO;
 import com.clele.parts.dto.PartRequest;
+import com.clele.parts.model.AttachmentType;
 import com.clele.parts.model.Category;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.Tag;
@@ -67,10 +68,25 @@ public class PartService {
                     .collect(Collectors.toList());
         }
         Map<Long, Long> stockByPart = stockByOrganisation(parts);
+        Map<Long, Long> thumbnailByPart = thumbnailsFor(parts);
         return parts.stream()
-                .map(p -> toDTOWithStock(p, stockByPart))
+                .map(p -> toDTOWithStock(p, stockByPart, thumbnailByPart))
                 .sorted(comparator)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * First PHOTO attachment id per part, for the list thumbnail. One query for the whole result set;
+     * parts without a photo are simply absent.
+     */
+    private Map<Long, Long> thumbnailsFor(List<Part> parts) {
+        if (parts.isEmpty()) return Map.of();
+        List<Long> ids = parts.stream().map(Part::getId).collect(Collectors.toList());
+        Map<Long, Long> result = new HashMap<>();
+        // Rows arrive ordered by display order, so the first one seen for a part is its first photo.
+        partAttachmentRepository.findIdsByPartIdsAndType(ids, AttachmentType.PHOTO)
+                .forEach(row -> result.putIfAbsent((Long) row[0], (Long) row[1]));
+        return result;
     }
 
     /**
@@ -87,9 +103,11 @@ public class PartService {
         return result;
     }
 
-    private PartDTO toDTOWithStock(Part part, Map<Long, Long> stockByPart) {
+    private PartDTO toDTOWithStock(Part part, Map<Long, Long> stockByPart,
+                                   Map<Long, Long> thumbnailByPart) {
         PartDTO dto = toDTO(part);
         dto.setTotalQuantity(stockByPart.getOrDefault(part.getId(), 0L));
+        dto.setThumbnailId(thumbnailByPart.get(part.getId()));
         return dto;
     }
 
@@ -117,8 +135,9 @@ public class PartService {
         }
         List<Part> parts = partRepository.fuzzyByPartNumber(currentOrganisationService.currentId(), term);
         Map<Long, Long> stockByPart = stockByOrganisation(parts);
+        Map<Long, Long> thumbnailByPart = thumbnailsFor(parts);
         return parts.stream()
-                .map(p -> toDTOWithStock(p, stockByPart))
+                .map(p -> toDTOWithStock(p, stockByPart, thumbnailByPart))
                 .collect(Collectors.toList());
     }
 

@@ -30,5 +30,7 @@ public class PartDTO {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Long totalQuantity;
+    /** Id of the part's first PHOTO attachment (for a list thumbnail); null when it has no photo. */
+    private Long thumbnailId;
     private List<String> tags;
 }

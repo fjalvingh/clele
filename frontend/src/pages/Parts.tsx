@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+  attachmentUrl,
   createPart,
   getCategoryTree,
   getLocations,
@@ -339,6 +340,22 @@ export default function PartsPage() {
   };
 
   const columns: Column<Part>[] = [
+    {
+      key: 'thumbnail',
+      header: '',
+      render: (row) =>
+        row.thumbnailId ? (
+          <img
+            src={attachmentUrl(row.id, row.thumbnailId)}
+            alt=""
+            loading="lazy"
+            className="h-10 w-10 rounded-md object-contain ring-1 ring-gray-200 bg-white"
+          />
+        ) : (
+          // Keep the column width stable so rows with and without a photo line up.
+          <div className="h-10 w-10 rounded-md ring-1 ring-gray-100" />
+        ),
+    },
     {
       key: 'partNumber',
       header: 'Part #',
