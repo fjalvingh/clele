@@ -5,40 +5,38 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
+/**
+ * The tenant boundary. Every part, category, location, spec definition, tag and project belongs to
+ * exactly one organisation, and users are members of one or more. The organisation in force for a
+ * request comes from the HTTP session — see {@code CurrentOrganisationService}.
+ */
 @Entity
-@Table(name = "project")
+@Table(name = "organisation")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Project {
+public class Organisation {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true)
     private String name;
 
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private ProjectStatus status;
-
-    @Column(name = "instance_count", nullable = false)
-    private int instanceCount;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "owner_id", nullable = false)
-    private AppUser owner;
-
-    /** The organisation this project belongs to. */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "organisation_id", nullable = false)
-    private Organisation organisation;
+    /**
+     * Marks the blueprint organisation whose categories, spec fields and tags are copied into every
+     * newly created organisation. A flag rather than a name check, because organisations are meant
+     * to be renamed. Only a Global Administrator may select it.
+     */
+    @Column(name = "is_template", nullable = false)
+    @Builder.Default
+    private boolean template = false;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;

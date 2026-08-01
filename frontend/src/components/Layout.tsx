@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { getUnreadChanges, markChangesRead } from '../api';
+import { getUnreadChanges, markChangesRead, switchOrganisation } from '../api';
 import { useAuth } from '../auth/AuthContext';
 import ChangesPanel from './ChangesPanel';
 
@@ -42,6 +42,13 @@ const icons: Record<string, ReactNode> = {
     <svg {...icon}>
       <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
       <path d="M7 8v8M10 8v8M13 8v4M16 8v8M13 14v2" />
+    </svg>
+  ),
+  // Building — organisations are the tenant each user works inside
+  organisations: (
+    <svg {...icon}>
+      <path d="M4 21V6a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v15M12 21V11a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v10M3 21h18" />
+      <path d="M7 9h2M7 13h2M7 17h2M15 14h2M15 18h2" />
     </svg>
   ),
   categories: (
@@ -109,6 +116,7 @@ const navItems: NavItem[] = [
   { to: '/low-stock', label: 'Low Stock', icon: icons.lowStock },
   { to: '/projects', label: 'Projects', icon: icons.projects, permission: 'PARTS_EDIT' },
   { to: '/users', label: 'Users', icon: icons.users, permission: 'USERS_EDIT' },
+  { to: '/organisations', label: 'Organisations', icon: icons.organisations, permission: 'GLOBAL_ADMIN' },
   { to: '/admin-actions', label: 'Admin Actions', icon: icons.adminActions, permission: 'USERS_EDIT' },
 ];
 
@@ -136,6 +144,29 @@ export default function Layout() {
   const { user, hasPermission, logout } = useAuth();
   const navigate = useNavigate();
   const [changesPanel, setChangesPanel] = useState<{ html: string; latestDate: string } | null>(null);
+  const [orgMenuOpen, setOrgMenuOpen] = useState(false);
+  const [switching, setSwitching] = useState(false);
+
+  const organisations = user?.selectableOrganisations ?? [];
+
+  /**
+   * Switch tenant, then reload. Every page loads its data on mount, so a full reload is the only
+   * way to be certain no screen is left showing the previous organisation's data.
+   */
+  const handleSwitchOrganisation = async (id: number) => {
+    if (id === user?.currentOrganisationId) {
+      setOrgMenuOpen(false);
+      return;
+    }
+    setSwitching(true);
+    try {
+      await switchOrganisation(id);
+      window.location.reload();
+    } catch {
+      setSwitching(false);
+      setOrgMenuOpen(false);
+    }
+  };
 
   useEffect(() => {
     getUnreadChanges()
@@ -208,6 +239,64 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
+
+        {/* Current organisation — the tenant everything on screen belongs to */}
+        {user?.currentOrganisationName && (
+          <div className="relative border-t border-white/10 px-3 pt-3">
+            <button
+              type="button"
+              onClick={() => setOrgMenuOpen((open) => !open)}
+              disabled={switching || organisations.length <= 1}
+              className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left transition-colors ${
+                organisations.length > 1 ? 'hover:bg-white/5' : 'cursor-default'
+              }`}
+            >
+              <span className="text-neutral-500">{icons.organisations}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[10px] font-medium uppercase tracking-[0.14em] text-neutral-500">
+                  Organisation
+                </span>
+                <span className="block truncate text-sm font-medium text-neutral-100">
+                  {user.currentOrganisationName}
+                </span>
+              </span>
+              {organisations.length > 1 && (
+                <svg {...icon} className="h-4 w-4 shrink-0 text-neutral-500">
+                  <path d="m7 15 5 5 5-5M7 9l5-5 5 5" />
+                </svg>
+              )}
+            </button>
+
+            {orgMenuOpen && (
+              <div className="absolute bottom-full left-3 right-3 z-20 mb-1 overflow-hidden rounded-lg border border-white/10 bg-neutral-800 shadow-lg">
+                {organisations.map((org) => (
+                  <button
+                    key={org.id}
+                    type="button"
+                    onClick={() => handleSwitchOrganisation(org.id)}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-white/5 ${
+                      org.id === user.currentOrganisationId ? 'text-white' : 'text-neutral-300'
+                    }`}
+                  >
+                    <span className="w-4 shrink-0 text-blue-400">
+                      {org.id === user.currentOrganisationId && (
+                        <svg {...icon} className="h-4 w-4">
+                          <path d="m5 12 4.5 4.5L19 7" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{org.name}</span>
+                    {org.template && (
+                      <span className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-neutral-400">
+                        Template
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Current user + logout */}
         <div className="border-t border-white/10 p-3">

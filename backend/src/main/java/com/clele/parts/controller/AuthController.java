@@ -2,6 +2,9 @@ package com.clele.parts.controller;
 
 import com.clele.parts.dto.LoginRequest;
 import com.clele.parts.dto.UserDTO;
+import com.clele.parts.model.AppUser;
+import com.clele.parts.service.CurrentOrganisationService;
+import com.clele.parts.service.OrganisationService;
 import com.clele.parts.repository.AppUserRepository;
 import com.clele.parts.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,6 +36,8 @@ public class AuthController {
     private final SecurityContextRepository securityContextRepository;
     private final AppUserRepository userRepository;
     private final UserService userService;
+    private final CurrentOrganisationService currentOrganisationService;
+    private final OrganisationService organisationService;
 
     @PostMapping("/login")
     @Operation(summary = "Authenticate and start a session")
@@ -75,8 +80,14 @@ public class AuthController {
     }
 
     private UserDTO currentUserDTO(String email) {
-        return userRepository.findByEmail(email)
-                .map(userService::toDTO)
+        AppUser user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new EntityNotFoundException("User not found: " + email));
+        // Resolving the current organisation also seeds it into the session on first call, so the
+        // rest of the app has a tenant from the moment the user is known.
+        return userService.toCurrentUserDTO(user,
+                currentOrganisationService.current(),
+                currentOrganisationService.selectable().stream()
+                        .map(organisationService::toDTO)
+                        .toList());
     }
 }

@@ -5,6 +5,7 @@ import com.clele.parts.dto.ConvertToNumberResult;
 import com.clele.parts.dto.SpecDefinitionDTO;
 import com.clele.parts.dto.SpecDefinitionRequest;
 import com.clele.parts.model.Category;
+import com.clele.parts.model.Organisation;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.SpecDefinition;
 import com.clele.parts.repository.CategoryRepository;
@@ -37,13 +38,15 @@ public class SpecDefinitionService {
     private final SpecDefinitionRepository specRepo;
     private final CategoryRepository categoryRepository;
     private final PartRepository partRepository;
+    private final CurrentOrganisationService currentOrganisationService;
     private final ObjectMapper objectMapper;
 
     /** Max distinct string values for a spec to be inferred as a SELECT (enumeration). */
     private static final int SELECT_MAX_DISTINCT = 30;
 
     public List<SpecDefinitionDTO> findAll() {
-        return specRepo.findAllByOrderByDisplayOrderAscNameAsc().stream()
+        return specRepo.findByOrganisationIdOrderByDisplayOrderAscNameAsc(
+                        currentOrganisationService.currentId()).stream()
                 .map(this::toDTO)
                 .collect(Collectors.toList());
     }
@@ -51,23 +54,27 @@ public class SpecDefinitionService {
     @Transactional
     public SpecDefinitionDTO create(SpecDefinitionRequest request) {
         SpecDefinition spec = new SpecDefinition();
+        spec.setOrganisation(currentOrganisationService.current());
         applyRequest(spec, request);
         return toDTO(specRepo.save(spec));
     }
 
     @Transactional
     public SpecDefinitionDTO update(Long id, SpecDefinitionRequest request) {
-        SpecDefinition spec = specRepo.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("SpecDefinition not found: " + id));
+        SpecDefinition spec = requireSpec(id);
         applyRequest(spec, request);
         return toDTO(specRepo.save(spec));
     }
 
     @Transactional
     public void delete(Long id) {
-        SpecDefinition spec = specRepo.findById(id)
+        specRepo.delete(requireSpec(id));
+    }
+
+    /** Spec fields outside the current organisation are reported as not found. */
+    private SpecDefinition requireSpec(Long id) {
+        return specRepo.findByIdAndOrganisationId(id, currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("SpecDefinition not found: " + id));
-        specRepo.delete(spec);
     }
 
     /**
@@ -81,14 +88,16 @@ public class SpecDefinitionService {
     @Transactional
     public List<SpecDefinitionDTO> rescanFromParts() {
         // Hold all existing definitions in memory, keyed by json_name.
+        Organisation organisation = currentOrganisationService.current();
         Map<String, SpecDefinition> existing = new LinkedHashMap<>();
-        for (SpecDefinition def : specRepo.findAll()) {
+        for (SpecDefinition def : specRepo.findByOrganisationIdOrderByDisplayOrderAscNameAsc(
+                organisation.getId())) {
             existing.put(def.getJsonName(), def);
         }
 
         // Accumulate stats for every distinct spec key across all parts.
         Map<String, SpecStats> stats = new LinkedHashMap<>();
-        for (Part part : partRepository.findAll()) {
+        for (Part part : partRepository.findByOrganisationId(organisation.getId())) {
             Map<String, Object> specs = part.getSpecs();
             if (specs == null) continue;
             for (Map.Entry<String, Object> e : specs.entrySet()) {
@@ -113,6 +122,7 @@ public class SpecDefinitionService {
             SpecDefinition def = existing.get(jsonName);
             if (def == null) {
                 def = SpecDefinition.builder()
+                        .organisation(organisation)
                         .jsonName(jsonName)
                         .name(SpecNameHumanizer.humanize(jsonName))
                         .displayOrder(nextOrder++)
@@ -137,15 +147,14 @@ public class SpecDefinitionService {
      */
     @Transactional
     public ConvertToNumberResult convertToNumber(Long id, ConvertToNumberRequest req) {
-        SpecDefinition def = specRepo.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("SpecDefinition not found: " + id));
+        SpecDefinition def = requireSpec(id);
 
         String jsonName = def.getJsonName();
         String unit = req.getUnit() == null ? "" : req.getUnit().trim();
         Map<String, String> overrides = req.getOverrides() == null ? Map.of() : req.getOverrides();
 
         // Collect every part that has a non-blank value for this spec.
-        List<Part> parts = partRepository.findAll();
+        List<Part> parts = partRepository.findByOrganisationId(currentOrganisationService.currentId());
         List<Part> matched = new ArrayList<>();
         List<String> rawValues = new ArrayList<>();
         for (Part part : parts) {
@@ -292,7 +301,8 @@ public class SpecDefinitionService {
             return findAll();
         }
 
-        Category category = categoryRepository.findById(categoryId)
+        Category category = categoryRepository
+                .findByIdAndOrganisationId(categoryId, currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("Category not found: " + categoryId));
 
         // Walk up the ancestor chain, collecting specs (deduplicating by ID, preserving order)

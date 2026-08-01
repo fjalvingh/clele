@@ -23,8 +23,14 @@ public class Part {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "part_number", nullable = false, unique = true)
+    /** Unique within the owning organisation, not globally (see V36). */
+    @Column(name = "part_number", nullable = false)
     private String partNumber;
+
+    /** The organisation this part belongs to. Set once at creation and never changed. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organisation_id", nullable = false)
+    private Organisation organisation;
 
     @Column(columnDefinition = "TEXT")
     private String description;

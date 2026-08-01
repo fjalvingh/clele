@@ -49,6 +49,7 @@ public class PartCategorizationService {
 
     private final PartRepository partRepository;
     private final CategoryRepository categoryRepository;
+    private final CurrentOrganisationService currentOrganisationService;
     private final RestTemplate ollamaRestTemplate;
     private final ObjectMapper objectMapper;
     private final PlatformTransactionManager txManager;
@@ -68,6 +69,8 @@ public class PartCategorizationService {
     // Job state (single job at a time).
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile boolean onlyUncategorized;
+    /** The organisation the running job works in, captured on the request thread in {@link #start}. */
+    private volatile Long organisationId;
     private volatile int total;
     private volatile int processed;
     private volatile int assigned;
@@ -89,6 +92,9 @@ public class PartCategorizationService {
                     HttpStatus.CONFLICT, "Auto-categorization is already running");
         }
         this.onlyUncategorized = onlyUncategorized;
+        // The worker thread has no HTTP session, so the organisation is resolved here — on the
+        // request thread — and carried into the job explicitly.
+        this.organisationId = currentOrganisationService.currentId();
         total = processed = assigned = skipped = 0;
         startedAt = LocalDateTime.now();
         finishedAt = null;
@@ -113,7 +119,7 @@ public class PartCategorizationService {
     private void run() {
         TransactionTemplate tx = new TransactionTemplate(txManager);
         try {
-            List<Category> categories = categoryRepository.findAll();
+            List<Category> categories = categoryRepository.findByOrganisationIdOrderByName(organisationId);
             Map<Long, Category> byId = new HashMap<>();
             Set<Long> parentIds = new HashSet<>();
             for (Category c : categories) {
@@ -139,8 +145,8 @@ public class PartCategorizationService {
             String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, catalogue);
 
             List<Part> parts = onlyUncategorized
-                    ? partRepository.findByCategoryIsNull()
-                    : partRepository.findAll();
+                    ? partRepository.findByOrganisationIdAndCategoryIsNull(organisationId)
+                    : partRepository.findByOrganisationId(organisationId);
             total = parts.size();
             log.info("Auto-categorization started: {} parts ({}), {} leaf categories",
                     total, onlyUncategorized ? "uncategorized only" : "all", leafIds.size());

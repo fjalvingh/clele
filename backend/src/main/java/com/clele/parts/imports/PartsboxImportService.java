@@ -1,11 +1,13 @@
 package com.clele.parts.imports;
 
 import com.clele.parts.model.Location;
+import com.clele.parts.model.Organisation;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.StockEntry;
 import com.clele.parts.model.StockMovement;
 import com.clele.parts.model.AttachmentType;
 import com.clele.parts.repository.LocationRepository;
+import com.clele.parts.repository.OrganisationRepository;
 import com.clele.parts.repository.PartAttachmentRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.repository.StockEntryRepository;
@@ -49,6 +51,7 @@ public class PartsboxImportService {
 
     private final PartRepository partRepository;
     private final LocationRepository locationRepository;
+    private final OrganisationRepository organisationRepository;
     private final com.clele.parts.repository.AppUserRepository userRepository;
     private final StockEntryRepository stockEntryRepository;
     private final StockMovementRepository stockMovementRepository;
@@ -87,7 +90,10 @@ public class PartsboxImportService {
 
     private LoadResult loadData(List<Map<String, Object>> partRows, List<Map<String, Object>> storageRows) {
         wipePartData();
-        Map<String, Location> storageById = loadLocations(storageRows);
+        // The import runs without an HTTP session, so it cannot use CurrentOrganisationService —
+        // it resolves its own target organisation and user explicitly.
+        Organisation organisation = resolveImportOrganisation();
+        Map<String, Location> storageById = loadLocations(storageRows, organisation);
         // The import runs without a logged-in user; attribute imported parts to the bootstrap admin.
         com.clele.parts.model.AppUser importUser = resolveImportUser();
 
@@ -118,6 +124,7 @@ public class PartsboxImportService {
             }
             Part part = buildMergedPart(members);
             part.setCreatedBy(importUser);
+            part.setOrganisation(organisation);
             partRepository.save(part);
             partCount++;
 
@@ -202,10 +209,19 @@ public class PartsboxImportService {
                 .orElseThrow(() -> new IllegalStateException("No user to own imported data"));
     }
 
-    private Map<String, Location> loadLocations(List<Map<String, Object>> storageRows) {
-        // Imported locations are owned by the bootstrap admin (the import runs without a
-        // logged-in user). Locations now require an owner.
-        com.clele.parts.model.AppUser owner = resolveImportUser();
+    /**
+     * The organisation imported data lands in: the first non-template one (after V36 that is
+     * "Initial Organisation"). The importer has no session to take a current organisation from.
+     */
+    private Organisation resolveImportOrganisation() {
+        return organisationRepository.findAllByOrderByName().stream()
+                .filter(o -> !o.isTemplate())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("No organisation to import into"));
+    }
+
+    private Map<String, Location> loadLocations(List<Map<String, Object>> storageRows,
+                                                Organisation organisation) {
         Map<String, Location> byId = new HashMap<>();
         for (Map<String, Object> s : storageRows) {
             String id = str(s, "storage/id");
@@ -213,10 +229,13 @@ public class PartsboxImportService {
             if (id == null || name == null) {
                 continue;
             }
-            Location location = locationRepository.findByName(name)
+            Location location = locationRepository
+                    .findByOrganisationIdOrderByName(organisation.getId()).stream()
+                    .filter(l -> l.getName().equals(name))
+                    .findFirst()
                     .orElseGet(() -> locationRepository.save(
                             Location.builder().name(name).description(str(s, "storage/description"))
-                                    .owner(owner).build()));
+                                    .organisation(organisation).build()));
             byId.put(id, location);
         }
         return byId;

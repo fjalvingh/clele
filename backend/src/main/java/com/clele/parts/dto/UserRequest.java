@@ -28,6 +28,9 @@ public class UserRequest {
 
     private Set<String> permissions = new HashSet<>();
 
-    /** Name of the initial location to create for the user. Required on create, ignored on update. */
-    private String initialLocationName;
+    /**
+     * The organisations this user belongs to. At least one is required — locations and stock are
+     * organisation-owned, so a user without one has nothing to work on.
+     */
+    private Set<Long> organisationIds = new HashSet<>();
 }

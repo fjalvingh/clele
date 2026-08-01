@@ -1,12 +1,12 @@
 package com.clele.parts.service;
 
 import com.clele.parts.dto.LocationDTO;
+import com.clele.parts.dto.LocationDashboardDTO;
 import com.clele.parts.dto.LocationRequest;
 import com.clele.parts.dto.LocationTreeDTO;
-import com.clele.parts.model.AppUser;
 import com.clele.parts.model.Location;
+import com.clele.parts.model.Organisation;
 import com.clele.parts.model.StockEntry;
-import com.clele.parts.repository.AppUserRepository;
 import com.clele.parts.repository.LocationRepository;
 import com.clele.parts.repository.StockEntryRepository;
 import com.clele.parts.repository.StockMovementRepository;
@@ -20,34 +20,39 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * Locations belong to the organisation, not to a user (V36): every member of an organisation sees
+ * and uses the same locations, and no location is visible from another organisation.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class LocationService {
 
     private final LocationRepository locationRepository;
-    private final AppUserRepository userRepository;
     private final StockEntryRepository stockEntryRepository;
     private final StockMovementRepository stockMovementRepository;
-    private final CurrentUserService currentUserService;
+    private final CurrentOrganisationService currentOrganisationService;
 
     public List<LocationDTO> findAll() {
-        return locationRepository.findAll().stream()
+        return locationRepository.findByOrganisationIdOrderByName(currentOrganisationService.currentId())
+                .stream()
                 .map(this::toDTO)
                 .collect(Collectors.toList());
     }
 
-    /** Locations owned by the currently authenticated user (for stock-add pickers). */
+    /**
+     * Locations available for stock pickers. Same set as {@link #findAll()} now that locations are
+     * shared across the organisation; kept as its own endpoint so callers need not change.
+     */
     public List<LocationDTO> findMine() {
-        AppUser me = currentUserService.current();
-        return locationRepository.findByOwnerIdOrderByName(me.getId()).stream()
-                .map(this::toDTO)
-                .collect(Collectors.toList());
+        return findAll();
     }
 
-    /** Full location hierarchy as a nested tree (all owners), roots first. */
+    /** Full location hierarchy of the current organisation as a nested tree, roots first. */
     public List<LocationTreeDTO> getTree() {
-        return locationRepository.findByParentIsNull().stream()
+        return locationRepository
+                .findByOrganisationIdAndParentIsNull(currentOrganisationService.currentId()).stream()
                 .map(this::toTreeDTO)
                 .collect(Collectors.toList());
     }
@@ -58,18 +63,18 @@ public class LocationService {
 
     @Transactional
     public LocationDTO create(LocationRequest request) {
-        AppUser owner = currentUserService.current();
-        Location parent = resolveParent(request.getParentId(), owner);
-        if (locationRepository.existsSibling(owner.getId(), request.getName(),
+        Organisation organisation = currentOrganisationService.current();
+        Location parent = resolveParent(request.getParentId(), organisation);
+        if (locationRepository.existsSibling(organisation.getId(), request.getName(),
                 parent != null ? parent.getId() : null, null)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "You already have a location named \"" + request.getName() + "\" here");
+                    "There is already a location named \"" + request.getName() + "\" here");
         }
         Location location = Location.builder()
                 .name(request.getName())
                 .description(request.getDescription())
                 .parent(parent)
-                .owner(owner)
+                .organisation(organisation)
                 .build();
         return toDTO(locationRepository.save(location));
     }
@@ -77,27 +82,9 @@ public class LocationService {
     @Transactional
     public LocationDTO update(Long id, LocationRequest request) {
         Location location = getOrThrow(id);
-        requireManagePermission(location);
+        Organisation organisation = currentOrganisationService.current();
 
-        // Optional reassignment to another user (admin only).
-        AppUser targetOwner = location.getOwner();
-        Long requestedOwnerId = request.getOwnerId();
-        if (requestedOwnerId != null && !requestedOwnerId.equals(targetOwner.getId())) {
-            if (!currentUserService.isAdmin()) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                        "Only admins can reassign a location to another user");
-            }
-            // Children share their parent's owner; reassigning a parent would break that invariant.
-            if (locationRepository.existsByParentId(id)) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "Cannot change the owner of a location that has sub-locations");
-            }
-            targetOwner = userRepository.findById(requestedOwnerId)
-                    .orElseThrow(() -> new EntityNotFoundException("User not found: " + requestedOwnerId));
-            location.setOwner(targetOwner);
-        }
-
-        Location parent = resolveParent(request.getParentId(), targetOwner);
+        Location parent = resolveParent(request.getParentId(), organisation);
         if (parent != null) {
             if (parent.getId().equals(id)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A location cannot be its own parent");
@@ -107,10 +94,10 @@ public class LocationService {
                         "A location cannot be moved under one of its own descendants");
             }
         }
-        if (locationRepository.existsSibling(targetOwner.getId(), request.getName(),
+        if (locationRepository.existsSibling(organisation.getId(), request.getName(),
                 parent != null ? parent.getId() : null, id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "That owner already has a location named \"" + request.getName() + "\" here");
+                    "There is already a location named \"" + request.getName() + "\" here");
         }
         location.setParent(parent);
         location.setName(request.getName());
@@ -121,7 +108,6 @@ public class LocationService {
     @Transactional
     public void delete(Long id) {
         Location location = getOrThrow(id);
-        requireManagePermission(location);
         if (locationRepository.existsByParentId(id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Cannot delete a location that has sub-locations. Delete or move them first.");
@@ -138,8 +124,7 @@ public class LocationService {
     /**
      * Merge {@code sourceId} into {@code targetId}: fold the source location's on-hand stock into the
      * target and re-point its entire ledger to the target (preserving the full movement history),
-     * then delete the source location. The source must be manageable by the current user (its owner
-     * or an admin); the target may belong to any user.
+     * then delete the source location. Both must be in the current organisation.
      */
     @Transactional
     public void merge(Long sourceId, Long targetId) {
@@ -149,7 +134,6 @@ public class LocationService {
         }
         Location source = getOrThrow(sourceId);
         Location target = getOrThrow(targetId);
-        requireManagePermission(source);
         // Children would be orphaned by deleting their parent — merge/move them first.
         if (locationRepository.existsByParentId(sourceId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -184,31 +168,33 @@ public class LocationService {
     }
 
     public long countAll() {
-        return locationRepository.count();
+        return locationRepository.countByOrganisationId(currentOrganisationService.currentId());
     }
 
-    /** Per-user roll-up of owned locations and the stock held in them (for the dashboard). */
-    public List<com.clele.parts.dto.UserDashboardDTO> perUserStats() {
-        return locationRepository.perUserStats();
+    /** Per-root-location roll-up of the stock in this organisation (for the dashboard). */
+    public List<LocationDashboardDTO> perLocationStats() {
+        return locationRepository.perLocationStats(currentOrganisationService.currentId()).stream()
+                .map(LocationRepository::toDTO)
+                .collect(Collectors.toList());
     }
 
-    private Location getOrThrow(Long id) {
-        return locationRepository.findById(id)
+    /**
+     * Load a location, refusing anything outside the current organisation. Reported as "not found"
+     * rather than "forbidden": another organisation's locations do not exist as far as this
+     * organisation is concerned.
+     */
+    Location getOrThrow(Long id) {
+        return locationRepository.findByIdAndOrganisationId(id, currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("Location not found: " + id));
     }
 
-    /** Resolve and validate the requested parent: it must exist and be owned by {@code owner}. */
-    private Location resolveParent(Long parentId, AppUser owner) {
+    /** Resolve and validate the requested parent: it must exist in the same organisation. */
+    private Location resolveParent(Long parentId, Organisation organisation) {
         if (parentId == null) {
             return null;
         }
-        Location parent = locationRepository.findById(parentId)
+        return locationRepository.findByIdAndOrganisationId(parentId, organisation.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Parent location not found: " + parentId));
-        if (parent.getOwner() == null || !parent.getOwner().getId().equals(owner.getId())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "A location's parent must belong to the same owner");
-        }
-        return parent;
     }
 
     /** True if {@code ancestorId} appears anywhere on the parent chain above {@code node}. */
@@ -224,7 +210,6 @@ public class LocationService {
     }
 
     private LocationTreeDTO toTreeDTO(Location location) {
-        AppUser owner = location.getOwner();
         List<LocationTreeDTO> childDTOs = location.getChildren().stream()
                 .map(this::toTreeDTO)
                 .collect(Collectors.toList());
@@ -233,24 +218,11 @@ public class LocationService {
                 .name(location.getName())
                 .description(location.getDescription())
                 .parentId(location.getParent() != null ? location.getParent().getId() : null)
-                .ownerId(owner != null ? owner.getId() : null)
-                .ownerName(owner != null ? (owner.getFullName() != null ? owner.getFullName() : owner.getEmail()) : null)
                 .children(childDTOs)
                 .build();
     }
 
-    /** A location may be managed by its owner or by an admin (USERS_EDIT). */
-    private void requireManagePermission(Location location) {
-        AppUser me = currentUserService.current();
-        boolean owns = location.getOwner() != null && location.getOwner().getId().equals(me.getId());
-        if (!owns && !currentUserService.isAdmin()) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "You can only manage your own locations");
-        }
-    }
-
     private LocationDTO toDTO(Location location) {
-        AppUser owner = location.getOwner();
         Location parent = location.getParent();
         return LocationDTO.builder()
                 .id(location.getId())
@@ -259,8 +231,6 @@ public class LocationService {
                 .parentId(parent != null ? parent.getId() : null)
                 .parentName(parent != null ? parent.getName() : null)
                 .breadcrumb(location.breadcrumb())
-                .ownerId(owner != null ? owner.getId() : null)
-                .ownerName(owner != null ? (owner.getFullName() != null ? owner.getFullName() : owner.getEmail()) : null)
                 .build();
     }
 }

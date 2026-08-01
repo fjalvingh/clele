@@ -13,7 +13,5 @@ public class LocationTreeDTO {
     private String name;
     private String description;
     private Long parentId;
-    private Long ownerId;
-    private String ownerName;
     private List<LocationTreeDTO> children;
 }

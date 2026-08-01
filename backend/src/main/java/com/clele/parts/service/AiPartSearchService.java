@@ -27,6 +27,7 @@ public class AiPartSearchService {
     private final DuckDuckGoImageService duckDuckGoImageService;
     private final DuckDuckGoDatasheetService duckDuckGoDatasheetService;
     private final SpecDefinitionRepository specDefinitionRepository;
+    private final CurrentOrganisationService currentOrganisationService;
 
     private static final String API_URL = "https://api.anthropic.com/v1/messages";
     private static final String API_VERSION = "2023-06-01";
@@ -395,7 +396,10 @@ public class AiPartSearchService {
     }
 
     private String buildSystemPrompt() {
-        List<SpecDefinition> defs = specDefinitionRepository.findAllByOrderByDisplayOrderAscNameAsc();
+        // The prompt describes the current organisation's spec fields, so the AI returns keys that
+        // match this tenant's part.specs schema.
+        List<SpecDefinition> defs = specDefinitionRepository
+                .findByOrganisationIdOrderByDisplayOrderAscNameAsc(currentOrganisationService.currentId());
         StringBuilder sb = new StringBuilder();
         for (SpecDefinition def : defs) {
             sb.append("\n  - \"").append(def.getJsonName()).append("\" (").append(def.getName()).append(")");

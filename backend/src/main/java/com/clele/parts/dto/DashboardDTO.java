@@ -15,6 +15,6 @@ public class DashboardDTO {
     private long totalCategories;
     private long lowStockCount;
     private BigDecimal totalStockValue;
-    /** Per-user breakdown of locations and the stock held in them. */
-    private List<UserDashboardDTO> perUser;
+    /** Per-root-location breakdown of the stock held in the current organisation. */
+    private List<LocationDashboardDTO> perLocation;
 }

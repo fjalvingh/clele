@@ -635,7 +635,6 @@ export default function PartDetailPage() {
   };
 
   const stockColumns: Column<StockEntry>[] = [
-    { key: 'ownerName', header: 'Owner', render: (row) => row.ownerName ?? '—' },
     { key: 'locationName', header: 'Location', render: (row) => row.locationBreadcrumb || row.locationName },
     {
       key: 'quantity',
@@ -1316,8 +1315,9 @@ export default function PartDetailPage() {
               keyExtractor={(s) => s.id}
               emptyMessage="No stock entries. Add this part to a location."
               actions={(entry) =>
-                // Only the owner of a location can change the stock held there.
-                canEdit && user && entry.ownerId === user.id ? (
+                // Locations belong to the organisation, so any member who can edit parts may
+                // change the stock held in them.
+                canEdit ? (
                   <div className="flex justify-end gap-1">
                     <button
                       onClick={() => openAddStock(entry)}
@@ -1441,7 +1441,7 @@ export default function PartDetailPage() {
             .sort((a, b) => a.name.localeCompare(b.name))
             .map((l) => (
               <option key={l.id} value={l.id}>
-                {l.name}{l.ownerName ? ` · ${l.ownerName}` : ''}
+                {l.name}
               </option>
             ))}
         </FormField>
@@ -1540,7 +1540,7 @@ export default function PartDetailPage() {
                   .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb))
                   .map((l) => (
                     <option key={l.id} value={l.id}>
-                      {(l.breadcrumb || l.name) + (l.ownerName ? ` · ${l.ownerName}` : '')}
+                      {l.breadcrumb || l.name}
                     </option>
                   ))}
               </FormField>

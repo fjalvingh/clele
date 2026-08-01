@@ -1,57 +1,90 @@
 package com.clele.parts.repository;
 
-import com.clele.parts.dto.UserDashboardDTO;
+import com.clele.parts.dto.LocationDashboardDTO;
 import com.clele.parts.model.Location;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
 
 public interface LocationRepository extends JpaRepository<Location, Long> {
 
-    Optional<Location> findByName(String name);
+    List<Location> findByOrganisationIdOrderByName(Long organisationId);
 
-    List<Location> findByOwnerIdOrderByName(Long ownerId);
+    Optional<Location> findByIdAndOrganisationId(Long id, Long organisationId);
 
-    List<Location> findByParentIsNull();
+    List<Location> findByOrganisationIdAndParentIsNull(Long organisationId);
 
     List<Location> findByParentId(Long parentId);
 
     boolean existsByParentId(Long parentId);
 
+    long countByOrganisationId(Long organisationId);
+
     /**
-     * Sibling-name uniqueness: an owner may not have two locations with the same name under the
-     * same parent (NULL parent = root level). {@code excludeId} skips the row being updated
+     * Sibling-name uniqueness: an organisation may not have two locations with the same name under
+     * the same parent (NULL parent = root level). {@code excludeId} skips the row being updated
      * (pass null on create). Null-safe parent comparison handles the root level.
      */
     @Query("""
             SELECT COUNT(l) > 0 FROM Location l
-            WHERE l.owner.id = :ownerId AND l.name = :name
+            WHERE l.organisation.id = :organisationId AND l.name = :name
               AND ((:parentId IS NULL AND l.parent IS NULL) OR l.parent.id = :parentId)
               AND (:excludeId IS NULL OR l.id <> :excludeId)
             """)
-    boolean existsSibling(Long ownerId, String name, Long parentId, Long excludeId);
+    boolean existsSibling(Long organisationId, String name, Long parentId, Long excludeId);
 
     /**
-     * Per-owner roll-up of the stock held in the locations each user owns: location count,
-     * distinct parts, total on-hand quantity, total stock value, and low-stock entries.
-     * Users that own at least one location appear (even with no stock).
+     * Per-root-location roll-up of the stock held in one organisation: sub-location count, distinct
+     * parts, total on-hand quantity and total stock value, aggregated over each root location's
+     * whole subtree. Root locations with no stock still appear.
+     *
+     * <p>Native because the subtree walk needs a recursive CTE, which JPQL cannot express — the same
+     * reason {@code StockThresholdRepository} is native.
      */
-    @Query("""
-            SELECT new com.clele.parts.dto.UserDashboardDTO(
-                o.id,
-                COALESCE(o.fullName, o.email),
-                COUNT(DISTINCT l.id),
-                (SELECT COUNT(p) FROM Part p WHERE p.createdBy.id = o.id),
-                COALESCE(SUM(s.quantity), 0L),
-                COALESCE(SUM(CASE WHEN s.unitPrice IS NOT NULL THEN s.quantity * s.unitPrice ELSE 0 END), 0),
-                0L)
-            FROM AppUser o
-            LEFT JOIN Location l ON l.owner.id = o.id
-            LEFT JOIN StockEntry s ON s.location = l
-            GROUP BY o.id, o.fullName, o.email
-            ORDER BY COALESCE(o.fullName, o.email)
+    @Query(nativeQuery = true, value = """
+            WITH RECURSIVE subtree(root_id, loc_id) AS (
+              SELECT id, id FROM location WHERE parent_id IS NULL AND organisation_id = :orgId
+              UNION ALL
+              SELECT s.root_id, l.id FROM location l JOIN subtree s ON l.parent_id = s.loc_id
+            )
+            SELECT
+              r.id                                    AS locationId,
+              r.name                                  AS locationName,
+              COUNT(DISTINCT st.loc_id)               AS locations,
+              COUNT(DISTINCT se.part_id)              AS parts,
+              COALESCE(SUM(se.quantity), 0)           AS totalQuantity,
+              COALESCE(SUM(CASE WHEN se.unit_price IS NOT NULL
+                                THEN se.quantity * se.unit_price ELSE 0 END), 0) AS totalStockValue
+            FROM location r
+            JOIN subtree st ON st.root_id = r.id
+            LEFT JOIN stock_entry se ON se.location_id = st.loc_id
+            WHERE r.parent_id IS NULL AND r.organisation_id = :orgId
+            GROUP BY r.id, r.name
+            ORDER BY r.name
             """)
-    List<UserDashboardDTO> perUserStats();
+    List<LocationDashboardView> perLocationStats(@Param("orgId") Long organisationId);
+
+    /** Projection for {@link #perLocationStats}; getters match the column aliases. */
+    interface LocationDashboardView {
+        Long getLocationId();
+        String getLocationName();
+        Long getLocations();
+        Long getParts();
+        Long getTotalQuantity();
+        java.math.BigDecimal getTotalStockValue();
+    }
+
+    static LocationDashboardDTO toDTO(LocationDashboardView view) {
+        return LocationDashboardDTO.builder()
+                .locationId(view.getLocationId())
+                .locationName(view.getLocationName())
+                .locations(view.getLocations())
+                .parts(view.getParts())
+                .totalQuantity(view.getTotalQuantity())
+                .totalStockValue(view.getTotalStockValue())
+                .build();
+    }
 }

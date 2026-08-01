@@ -34,25 +34,30 @@ public class PartService {
     private final StockEntryRepository stockEntryRepository;
     private final PartAttachmentRepository partAttachmentRepository;
     private final CurrentUserService currentUserService;
+    private final CurrentOrganisationService currentOrganisationService;
     private final TagService tagService;
 
     public List<PartDTO> search(String search, Long categoryId, String sort) {
         String term = (search != null && !search.isBlank()) ? search.trim() : null;
         Comparator<PartDTO> comparator = comparatorFor(sort);
-        List<Part> parts = partRepository.search(term, categoryId);
-        Map<Long, Long> stockByPart = stockByOwner(parts);
+        List<Part> parts = partRepository.search(currentOrganisationService.currentId(), term, categoryId);
+        Map<Long, Long> stockByPart = stockByOrganisation(parts);
         return parts.stream()
                 .map(p -> toDTOWithStock(p, stockByPart))
                 .sorted(comparator)
                 .collect(Collectors.toList());
     }
 
-    private Map<Long, Long> stockByOwner(List<Part> parts) {
+    /**
+     * On-hand totals for the listed parts across the whole current organisation. Locations are
+     * shared by every member, so this is an organisation figure, not a per-user one.
+     */
+    private Map<Long, Long> stockByOrganisation(List<Part> parts) {
         if (parts.isEmpty()) return Map.of();
-        Long ownerId = currentUserService.current().getId();
+        Long organisationId = currentOrganisationService.currentId();
         List<Long> ids = parts.stream().map(Part::getId).collect(Collectors.toList());
         Map<Long, Long> result = new HashMap<>();
-        stockEntryRepository.sumQuantityByPartIdsAndOwnerId(ids, ownerId)
+        stockEntryRepository.sumQuantityByPartIdsAndOrganisationId(ids, organisationId)
                 .forEach(row -> result.put((Long) row[0], (Long) row[1]));
         return result;
     }
@@ -85,35 +90,47 @@ public class PartService {
         if (term.isEmpty()) {
             return List.of();
         }
-        List<Part> parts = partRepository.fuzzyByPartNumber(term);
-        Map<Long, Long> stockByPart = stockByOwner(parts);
+        List<Part> parts = partRepository.fuzzyByPartNumber(currentOrganisationService.currentId(), term);
+        Map<Long, Long> stockByPart = stockByOrganisation(parts);
         return parts.stream()
                 .map(p -> toDTOWithStock(p, stockByPart))
                 .collect(Collectors.toList());
     }
 
     public PartDTO findById(Long id) {
-        Part part = partRepository.findById(id)
+        return toDTO(requirePart(id));
+    }
+
+    /**
+     * Load a part, refusing anything outside the current organisation. Reported as "not found"
+     * rather than "forbidden": another organisation's catalogue does not exist as far as this one
+     * is concerned.
+     */
+    Part requirePart(Long id) {
+        return partRepository.findByIdAndOrganisationId(id, currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("Part not found: " + id));
-        return toDTO(part);
     }
 
     @Transactional
     public PartDTO create(PartRequest request) {
-        if (partRepository.existsByPartNumber(request.getPartNumber())) {
+        Long organisationId = currentOrganisationService.currentId();
+        if (partRepository.existsByOrganisationIdAndPartNumber(organisationId, request.getPartNumber())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Part number already exists: " + request.getPartNumber());
         }
-        Part part = buildPartFromRequest(new Part(), request);
+        Part part = new Part();
+        // Set before buildPartFromRequest so category/tag resolution can scope to the organisation.
+        part.setOrganisation(currentOrganisationService.current());
+        part = buildPartFromRequest(part, request);
         part.setCreatedBy(currentUserService.current());
         return toDTO(partRepository.save(part));
     }
 
     @Transactional
     public PartDTO update(Long id, PartRequest request) {
-        Part part = partRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Part not found: " + id));
-        if (partRepository.existsByPartNumberAndIdNot(request.getPartNumber(), id)) {
+        Part part = requirePart(id);
+        if (partRepository.existsByOrganisationIdAndPartNumberAndIdNot(
+                currentOrganisationService.currentId(), request.getPartNumber(), id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Part number already exists: " + request.getPartNumber());
         }
@@ -128,8 +145,7 @@ public class PartService {
      */
     @Transactional
     public PartDTO applyOctopart(Long id, com.clele.parts.dto.OctopartApplyRequest request) {
-        Part part = partRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Part not found: " + id));
+        Part part = requirePart(id);
 
         part.setOctopartId(request.getOctopartId());
 
@@ -152,33 +168,33 @@ public class PartService {
 
     @Transactional
     public void delete(Long id) {
-        if (!partRepository.existsById(id)) {
-            throw new EntityNotFoundException("Part not found: " + id);
-        }
+        requirePart(id);
         stockEntryRepository.deleteByPartId(id);
         partAttachmentRepository.deleteByPartId(id);
         partRepository.deleteById(id);
     }
 
     /**
-     * Delete every part created by the given user, along with its stock entries, images and
-     * movement history. Used by an admin to undo one user's contributions (e.g. a bad import)
-     * without affecting parts created by anyone else. Returns the number of parts removed.
+     * Delete every part the given user created <em>in the current organisation</em>, along with its
+     * stock entries, images and movement history. Used by an admin to undo one user's contributions
+     * (e.g. a bad import) without affecting parts created by anyone else. Returns the number of
+     * parts removed.
      */
     @Transactional
     public int deleteByUser(Long userId) {
-        List<Long> partIds = partRepository.findIdsByCreatedById(userId);
+        List<Long> partIds = partRepository.findIdsByCreatedByIdAndOrganisationId(
+                userId, currentOrganisationService.currentId());
         if (partIds.isEmpty()) {
             return 0;
         }
         // stock_entry has no ON DELETE CASCADE (part_attachment and stock_movement do), so clear it
         // explicitly before removing the parts.
         stockEntryRepository.deleteByPartIdIn(partIds);
-        return partRepository.deleteByCreatedById(userId);
+        return partRepository.deleteByIdIn(partIds);
     }
 
     public long countAll() {
-        return partRepository.countAll();
+        return partRepository.countByOrganisationId(currentOrganisationService.currentId());
     }
 
     private Part buildPartFromRequest(Part part, PartRequest request) {
@@ -190,7 +206,8 @@ public class PartService {
         part.setDatasheetUrl(request.getDatasheetUrl());
         part.setSpecs(request.getSpecs());
         if (request.getCategoryId() != null) {
-            Category category = categoryRepository.findById(request.getCategoryId())
+            Category category = categoryRepository
+                    .findByIdAndOrganisationId(request.getCategoryId(), part.getOrganisation().getId())
                     .orElseThrow(() -> new EntityNotFoundException("Category not found: " + request.getCategoryId()));
             part.setCategory(category);
         } else {

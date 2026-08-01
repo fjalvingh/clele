@@ -31,6 +31,7 @@ public class StockMovementService {
     private final StockMovementRepository stockMovementRepository;
     private final StockEntryRepository stockEntryRepository;
     private final CurrentUserService currentUserService;
+    private final CurrentOrganisationService currentOrganisationService;
 
     public List<StockMovementDTO> findByPartId(Long partId) {
         return stockMovementRepository.findByPartIdOrderByMovedAtDesc(partId).stream()
@@ -48,17 +49,7 @@ public class StockMovementService {
     @Transactional
     public StockEntry apply(Part part, Location location, int deltaQty, BigDecimal unitPrice,
                             String comments, MovementType type) {
-        requireOwnLocation(location);
-        return applyInternal(part, location, deltaQty, unitPrice, comments, type, null).getSecond();
-    }
-
-    /**
-     * Same as {@link #apply} but skips the own-location guard. Used for non-MOVE adjustments
-     * where the caller has already verified ownership (or it is intentionally waived).
-     */
-    @Transactional
-    public StockEntry applyNoOwnershipCheck(Part part, Location location, int deltaQty,
-                                            BigDecimal unitPrice, String comments, MovementType type) {
+        requireCurrentOrganisation(location);
         return applyInternal(part, location, deltaQty, unitPrice, comments, type, null).getSecond();
     }
 
@@ -71,20 +62,21 @@ public class StockMovementService {
     public StockMovement applyForProject(Part part, Location location, int deltaQty,
                                          BigDecimal unitPrice, String comments,
                                          MovementType type, Project project) {
-        requireOwnLocation(location);
+        requireCurrentOrganisation(location);
         return applyInternal(part, location, deltaQty, unitPrice, comments, type, project).getFirst();
     }
 
     /**
      * Atomic stock move: debit {@code qty} from {@code from} and credit it to {@code to} in a
      * single {@link StockMovement} row (type=MOVE, quantity=-qty at source, targetLocation=to).
-     * The source must be owned by the current user; the destination may be any user's location.
+     * Both locations must be in the current organisation.
      *
      * @return the updated source stock entry
      */
     @Transactional
     public StockEntry applyMove(Part part, Location from, Location to, int qty, String comments) {
-        requireOwnLocation(from);
+        requireCurrentOrganisation(from);
+        requireCurrentOrganisation(to);
 
         // Debit the source entry.
         StockEntry srcEntry = stockEntryRepository
@@ -140,12 +132,15 @@ public class StockMovementService {
         return srcEntry;
     }
 
-    /** Stock may only be changed in a location the current user owns. */
-    public void requireOwnLocation(Location location) {
-        AppUser me = currentUserService.current();
-        if (location.getOwner() == null || !location.getOwner().getId().equals(me.getId())) {
+    /**
+     * Stock may only be changed in a location of the organisation currently in force. Locations are
+     * shared by every member of an organisation, so there is no per-user restriction within it.
+     */
+    public void requireCurrentOrganisation(Location location) {
+        if (location.getOrganisation() == null
+                || !location.getOrganisation().getId().equals(currentOrganisationService.currentId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "You can only change stock in your own locations");
+                    "That location belongs to another organisation");
         }
     }
 

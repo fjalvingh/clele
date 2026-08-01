@@ -1,10 +1,15 @@
 package com.clele.parts.controller;
 
 import com.clele.parts.dto.OctopartCredentialsRequest;
+import com.clele.parts.dto.OrganisationDTO;
+import com.clele.parts.dto.SwitchOrganisationRequest;
 import com.clele.parts.dto.OctopartCredentialsStatusDTO;
 import com.clele.parts.dto.PrintingPreferenceDTO;
 import com.clele.parts.dto.PrintingPreferenceRequest;
+import com.clele.parts.service.CurrentOrganisationService;
+import com.clele.parts.service.OrganisationService;
 import com.clele.parts.service.ProfileService;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +26,15 @@ import org.springframework.web.bind.annotation.*;
 public class ProfileController {
 
     private final ProfileService profileService;
+    private final CurrentOrganisationService currentOrganisationService;
+    private final OrganisationService organisationService;
+
+    @PutMapping("/organisation")
+    @Operation(summary = "Switch the organisation in force for this session")
+    public OrganisationDTO switchOrganisation(@Valid @RequestBody SwitchOrganisationRequest request) {
+        return organisationService.toDTO(
+                currentOrganisationService.switchTo(request.getOrganisationId()));
+    }
 
     @GetMapping("/octopart")
     @Operation(summary = "Whether the current user has OctoPart credentials set (secret never returned)")

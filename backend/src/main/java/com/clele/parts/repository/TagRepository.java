@@ -7,7 +7,11 @@ import java.util.List;
 import java.util.Optional;
 
 public interface TagRepository extends JpaRepository<Tag, Long> {
-    Optional<Tag> findByNameIgnoreCase(String name);
 
-    List<Tag> findByNameContainingIgnoreCaseOrderByNameAsc(String name);
+    Optional<Tag> findByOrganisationIdAndNameIgnoreCase(Long organisationId, String name);
+
+    List<Tag> findByOrganisationIdAndNameContainingIgnoreCaseOrderByNameAsc(
+            Long organisationId, String name);
+
+    List<Tag> findByOrganisationId(Long organisationId);
 }

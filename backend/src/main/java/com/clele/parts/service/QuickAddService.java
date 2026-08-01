@@ -29,17 +29,22 @@ public class QuickAddService {
     private final CategoryRepository categoryRepository;
     private final PartService partService;
     private final CurrentUserService currentUserService;
+    private final CurrentOrganisationService currentOrganisationService;
     private final StockMovementService stockMovementService;
     private final TagService tagService;
 
     @Transactional
     public QuickAddResponseDTO quickAdd(QuickAddRequest request) {
-        // Find or create part
-        Part part = partRepository.findByPartNumber(request.getPartNumber())
+        Long organisationId = currentOrganisationService.currentId();
+
+        // Find or create part, within the current organisation only.
+        Part part = partRepository
+                .findByOrganisationIdAndPartNumber(organisationId, request.getPartNumber())
                 .orElseGet(() -> createPart(request));
 
         // Load location
-        Location location = locationRepository.findById(request.getLocationId())
+        Location location = locationRepository
+                .findByIdAndOrganisationId(request.getLocationId(), organisationId)
                 .orElseThrow(() -> new EntityNotFoundException("Location not found: " + request.getLocationId()));
 
         // Check for duplicate stock entry
@@ -48,7 +53,7 @@ public class QuickAddService {
                     "A stock entry already exists for this part/location combination");
         }
 
-        // The funnel writes the INITIAL movement, creates the entry and checks location ownership.
+        // The funnel writes the INITIAL movement, creates the entry and checks the organisation.
         StockEntry saved = stockMovementService.apply(part, location, request.getQuantity(),
                 request.getUnitPrice(), null, MovementType.INITIAL);
         saved = stockEntryRepository.save(saved);
@@ -71,6 +76,7 @@ public class QuickAddService {
 
     private Part createPart(QuickAddRequest request) {
         Part part = new Part();
+        part.setOrganisation(currentOrganisationService.current());
         part.setPartNumber(request.getPartNumber());
         part.setDescription(request.getDescription());
         part.setDetails(request.getDetails());
@@ -79,7 +85,8 @@ public class QuickAddService {
         part.setDatasheetUrl(request.getDatasheetUrl());
         part.setSpecs(request.getSpecs());
         if (request.getCategoryId() != null) {
-            Category category = categoryRepository.findById(request.getCategoryId())
+            Category category = categoryRepository
+                    .findByIdAndOrganisationId(request.getCategoryId(), currentOrganisationService.currentId())
                     .orElseThrow(() -> new EntityNotFoundException("Category not found: " + request.getCategoryId()));
             part.setCategory(category);
         }

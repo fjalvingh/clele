@@ -8,6 +8,7 @@ import {
   updateOctopartCredentials,
   updatePrintDaemon,
   updatePrintingPreference,
+  switchOrganisation,
 } from '../api';
 import type { OctopartCredentialsStatus, PrintDaemon, PrintingPreference, PrintMethod } from '../api/types';
 
@@ -64,6 +65,8 @@ export default function ProfilePage() {
     <div className="mx-auto max-w-2xl p-6">
       <h1 className="text-2xl font-bold text-gray-900">My Account</h1>
       <p className="mt-1 text-sm text-gray-500">Your personal settings.</p>
+
+      <OrganisationSection />
 
       <section className="mt-6 rounded-lg border border-gray-200 bg-surface p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-gray-900">Appearance</h2>
@@ -479,6 +482,77 @@ function LabelPrintingSection() {
           </code>
         </pre>
       </div>
+    </section>
+  );
+}
+
+/**
+ * The organisation in force for this session. Everything else in the app — parts, stock, locations,
+ * categories, spec fields, tags — belongs to exactly one organisation, so switching here changes
+ * what every screen shows. The same switcher lives in the sidebar next to the current user.
+ */
+function OrganisationSection() {
+  const { user } = useAuth();
+  const [switching, setSwitching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const organisations = user?.selectableOrganisations ?? [];
+
+  const handleSwitch = async (id: number) => {
+    if (id === user?.currentOrganisationId) return;
+    setSwitching(true);
+    setError(null);
+    try {
+      await switchOrganisation(id);
+      // Reload rather than refresh(): every page loads its data on mount, so only a full reload
+      // guarantees nothing is left showing the previous organisation's data.
+      window.location.reload();
+    } catch (e: unknown) {
+      setError((e as Error).message);
+      setSwitching(false);
+    }
+  };
+
+  if (!user?.currentOrganisationName) return null;
+
+  return (
+    <section className="mt-6 rounded-lg border border-gray-200 bg-surface p-5 shadow-sm">
+      <h2 className="text-lg font-semibold text-gray-900">Organisation</h2>
+      <p className="mt-1 text-sm text-gray-600">
+        The organisation you are working in. Parts, stock, locations, categories and spec fields all
+        belong to it; switching reloads the app with that organisation's data.
+      </p>
+
+      <div className="mt-4 space-y-1">
+        {organisations.map((org) => (
+          <label
+            key={org.id}
+            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-gray-50"
+          >
+            <input
+              type="radio"
+              name="organisation"
+              checked={org.id === user.currentOrganisationId}
+              disabled={switching}
+              onChange={() => handleSwitch(org.id)}
+              className="text-blue-600"
+            />
+            <span className="text-sm text-gray-800">{org.name}</span>
+            {org.template && (
+              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500">
+                Template
+              </span>
+            )}
+          </label>
+        ))}
+      </div>
+
+      {organisations.length <= 1 && (
+        <p className="mt-3 text-sm text-gray-500">
+          You belong to a single organisation. An administrator can add you to more.
+        </p>
+      )}
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
     </section>
   );
 }

@@ -2,6 +2,7 @@ package com.clele.parts.controller;
 
 import com.clele.parts.dto.DashboardDTO;
 import com.clele.parts.repository.CategoryRepository;
+import com.clele.parts.service.CurrentOrganisationService;
 import com.clele.parts.service.LocationService;
 import com.clele.parts.service.PartService;
 import com.clele.parts.service.StockEntryService;
@@ -24,6 +25,7 @@ public class DashboardController {
     private final StockEntryService stockEntryService;
     private final StockThresholdService stockThresholdService;
     private final CategoryRepository categoryRepository;
+    private final CurrentOrganisationService currentOrganisationService;
 
     @GetMapping
     @Operation(summary = "Get dashboard summary stats")
@@ -31,10 +33,10 @@ public class DashboardController {
         return DashboardDTO.builder()
                 .totalParts(partService.countAll())
                 .totalLocations(locationService.countAll())
-                .totalCategories(categoryRepository.count())
+                .totalCategories(categoryRepository.countByOrganisationId(currentOrganisationService.currentId()))
                 .lowStockCount(stockThresholdService.countLowStock())
                 .totalStockValue(stockEntryService.totalStockValue())
-                .perUser(locationService.perUserStats())
+                .perLocation(locationService.perLocationStats())
                 .build();
     }
 }

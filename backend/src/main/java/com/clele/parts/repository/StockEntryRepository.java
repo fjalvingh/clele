@@ -19,10 +19,20 @@ public interface StockEntryRepository extends JpaRepository<StockEntry, Long> {
     @Query("SELECT s FROM StockEntry s JOIN FETCH s.part JOIN FETCH s.location WHERE s.location.id = :locationId")
     List<StockEntry> findByLocationId(Long locationId);
 
+    /** Every on-hand row of one organisation, found through the location it sits in. */
+    @Query("""
+            SELECT s FROM StockEntry s JOIN FETCH s.part JOIN FETCH s.location
+            WHERE s.location.organisation.id = :organisationId
+            """)
+    List<StockEntry> findByOrganisationId(Long organisationId);
+
     void deleteByLocationId(Long locationId);
 
-    @Query("SELECT COALESCE(SUM(s.quantity * s.unitPrice), 0) FROM StockEntry s WHERE s.unitPrice IS NOT NULL")
-    java.math.BigDecimal totalStockValue();
+    @Query("""
+            SELECT COALESCE(SUM(s.quantity * s.unitPrice), 0) FROM StockEntry s
+            WHERE s.unitPrice IS NOT NULL AND s.location.organisation.id = :organisationId
+            """)
+    java.math.BigDecimal totalStockValue(Long organisationId);
 
     void deleteByPartId(Long partId);
 
@@ -36,6 +46,14 @@ public interface StockEntryRepository extends JpaRepository<StockEntry, Long> {
 
     boolean existsByPartIdAndLocationIdAndIdNot(Long partId, Long locationId, Long id);
 
-    @Query("SELECT s.part.id, SUM(s.quantity) FROM StockEntry s WHERE s.part.id IN :partIds AND s.location.owner.id = :ownerId GROUP BY s.part.id")
-    List<Object[]> sumQuantityByPartIdsAndOwnerId(List<Long> partIds, Long ownerId);
+    /**
+     * On-hand totals per part across the whole organisation. Locations are shared by every member,
+     * so the "In Stock" column is an organisation figure rather than a per-user one.
+     */
+    @Query("""
+            SELECT s.part.id, SUM(s.quantity) FROM StockEntry s
+            WHERE s.part.id IN :partIds AND s.location.organisation.id = :organisationId
+            GROUP BY s.part.id
+            """)
+    List<Object[]> sumQuantityByPartIdsAndOrganisationId(List<Long> partIds, Long organisationId);
 }

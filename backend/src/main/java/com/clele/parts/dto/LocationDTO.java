@@ -14,6 +14,4 @@ public class LocationDTO {
     private String parentName;
     /** Full path from the root, e.g. "Building A > Room B > Cupboard C". */
     private String breadcrumb;
-    private Long ownerId;
-    private String ownerName;
 }

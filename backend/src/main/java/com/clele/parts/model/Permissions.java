@@ -13,6 +13,12 @@ public final class Permissions {
     /** Add / edit user accounts. */
     public static final String USERS_EDIT = "USERS_EDIT";
 
+    /**
+     * Global Administrator: add / edit organisations, and switch into any organisation (including
+     * the template) rather than only the ones the user is a member of.
+     */
+    public static final String GLOBAL_ADMIN = "GLOBAL_ADMIN";
+
     private Permissions() {
     }
 }

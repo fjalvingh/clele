@@ -4,11 +4,10 @@ import {
   deleteLocation,
   getLocations,
   getLocationTree,
-  getUsers,
   mergeLocation,
   updateLocation,
 } from '../api';
-import type { Location, LocationRequest, LocationTree, User } from '../api/types';
+import type { Location, LocationRequest, LocationTree } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
@@ -40,11 +39,6 @@ function TreeNode({ node, onEdit, onDelete, onMerge, onAddChild, canManage, loca
           {hasChildren ? (expanded ? '▼' : '▶') : '•'}
         </button>
         <span className="flex-1 text-sm text-gray-800 font-medium">{node.name}</span>
-        {node.ownerName && (
-          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
-            {node.ownerName}
-          </span>
-        )}
         {node.description && (
           <span className="hidden text-xs text-gray-400 group-hover:inline">{node.description}</span>
         )}
@@ -109,23 +103,20 @@ interface ParentOption {
   label: string;
 }
 
-// Build an indented option list of candidate parents. Only locations owned by `ownerId` are
-// eligible (the backend requires a location's parent to share its owner), and the location being
-// edited together with its whole subtree is skipped (a node can't be its own ancestor).
+// Build an indented option list of candidate parents. Locations belong to the organisation rather
+// than to a user, so every location in it is eligible — except the location being edited and its
+// whole subtree (a node can't be its own ancestor).
 function buildParentOptions(
   nodes: LocationTree[],
   excludeId: number | null,
-  ownerId: number | undefined,
   depth = 0
 ): ParentOption[] {
   const options: ParentOption[] = [];
   for (const node of nodes) {
     if (node.id === excludeId) continue; // skip this node and its entire subtree
-    if (node.ownerId === ownerId) {
-      const prefix = depth > 0 ? '  '.repeat(depth) + '└ ' : '';
-      options.push({ id: node.id, label: prefix + node.name });
-    }
-    options.push(...buildParentOptions(node.children, excludeId, ownerId, depth + 1));
+    const prefix = depth > 0 ? '  '.repeat(depth) + '└ ' : '';
+    options.push({ id: node.id, label: prefix + node.name });
+    options.push(...buildParentOptions(node.children, excludeId, depth + 1));
   }
   return options;
 }
@@ -133,12 +124,13 @@ function buildParentOptions(
 const emptyForm: LocationRequest = { name: '', description: '', parentId: null };
 
 export default function LocationsPage() {
-  const { user, hasPermission } = useAuth();
+  const { hasPermission } = useAuth();
   const isAdmin = hasPermission('USERS_EDIT');
-  const canManage = (loc: Location) => isAdmin || loc.ownerId === user?.id;
+  // Locations are shared across the organisation, so any member with part-edit rights may manage
+  // them (admins too, who have it implicitly through the Users screen).
+  const canManage = (_loc: Location) => isAdmin || hasPermission('PARTS_EDIT');
   const [tree, setTree] = useState<LocationTree[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -160,12 +152,6 @@ export default function LocationsPage() {
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-    // Admins can reassign ownership, so they need the user list for the picker.
-    if (isAdmin) {
-      getUsers()
-        .then(setUsers)
-        .catch(() => setUsers([]));
-    }
   };
 
   useEffect(load, []);
@@ -183,7 +169,6 @@ export default function LocationsPage() {
       name: loc.name,
       description: loc.description ?? '',
       parentId: loc.parentId ?? null,
-      ownerId: loc.ownerId,
     });
     setFormError(null);
     setModalOpen(true);
@@ -238,18 +223,13 @@ export default function LocationsPage() {
     }
   };
 
-  // Merge targets: every other location (any owner), labelled with its full path + owner.
+  // Merge targets: every other location in the organisation, labelled with its full path.
   const mergeTargets = locations
     .filter((l) => l.id !== mergeSource?.id)
-    .sort((a, b) =>
-      (a.ownerName ?? '').localeCompare(b.ownerName ?? '') ||
-      a.breadcrumb.localeCompare(b.breadcrumb)
-    );
+    .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb));
 
-  // Parent candidates: locations owned by the effective owner (the editing location's owner, which
-  // an admin may reassign, or the current user when creating), minus the edited node's subtree.
-  const effectiveOwnerId = editing ? form.ownerId : user?.id;
-  const parentOptions = buildParentOptions(tree, editing?.id ?? null, effectiveOwnerId);
+  // Parent candidates: any location in the organisation, minus the edited node's subtree.
+  const parentOptions = buildParentOptions(tree, editing?.id ?? null);
 
   return (
     <div className="p-8">
@@ -321,27 +301,6 @@ export default function LocationsPage() {
             </option>
           ))}
         </FormField>
-        {isAdmin && editing && (
-          <FormField
-            as="select"
-            label="Owner"
-            value={form.ownerId ?? ''}
-            onChange={(e) =>
-              // Changing owner clears the parent: a parent must share the new owner.
-              setForm({
-                ...form,
-                ownerId: e.target.value ? Number(e.target.value) : undefined,
-                parentId: null,
-              })
-            }
-          >
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.fullName || u.email}
-              </option>
-            ))}
-          </FormField>
-        )}
         {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
         <div className="flex justify-end gap-3">
           <button
@@ -380,7 +339,6 @@ export default function LocationsPage() {
           {mergeTargets.map((loc) => (
             <option key={loc.id} value={loc.id}>
               {loc.breadcrumb}
-              {loc.ownerName ? ` (${loc.ownerName})` : ''}
             </option>
           ))}
         </FormField>

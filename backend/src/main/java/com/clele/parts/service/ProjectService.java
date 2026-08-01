@@ -28,10 +28,12 @@ public class ProjectService {
     private final StockEntryRepository stockEntryRepository;
     private final StockMovementService stockMovementService;
     private final CurrentUserService currentUserService;
+    private final CurrentOrganisationService currentOrganisationService;
 
     public List<ProjectDTO> findAll() {
         AppUser me = currentUserService.current();
-        return projectRepository.findByOwnerIdOrderByUpdatedAtDesc(me.getId()).stream()
+        return projectRepository.findByOrganisationIdAndOwnerIdOrderByUpdatedAtDesc(
+                        currentOrganisationService.currentId(), me.getId()).stream()
                 .map(this::toSummaryDTO)
                 .collect(Collectors.toList());
     }
@@ -52,6 +54,7 @@ public class ProjectService {
                 .instanceCount(request.getInstanceCount())
                 .status(ProjectStatus.PLANNING)
                 .owner(me)
+                .organisation(currentOrganisationService.current())
                 .build();
         return toSummaryDTO(projectRepository.save(project));
     }
@@ -93,7 +96,8 @@ public class ProjectService {
         if (projectPartRepository.existsByProjectIdAndPartId(projectId, request.getPartId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Part is already in the BOM");
         }
-        Part part = partRepository.findById(request.getPartId())
+        Part part = partRepository.findByIdAndOrganisationId(
+                        request.getPartId(), currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("Part not found: " + request.getPartId()));
         ProjectPart pp = ProjectPart.builder()
                 .project(project)
@@ -156,9 +160,11 @@ public class ProjectService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Project must be in BUILDING status to pull stock");
         }
-        Part part = partRepository.findById(request.getPartId())
+        Part part = partRepository.findByIdAndOrganisationId(
+                        request.getPartId(), currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("Part not found: " + request.getPartId()));
-        Location location = locationRepository.findById(request.getLocationId())
+        Location location = locationRepository.findByIdAndOrganisationId(
+                        request.getLocationId(), currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("Location not found: " + request.getLocationId()));
 
         BigDecimal price = request.getUnitPrice();
@@ -230,7 +236,8 @@ public class ProjectService {
 
     private Project requireOwnProject(Long id) {
         AppUser me = currentUserService.current();
-        return projectRepository.findByIdAndOwnerId(id, me.getId())
+        return projectRepository.findByIdAndOrganisationIdAndOwnerId(
+                        id, currentOrganisationService.currentId(), me.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Project not found: " + id));
     }

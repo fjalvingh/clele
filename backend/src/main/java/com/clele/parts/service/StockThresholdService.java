@@ -26,31 +26,36 @@ public class StockThresholdService {
     private final StockThresholdRepository thresholdRepository;
     private final PartRepository partRepository;
     private final LocationRepository locationRepository;
+    private final CurrentOrganisationService currentOrganisationService;
 
     public List<StockThresholdDTO> findAll(Long partId) {
+        Long organisationId = currentOrganisationService.currentId();
         List<StockThresholdView> rows = partId != null
-                ? thresholdRepository.findByPartIdWithTotals(partId)
-                : thresholdRepository.findAllWithTotals();
+                ? thresholdRepository.findByPartIdWithTotals(organisationId, partId)
+                : thresholdRepository.findAllWithTotals(organisationId);
         return rows.stream().map(this::toDTO).toList();
     }
 
     public List<StockThresholdDTO> findLowStock() {
-        return thresholdRepository.findLowStock().stream().map(this::toDTO).toList();
+        return thresholdRepository.findLowStock(currentOrganisationService.currentId())
+                .stream().map(this::toDTO).toList();
     }
 
     public long countLowStock() {
-        return thresholdRepository.countLowStock();
+        return thresholdRepository.countLowStock(currentOrganisationService.currentId());
     }
 
     @Transactional
     public StockThresholdDTO upsert(StockThresholdRequest request) {
-        Location location = locationRepository.findById(request.getLocationId())
+        Long organisationId = currentOrganisationService.currentId();
+        Location location = locationRepository
+                .findByIdAndOrganisationId(request.getLocationId(), organisationId)
                 .orElseThrow(() -> new EntityNotFoundException("Location not found: " + request.getLocationId()));
         if (location.getParent() != null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Stock thresholds can only be set on root locations (no parent)");
         }
-        Part part = partRepository.findById(request.getPartId())
+        Part part = partRepository.findByIdAndOrganisationId(request.getPartId(), organisationId)
                 .orElseThrow(() -> new EntityNotFoundException("Part not found: " + request.getPartId()));
 
         StockThreshold threshold = thresholdRepository
@@ -60,7 +65,7 @@ public class StockThresholdService {
         StockThreshold saved = thresholdRepository.save(threshold);
 
         // Re-query with totals so the response includes the current subtree total.
-        return thresholdRepository.findByPartIdWithTotals(part.getId()).stream()
+        return thresholdRepository.findByPartIdWithTotals(organisationId, part.getId()).stream()
                 .filter(v -> v.getId().equals(saved.getId()))
                 .map(this::toDTO)
                 .findFirst()
@@ -70,6 +75,10 @@ public class StockThresholdService {
     @Transactional
     public void delete(Long id) {
         StockThreshold threshold = thresholdRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Stock threshold not found: " + id));
+        // Only reachable from the organisation the threshold's location belongs to.
+        locationRepository.findByIdAndOrganisationId(
+                        threshold.getLocation().getId(), currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("Stock threshold not found: " + id));
         thresholdRepository.delete(threshold);
     }

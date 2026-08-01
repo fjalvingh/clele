@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
-import { createUser, deletePartsByUser, deleteUser, getUsers, updateUser } from '../api';
-import { PERMISSIONS, type User, type UserRequest } from '../api/types';
+import {
+  createUser,
+  deletePartsByUser,
+  deleteUser,
+  getOrganisations,
+  getUsers,
+  updateUser,
+} from '../api';
+import { PERMISSIONS, type Organisation, type User, type UserRequest } from '../api/types';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
@@ -12,7 +19,7 @@ const emptyForm = (): UserRequest => ({
   fullName: '',
   phone: '',
   permissions: [],
-  initialLocationName: '',
+  organisationIds: [],
 });
 
 const permLabel = (key: string) =>
@@ -20,6 +27,7 @@ const permLabel = (key: string) =>
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
+  const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -38,6 +46,14 @@ export default function UsersPage() {
 
   useEffect(load, []);
 
+  // Membership is assigned here, so the picker needs the full list (requires GLOBAL_ADMIN; a
+  // USERS_EDIT-only admin simply gets no options and cannot change membership).
+  useEffect(() => {
+    getOrganisations().then(setOrganisations).catch(() => setOrganisations([]));
+  }, []);
+
+  const orgName = (id: number) => organisations.find((o) => o.id === id)?.name ?? `#${id}`;
+
   const openCreate = () => {
     setEditing(null);
     setForm(emptyForm());
@@ -53,9 +69,19 @@ export default function UsersPage() {
       fullName: u.fullName ?? '',
       phone: u.phone ?? '',
       permissions: [...u.permissions],
+      organisationIds: [...(u.organisationIds ?? [])],
     });
     setFormError(null);
     setModalOpen(true);
+  };
+
+  const toggleOrganisation = (id: number) => {
+    setForm((prev) => ({
+      ...prev,
+      organisationIds: prev.organisationIds.includes(id)
+        ? prev.organisationIds.filter((o) => o !== id)
+        : [...prev.organisationIds, id],
+    }));
   };
 
   const togglePermission = (key: string) => {
@@ -117,6 +143,12 @@ export default function UsersPage() {
     { key: 'email', header: 'Email' },
     { key: 'phone', header: 'Phone', render: (u) => u.phone || '—' },
     {
+      key: 'organisations',
+      header: 'Organisations',
+      render: (u) =>
+        u.organisationIds?.length ? u.organisationIds.map(orgName).join(', ') : '—',
+    },
+    {
       key: 'permissions',
       header: 'Permissions',
       render: (u) =>
@@ -124,13 +156,13 @@ export default function UsersPage() {
     },
   ];
 
-  // On create the password and an initial-location name are required; on edit the password
-  // is optional (blank keeps current).
+  // On create the password is required; on edit it is optional (blank keeps current). A user must
+  // always belong to at least one organisation — there is nothing for them to see otherwise.
   const saveDisabled =
     saving ||
     !form.email.trim() ||
-    (!editing && !(form.password ?? '').trim()) ||
-    (!editing && !(form.initialLocationName ?? '').trim());
+    form.organisationIds.length === 0 ||
+    (!editing && !(form.password ?? '').trim());
 
   return (
     <div className="p-8">
@@ -209,14 +241,32 @@ export default function UsersPage() {
           placeholder={editing ? 'Leave blank to keep current password' : ''}
         />
 
-        {!editing && (
-          <FormField
-            label="Initial location name *"
-            value={form.initialLocationName ?? ''}
-            onChange={(e) => setForm({ ...form, initialLocationName: e.target.value })}
-            placeholder="e.g. Bench drawer"
-          />
-        )}
+        <div className="mb-4">
+          <p className="mb-2 text-sm font-medium text-gray-700">Organisations *</p>
+          {organisations.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No organisations available. Global Administrator permission is required to change
+              membership.
+            </p>
+          ) : (
+            organisations.map((org) => (
+              <label key={org.id} className="mb-1 flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.organisationIds.includes(org.id)}
+                  onChange={() => toggleOrganisation(org.id)}
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <span className="text-sm text-gray-700">{org.name}</span>
+                {org.template && (
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500">
+                    Template
+                  </span>
+                )}
+              </label>
+            ))
+          )}
+        </div>
 
         <div className="mb-4">
           <p className="mb-2 text-sm font-medium text-gray-700">Permissions</p>

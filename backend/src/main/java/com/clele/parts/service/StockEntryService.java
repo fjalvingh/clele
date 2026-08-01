@@ -4,7 +4,6 @@ import com.clele.parts.dto.StockAdjustRequest;
 import com.clele.parts.dto.StockEntryDTO;
 import com.clele.parts.dto.StockEntryRequest;
 import com.clele.parts.dto.StockMoveRequest;
-import com.clele.parts.model.AppUser;
 import com.clele.parts.model.Location;
 import com.clele.parts.model.MovementType;
 import com.clele.parts.model.Part;
@@ -34,26 +33,27 @@ public class StockEntryService {
     private final LocationRepository locationRepository;
     private final StockMovementService stockMovementService;
     private final CurrentUserService currentUserService;
+    private final CurrentOrganisationService currentOrganisationService;
 
     public List<StockEntryDTO> findAll() {
-        return stockEntryRepository.findAll().stream()
+        return stockEntryRepository.findByOrganisationId(currentOrganisationService.currentId()).stream()
                 .map(this::toDTO)
                 .collect(Collectors.toList());
     }
 
     public StockEntryDTO findById(Long id) {
-        return toDTO(stockEntryRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Stock entry not found: " + id)));
+        return toDTO(requireEntry(id));
     }
 
     public List<StockEntryDTO> findByPartId(Long partId) {
+        requirePart(partId);
         return stockEntryRepository.findByPartId(partId).stream()
                 .map(this::toDTO)
                 .collect(Collectors.toList());
     }
 
     public java.math.BigDecimal totalStockValue() {
-        return stockEntryRepository.totalStockValue();
+        return stockEntryRepository.totalStockValue(currentOrganisationService.currentId());
     }
 
     @Transactional
@@ -62,10 +62,8 @@ public class StockEntryService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "A stock entry already exists for this part/location combination");
         }
-        Part part = partRepository.findById(request.getPartId())
-                .orElseThrow(() -> new EntityNotFoundException("Part not found: " + request.getPartId()));
-        Location location = locationRepository.findById(request.getLocationId())
-                .orElseThrow(() -> new EntityNotFoundException("Location not found: " + request.getLocationId()));
+        Part part = requirePart(request.getPartId());
+        Location location = requireLocation(request.getLocationId());
         // The funnel writes the INITIAL movement, creates the entry and checks location ownership.
         StockEntry entry = stockMovementService.apply(part, location, request.getQuantity(),
                 request.getUnitPrice(), request.getComments(), MovementType.INITIAL);
@@ -100,8 +98,8 @@ public class StockEntryService {
     }
 
     /**
-     * Move stock from one location to another. The source must be owned by the current user; the
-     * destination may belong to any user. Records a single atomic MOVE movement.
+     * Move stock between two locations of the current organisation. Records a single atomic MOVE
+     * movement.
      */
     @Transactional
     public void move(StockMoveRequest request) {
@@ -118,20 +116,28 @@ public class StockEntryService {
                         ? request.getComments().trim() : null);
     }
 
+    /** Parts and locations are only reachable within the organisation currently in force. */
     private Part requirePart(Long id) {
-        return partRepository.findById(id)
+        return partRepository.findByIdAndOrganisationId(id, currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("Part not found: " + id));
     }
 
     private Location requireLocation(Long id) {
-        return locationRepository.findById(id)
+        return locationRepository.findByIdAndOrganisationId(id, currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("Location not found: " + id));
+    }
+
+    /** A stock entry is reachable only when its location is in the current organisation. */
+    private StockEntry requireEntry(Long id) {
+        StockEntry entry = stockEntryRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Stock entry not found: " + id));
+        requireLocation(entry.getLocation().getId());
+        return entry;
     }
 
     @Transactional
     public StockEntryDTO update(Long id, StockEntryRequest request) {
-        StockEntry entry = stockEntryRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Stock entry not found: " + id));
+        StockEntry entry = requireEntry(id);
         // Quantity changes flow through the ledger; part/location of an existing entry are fixed.
         Part part = entry.getPart();
         Location location = entry.getLocation();
@@ -140,8 +146,8 @@ public class StockEntryService {
             entry = stockMovementService.apply(part, location, delta,
                     request.getUnitPrice(), request.getComments(), MovementType.ADJUST);
         } else {
-            // No quantity change, but still gate on ownership and allow a price edit.
-            stockMovementService.requireOwnLocation(location);
+            // No quantity change, but still gate on the organisation and allow a price edit.
+            stockMovementService.requireCurrentOrganisation(location);
             if (request.getUnitPrice() != null) {
                 entry.setUnitPrice(request.getUnitPrice());
             }
@@ -151,9 +157,8 @@ public class StockEntryService {
 
     @Transactional
     public void delete(Long id) {
-        StockEntry entry = stockEntryRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("Stock entry not found: " + id));
-        stockMovementService.requireOwnLocation(entry.getLocation());
+        StockEntry entry = requireEntry(id);
+        stockMovementService.requireCurrentOrganisation(entry.getLocation());
         // Record the removal in the ledger so history stays complete, then drop the aggregate row.
         if (entry.getQuantity() != 0) {
             stockMovementService.apply(entry.getPart(), entry.getLocation(), -entry.getQuantity(),
@@ -169,7 +174,8 @@ public class StockEntryService {
     @Transactional
     public int reconcile() {
         int corrected = 0;
-        for (StockEntry entry : stockEntryRepository.findAll()) {
+        for (StockEntry entry : stockEntryRepository
+                .findByOrganisationId(currentOrganisationService.currentId())) {
             int sum = stockMovementRepository.sumQuantity(entry.getPart().getId(), entry.getLocation().getId());
             if (entry.getQuantity() != sum) {
                 entry.setQuantity(sum);
@@ -181,7 +187,6 @@ public class StockEntryService {
     }
 
     private StockEntryDTO toDTO(StockEntry entry) {
-        AppUser owner = entry.getLocation().getOwner();
         return StockEntryDTO.builder()
                 .id(entry.getId())
                 .partId(entry.getPart().getId())
@@ -190,8 +195,6 @@ public class StockEntryService {
                 .locationId(entry.getLocation().getId())
                 .locationName(entry.getLocation().getName())
                 .locationBreadcrumb(entry.getLocation().breadcrumb())
-                .ownerId(owner != null ? owner.getId() : null)
-                .ownerName(owner != null ? (owner.getFullName() != null ? owner.getFullName() : owner.getEmail()) : null)
                 .quantity(entry.getQuantity())
                 .unitPrice(entry.getUnitPrice())
                 .build();

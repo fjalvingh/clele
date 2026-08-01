@@ -64,6 +64,22 @@ public class AppUser {
     @JoinColumn(name = "preferred_daemon_id")
     private PrintDaemon preferredDaemon;
 
+    /** The organisations this user may work in. */
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(name = "app_user_organisation",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "organisation_id"))
+    @Builder.Default
+    private Set<Organisation> organisations = new HashSet<>();
+
+    /**
+     * The organisation this user last selected. Seeds the current organisation when a new session
+     * starts; not a managed account setting (same idea as {@link #lastLocation}).
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "last_organisation_id")
+    private Organisation lastOrganisation;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "app_user_permission", joinColumns = @JoinColumn(name = "user_id"))
     @Column(name = "permission", nullable = false)

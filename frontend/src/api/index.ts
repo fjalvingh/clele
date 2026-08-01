@@ -17,6 +17,8 @@ import type {
   OctopartCredentialsRequest,
   OctopartCredentialsStatus,
   OctopartResult,
+  Organisation,
+  OrganisationRequest,
   OctopartUsage,
   PrintDaemon,
   PrintDaemonUpdateRequest,
@@ -155,6 +157,25 @@ export const logout = () => client.post('/auth/logout');
 
 export const getMe = () =>
   client.get<AuthUser>('/auth/me').then((r) => r.data);
+
+// Organisations — the tenant boundary (see types.ts)
+export const getSelectableOrganisations = () =>
+  client.get<Organisation[]>('/organisations/selectable').then((r) => r.data);
+
+export const getOrganisations = () =>
+  client.get<Organisation[]>('/organisations').then((r) => r.data);
+
+export const createOrganisation = (data: OrganisationRequest) =>
+  client.post<Organisation>('/organisations', data).then((r) => r.data);
+
+export const updateOrganisation = (id: number, data: OrganisationRequest) =>
+  client.put<Organisation>(`/organisations/${id}`, data).then((r) => r.data);
+
+export const deleteOrganisation = (id: number) => client.delete(`/organisations/${id}`);
+
+/** Switch the organisation in force for this session. */
+export const switchOrganisation = (organisationId: number) =>
+  client.put<Organisation>('/profile/organisation', { organisationId }).then((r) => r.data);
 
 // App-wide settings
 export const getSettings = () =>

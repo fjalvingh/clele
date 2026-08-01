@@ -2,6 +2,7 @@ package com.clele.parts.dto;
 
 import lombok.*;
 
+import java.util.List;
 import java.util.Set;
 
 /** User account as returned by the API. Never contains the password hash. */
@@ -18,6 +19,15 @@ public class UserDTO {
     /** The user's last-used location (pre-selects the next stock add). */
     private Long lastLocationId;
     private String lastLocationName;
+    /** The organisations this user belongs to. */
+    private Set<Long> organisationIds;
+    /**
+     * The organisation in force for this session, and the ones the user may switch into. Returned
+     * on {@code /auth/me} so the sidebar switcher renders without a second request.
+     */
+    private Long currentOrganisationId;
+    private String currentOrganisationName;
+    private List<OrganisationDTO> selectableOrganisations;
     /** Whether the user has OctoPart (Nexar) credentials configured. Used to gate the UI. */
     private boolean hasOctopartCredentials;
     /** 8-digit date of the last changelog entry the user acknowledged. Null if never read. */

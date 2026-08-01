@@ -25,6 +25,11 @@ public class Category {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    /** The organisation this category belongs to; the taxonomy is per-organisation. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organisation_id", nullable = false)
+    private Organisation organisation;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id")
     private Category parent;

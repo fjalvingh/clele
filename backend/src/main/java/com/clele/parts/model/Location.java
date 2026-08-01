@@ -35,10 +35,10 @@ public class Location {
     @Builder.Default
     private List<Location> children = new ArrayList<>();
 
-    /** The user who owns this location; stock stored here belongs to this user. */
+    /** The organisation this location belongs to; every member of it shares the location. */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "owner_id", nullable = false)
-    private AppUser owner;
+    @JoinColumn(name = "organisation_id", nullable = false)
+    private Organisation organisation;
 
     /** Full path from the root location, e.g. "Building A > Room B > Cupboard C". */
     public String breadcrumb() {

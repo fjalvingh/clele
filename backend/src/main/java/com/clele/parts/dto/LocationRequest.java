@@ -13,9 +13,6 @@ public class LocationRequest {
 
     private String description;
 
-    /** Parent location in the hierarchy. NULL = root. Must be owned by the same user. */
+    /** Parent location in the hierarchy. NULL = root. Must be in the same organisation. */
     private Long parentId;
-
-    /** Reassign the location to another user. Admin-only; ignored on create. */
-    private Long ownerId;
 }

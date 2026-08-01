@@ -117,8 +117,6 @@ export interface Location {
   parentId?: number;
   parentName?: string;
   breadcrumb: string; // full path, e.g. "Building A > Room B > Cupboard C"
-  ownerId?: number;
-  ownerName?: string;
 }
 
 export interface LocationTree {
@@ -126,8 +124,6 @@ export interface LocationTree {
   name: string;
   description?: string;
   parentId?: number;
-  ownerId?: number;
-  ownerName?: string;
   children: LocationTree[];
 }
 
@@ -135,7 +131,23 @@ export interface LocationRequest {
   name: string;
   description?: string;
   parentId?: number | null;
-  ownerId?: number; // admin-only: reassign the location to another user
+}
+
+// Organisations — the tenant boundary. All parts, stock, locations, categories, spec fields and
+// tags belong to exactly one organisation; users are members of one or more and switch between them.
+export interface Organisation {
+  id: number;
+  name: string;
+  description?: string;
+  /** The blueprint copied into every new organisation. Selectable by Global Administrators only. */
+  template: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface OrganisationRequest {
+  name: string;
+  description?: string;
 }
 
 // Users & auth
@@ -147,6 +159,12 @@ export interface User {
   permissions: string[];
   lastLocationId?: number;
   lastLocationName?: string;
+  /** Organisations this user belongs to. */
+  organisationIds?: number[];
+  /** The organisation in force for this session (only populated by /auth/me). */
+  currentOrganisationId?: number;
+  currentOrganisationName?: string;
+  selectableOrganisations?: Organisation[];
   hasOctopartCredentials?: boolean;
   /** 8-digit date of the last changelog entry the user acknowledged, e.g. "20260623". */
   lastReadChanges?: string;
@@ -168,7 +186,8 @@ export interface UserRequest {
   fullName?: string;
   phone?: string;
   permissions: string[];
-  initialLocationName?: string; // create: name of the first location to create for the user
+  /** Organisations the user belongs to. At least one is required. */
+  organisationIds: number[];
 }
 
 /** The currently authenticated user (same shape as User). */
@@ -178,6 +197,7 @@ export type AuthUser = User;
 export const PERMISSIONS: { key: string; label: string }[] = [
   { key: 'PARTS_EDIT', label: 'Add/edit parts' },
   { key: 'USERS_EDIT', label: 'Add/edit users' },
+  { key: 'GLOBAL_ADMIN', label: 'Global Administrator' },
 ];
 
 export interface StockEntry {
@@ -188,8 +208,6 @@ export interface StockEntry {
   locationId: number;
   locationName: string;
   locationBreadcrumb: string;
-  ownerId?: number;
-  ownerName?: string;
   quantity: number;
   unitPrice?: number | null;
 }
@@ -437,14 +455,15 @@ export interface CategorizationStatus {
   lastError?: string | null;
 }
 
-export interface UserDashboard {
-  userId: number;
-  userName: string;
+/** Per-root-location breakdown of the stock held in the current organisation. */
+export interface LocationDashboard {
+  locationId: number;
+  locationName: string;
+  /** Locations in this root's subtree, including the root itself. */
   locations: number;
   parts: number;
   totalQuantity: number;
   totalStockValue: number;
-  lowStockCount: number;
 }
 
 // Label printing: browser print dialog vs a paired local daemon
@@ -500,5 +519,5 @@ export interface Dashboard {
   totalCategories: number;
   lowStockCount: number;
   totalStockValue: number;
-  perUser: UserDashboard[];
+  perLocation: LocationDashboard[];
 }

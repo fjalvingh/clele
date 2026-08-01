@@ -16,8 +16,6 @@ public class StockEntryDTO {
     private Long locationId;
     private String locationName;
     private String locationBreadcrumb;
-    private Long ownerId;
-    private String ownerName;
     private Integer quantity;
     private BigDecimal unitPrice;
 }

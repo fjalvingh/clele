@@ -18,9 +18,14 @@ public class SpecDefinition {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** Machine key used as the JSON key inside {@code part.specs}. */
-    @Column(name = "json_name", nullable = false, unique = true, length = 100)
+    /** Machine key used as the JSON key inside {@code part.specs}. Unique per organisation. */
+    @Column(name = "json_name", nullable = false, length = 100)
     private String jsonName;
+
+    /** The organisation this spec field belongs to. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organisation_id", nullable = false)
+    private Organisation organisation;
 
     /** Human-readable display title. */
     @Column(nullable = false, length = 100)

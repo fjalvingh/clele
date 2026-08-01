@@ -17,6 +17,7 @@ import QuickAddPage from './pages/QuickAdd';
 import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectsPage from './pages/Projects';
 import SpecDefinitionsPage from './pages/SpecDefinitions';
+import OrganisationsPage from './pages/Organisations';
 import UsersPage from './pages/Users';
 
 function RequireAuth({ children }: { children: React.ReactElement }) {
@@ -67,6 +68,7 @@ export default function App() {
             <Route path="projects/:id" element={<ProjectDetailPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="users" element={<UsersPage />} />
+            <Route path="organisations" element={<OrganisationsPage />} />
             <Route path="admin-actions" element={<AdminActionsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
