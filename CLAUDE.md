@@ -2,6 +2,18 @@
 
 Full-stack web app for managing electronic component inventory with AI-powered part lookup.
 
+## Naming — "Clele" is internal, "Sortiment" is public
+
+**"Clele" is the code name only.** It is fine — and permanent — in package names
+(`com.clele.parts`), the repository, the database, config keys, file paths and log output. It must
+**never** appear in anything a user reads: screen text, page titles, mail subjects and bodies,
+error messages shown in the UI, or the mail sender name. Those all say **Sortiment**.
+
+The backend holds it once, as `app.public-name` (`AppProperties.publicName`, default "Sortiment") —
+mail templates read it from there rather than hardcoding a name. The frontend uses the literal
+"Sortiment" (sidebar, login, `index.html` title). When writing any new user-facing string, check
+which name you are using.
+
 ## Changelog
 
 User-visible change notes live in `backend/src/main/resources/changes/` as HTML fragments named
@@ -143,8 +155,10 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   - V38 deletes the `USERS_EDIT` permission rows from both permission tables. It granted nothing
     once V37 gated the member list, membership and permission editing on `ORG_ADMIN`, and V37 had
     already given `ORG_ADMIN` to every holder — so nothing is lost
+  - V39 adds `organisation_invitation` (+ `organisation_invitation_permission`): an Organisation
+    Admin no longer adds members directly, they **invite** an email address (see Invitations below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V39** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V40** (always check `db/migration/` for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
@@ -170,9 +184,11 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   `model/Permissions.java` (`GLOBAL` / `PER_ORGANISATION` sets) and mirrored in the frontend
   `api/types.ts` as `GLOBAL_PERMISSIONS` / `ORGANISATION_PERMISSIONS`:
   - `ORG_ADMIN` — "Organisation Admin": organisation-level administration (the Admin Actions
-    screen), seeing the organisation's members, adding users to it, and setting their permissions
-    **within it**. This is the *only* permission that grants any of that — a separate `USERS_EDIT`
-    ("invite users") existed briefly but granted nothing and was dropped in V38
+    screen), seeing the organisation's members, **inviting** users to it, removing them, and setting
+    their permissions **within it**. This is the *only* permission that grants any of that — a
+    separate `USERS_EDIT` ("invite users") existed briefly but granted nothing and was dropped in
+    V38. Note what it does *not* grant: creating or editing an account, or attaching an existing
+    one — see Invitations below
   - `PARTS_EDIT` — "Add/edit parts"
   - `GLOBAL_ADMIN` — **global**: add/edit organisations and user accounts, switch into any
     organisation (including the template), and implicitly hold **every** per-organisation
@@ -208,8 +224,8 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   **7-day sliding idle window** (`server.servlet.session.timeout: 7d`) — each request resets it;
   Spring Session reaps expired rows hourly.
 - **Enforcement**:
-  - All `/api/**` requires an authenticated session **except** `/api/auth/login`, `/api/settings`
-    (and swagger / api-docs). Static SPA assets + the client-router fallback are public.
+  - All `/api/**` requires an authenticated session **except** `/api/auth/login`, `/api/settings`,
+    `/api/invitations/token/**` (answering an invitation — see Invitations) and swagger / api-docs. Static SPA assets + the client-router fallback are public.
   - Specific mutations are gated with method security (`@EnableMethodSecurity` +
     `@PreAuthorize("hasAuthority('…')")`): part mutations (create/update/delete, image
     upload/from-url/delete, quick-add, auto-categorize, OctoPart search/apply) require `PARTS_EDIT`;
@@ -330,8 +346,11 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
 - App-wide (non-user) settings live in config under `app.*` (`config/AppProperties`,
   `@ConfigurationProperties`) and are exposed to the SPA via **`GET /api/settings`**
   (`SettingsController`, **public** — permitted in `SecurityConfig`, non-sensitive).
-- Currently just the **currency**: `app.currency.code` (default `EUR`) + `app.currency.symbol`
-  (default `€`). There is a single app-wide currency — prices are not stored with a currency.
+- The **currency**: `app.currency.code` (default `EUR`) + `app.currency.symbol` (default `€`).
+  There is a single app-wide currency — prices are not stored with a currency.
+- Also under `app.*` but **not** exposed to the SPA: `app.base-url` (`APP_BASE_URL`) and
+  `app.mail.*` (from address, invitation expiry), used to build and send invitation mails — see
+  Invitations.
 - **Frontend**: `settings/SettingsContext` (`SettingsProvider` in `App.tsx`, wraps the routes) loads
   `/settings` once on mount with a sensible default (`€`) so prices render before/independent of the
   fetch. `useSettings()` exposes `settings` + `formatMoney(amount)` ("€ 12.34"); used wherever prices
@@ -373,7 +392,9 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   reports/edits only their permissions *there* — that is exactly an `ORG_ADMIN`'s reach.
   `AdminUserService`/`AdminUserController` (`/api/admin/users`, the **All Users** screen) is the
   `GLOBAL_ADMIN` view and crosses every boundary: all accounts, all memberships, all
-  per-organisation permissions. They are not merged precisely because the first exists to *contain*
+  per-organisation permissions — and it is the **only** place an account is created, edited or
+  deleted (`POST`/`PUT`/`DELETE /api/admin/users`; `POST /api/users` and `PUT/DELETE /api/users/{id}`
+  were removed). They are not merged precisely because the first exists to *contain*
   an Organisation Admin, and one over-wide method in a shared controller would silently undo that.
   `AdminUserDTO` carries `memberships[]` (`UserMembershipDTO`: organisation + permissions +
   `implied`); `implied` is true when the permissions come from `GLOBAL_ADMIN` rather than stored
@@ -381,16 +402,83 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   - Guardrails in `AdminUserService`: removing a membership also clears the permissions held there
     (otherwise re-adding silently restores access); the **last** organisation cannot be removed
     (409 — delete the account instead); and you cannot strip your **own** `GLOBAL_ADMIN`, since this
-    screen is the only place it can be granted and the UI could not undo it.
+    screen is the only place it can be granted and the UI could not undo it; and you cannot delete
+    your **own** account. `create` requires at least one organisation — an account in none can sign
+    in and see nothing.
 - **Frontend**: the switcher lives in the sidebar footer above the current user
   (`components/Layout.tsx`) and again on My Account; both **reload the page** after switching —
   every page fetches on mount, so only a full reload guarantees no stale cross-organisation data.
-  `pages/Organisations.tsx` is the `GLOBAL_ADMIN` management screen; `pages/Users.tsx` assigns
-  membership (at least one required); `pages/AllUsers.tsx` is the installation-wide **All Users**
+  `pages/Organisations.tsx` is the `GLOBAL_ADMIN` management screen; `pages/Users.tsx` lists members
+  and invitations and holds the Invite dialog; `pages/AllUsers.tsx` is the installation-wide **All Users**
   screen (`GLOBAL_ADMIN`, route `/all-users`) — a table of every account with its organisations,
   and a per-user panel editing account details, global permissions, memberships and the permissions
   within each. Membership and permission changes save **per click** (one call each, since they are
   independent facts about different organisations); account details keep an explicit Save.
+
+## Invitations
+
+How an Organisation Admin brings someone in — and the **only** way they can. They cannot create an
+account (an email is unique installation-wide, so that is `GLOBAL_ADMIN` on the All Users screen)
+and they cannot attach an existing one by email either: that would let one organisation's admin
+conscript another's user without their knowledge. They invite an address; the invitee decides.
+
+- **`organisation_invitation`** (V39) holds email + organisation + inviting user + status
+  (`InvitationStatus`: PENDING/ACCEPTED/DECLINED/REVOKED) + `expires_at`, with the permissions the
+  invitee will hold on acceptance in `organisation_invitation_permission`. The `token` (32 random
+  bytes, URL-safe base64) is the **whole credential** on the mailed link, hence single-use and
+  expiring (`app.mail.invitation-expiry-days`, default 14).
+- **Two controllers, deliberately split** the same way the two user screens are:
+  `InvitationController` (`/api/invitations`, class-level `ORG_ADMIN`) is the inviting side —
+  list / `lookup?email=` / create / revoke, all scoped to the organisation in force.
+  `InvitationAccessController` (`/api/invitations/token/**`) is the invitee's side and is
+  **`permitAll`** in `SecurityConfig`, because whoever follows the link may have no account at all.
+  A public method inside the `ORG_ADMIN` controller would be one annotation away from a mistake.
+- **`lookup`** answers "who is this address?" for the invite dialog (exists / full name / already a
+  member / already invited) so the admin can see they are inviting the person they meant. It is
+  readable by any Organisation Admin for an arbitrary address, so it reveals only the display name.
+- **Accepting**: `InvitationService.accept` adds the membership and applies the invited permissions.
+  If no account exists it creates one first, requiring full name, phone **and** a password (without
+  one the account cannot log in). For an **existing** account the request body is *ignored entirely*
+  — the token proves control of a mailbox, which is enough to add a membership and nowhere near
+  enough to rewrite someone's name or password.
+- **Mail is optional.** `MailService` composes the message and hands it to the configured provider
+  (see Outgoing Mail below); with none configured it logs the link instead and reports
+  `mailSent: false`, and the invite dialog then shows the link so the admin can pass it on. A send
+  failure never fails the invitation — the row is valid and the link works. Set `APP_BASE_URL` when
+  the app sits behind a proxy that rewrites the host — otherwise the link is derived from the
+  request that created the invitation.
+- **Frontend**: `pages/Users.tsx` has the **Invite user** dialog (email with a debounced
+  `lookup` shown beside it, plus the per-organisation permission checkboxes) and a table of every
+  invitation sent, with Withdraw on the outstanding ones. `pages/AcceptInvitation.tsx` is the
+  invitee's page at the **public** route `/invite/:token` (registered outside `RequireAuth` in
+  `App.tsx`); it asks for name/phone/password only when the invitation reports `newAccount`.
+
+## Outgoing Mail
+
+Mail delivery is behind a provider interface so the email service can be swapped **by
+configuration, never by code**. Package `com.clele.parts.mail`:
+
+- **`MailProvider`** — the API: `name()` (the config name), `isConfigured()`, `send(EmailMessage)`,
+  throwing `MailSendException`. **`EmailMessage`** is the provider-neutral message (from + fromName,
+  to, subject, text, optional html) — `EmailMessage.plain(...)` for the common case.
+- **`MailProviderRegistry`** collects every `MailProvider` bean and returns the one named by
+  `app.mail.provider`. An **unknown name fails at startup** — falling back silently would mean a
+  typo sends mail through the wrong account, or not at all. `none` disables sending. A selected but
+  *unconfigured* provider is not an error: `active()` returns empty and `MailService` logs the mail
+  (including the invitation link) instead — that is what makes a fresh install and local dev work.
+- **Implementations**: `SmtpMailProvider` (`smtp`, the default — Spring's `JavaMailSender`,
+  configured under `spring.mail.*`; unconfigured while `spring.mail.host` is blank) and
+  `MailerSendMailProvider` (`mailersend` — the MailerSend HTTP API, `POST {base-url}/email` with a
+  Bearer token; **202 Accepted** means queued, and its rejection body is reported through verbatim
+  because unverified-domain/suppression/quota errors are only fixable at MailerSend).
+- **Adding a provider** = one `@Component implements MailProvider` + its settings under
+  `app.mail.<name>`. Nothing else changes; `MailService` knows what a mail *says*, never how it
+  travels.
+- **Config** (`app.mail.*`): `provider` (`MAIL_PROVIDER`, default `smtp`), `from` (`MAIL_FROM`),
+  `from-name` (`MAIL_FROM_NAME`), `invitation-expiry-days`, and
+  `mailersend.api-key` (`MAILERSEND_API_KEY`) / `mailersend.base-url`. SMTP still takes
+  `MAIL_HOST`/`MAIL_PORT`/`MAIL_USERNAME`/`MAIL_PASSWORD` under `spring.mail.*`.
+  MailerSend requires the `from` address to be on a domain verified in the MailerSend account.
 
 ## Locations
 
@@ -674,7 +762,9 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
 
 - **CRUD** for parts, categories (hierarchical), locations, stock entries
 - **User accounts & login** with permission-based UI gating + backend enforcement (see
-  Authentication & Authorization above); Users management screen + add/edit modal
+  Authentication & Authorization above). Accounts are created and edited only by a Global
+  Administrator (All Users screen); an Organisation Admin brings people in by **invitation** — a
+  mailed accept/refuse link that creates the account if there is none (see Invitations)
 - **Parts search screen**: searches on demand (name / part number / description full-text), filters
   by category subtree, sortable by part number or manufacturer. A **"More search options"** panel
   under the search bar (collapsed by default, auto-opened when the restored URL uses it) adds
@@ -741,8 +831,8 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
 
 ## API Endpoints (all under /api)
 
-- `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` — session auth (`/auth/login` and
-  `/settings` are the only unauthenticated `/api` endpoints); `/auth/me` includes `hasOctopartCredentials`
+- `POST /auth/login`, `POST /auth/logout`, `GET /auth/me` — session auth (`/auth/login`,
+  `/settings` and `/invitations/token/**` are the only unauthenticated `/api` endpoints); `/auth/me` includes `hasOctopartCredentials`
 - `GET /settings` — app-wide settings (currency); **public** (see App Settings)
 - `GET/PUT /profile/octopart` — self-service: current user's OctoPart (Nexar) credentials
   (authenticated; secret never returned)
@@ -762,11 +852,17 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
   organisation in force for this session (authenticated). See Organisations above
 - `GET /users`, `GET /users/{id}` — the **members of the current organisation** (requires
   `ORG_ADMIN`); `PUT /users/{id}/permissions` — set a member's permissions in the current
-  organisation only (`ORG_ADMIN`); `POST /users/members` `{email}` / `DELETE /users/members/{id}` —
-  add an existing account to / remove it from the current organisation (`ORG_ADMIN`);
-  `POST /users`, `PUT/DELETE /users/{id}` — create, edit and delete the **account** itself
-  (requires `GLOBAL_ADMIN`: an email is unique across the installation)
+  organisation only (`ORG_ADMIN`); `DELETE /users/members/{id}` — remove a user from the current
+  organisation (`ORG_ADMIN`). Adding a member is **not** here — it happens by invitation, and the
+  account itself is managed under `/admin/users`
+- `GET /invitations`, `GET /invitations/lookup?email=`, `POST /invitations`,
+  `DELETE /invitations/{id}` — invite an address to the current organisation, all `ORG_ADMIN`;
+  `GET /invitations/token/{token}`, `POST /invitations/token/{token}/accept`,
+  `POST /invitations/token/{token}/decline` — the invitee's side, **unauthenticated** (the token is
+  the credential). See Invitations above
 - `GET /admin/users`, `GET /admin/users/{id}` — **every** account with **all** of its memberships;
+  `POST /admin/users` (create, `organisationIds` required) / `DELETE /admin/users/{id}` (delete the
+  account outright) — the only place accounts are created and deleted;
   `PUT /admin/users/{id}` — account details + global permissions;
   `POST /admin/users/{id}/organisations` `{organisationId}` /
   `DELETE /admin/users/{id}/organisations/{organisationId}` — membership;

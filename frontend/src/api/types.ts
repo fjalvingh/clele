@@ -238,6 +238,60 @@ export interface UserRequest {
   permissions: string[];
   /** Global permissions. Only a Global Administrator may set these. */
   globalPermissions?: string[];
+  /** Organisations a newly created account belongs to (All Users screen; at least one). */
+  organisationIds?: number[];
+}
+
+/** An invitation as the inviting organisation's admins see it. Never carries the token. */
+export interface Invitation {
+  id: number;
+  email: string;
+  /** Full name of the existing account behind the address, if there is one. */
+  fullName?: string;
+  permissions: string[];
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REVOKED';
+  expired: boolean;
+  invitedByName?: string;
+  createdAt: string;
+  expiresAt: string;
+  respondedAt?: string;
+  /** False when the mail could not be sent — the admin then passes `link` on themselves. */
+  mailSent: boolean;
+  /** Only returned in the response to creating the invitation. */
+  link?: string;
+}
+
+/** What the invitee sees on the (unauthenticated) accept/decline page. */
+export interface PublicInvitation {
+  email: string;
+  organisationName: string;
+  invitedByName?: string;
+  permissions: string[];
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REVOKED';
+  expired: boolean;
+  open: boolean;
+  /** No account for this address yet — accepting creates one, so we ask for name/phone/password. */
+  newAccount: boolean;
+}
+
+/** Who an email address belongs to, shown next to the invite dialog's email field. */
+export interface EmailLookup {
+  email: string;
+  exists: boolean;
+  fullName?: string;
+  member: boolean;
+  invited: boolean;
+}
+
+export interface InvitationRequest {
+  email: string;
+  permissions: string[];
+}
+
+export interface AcceptInvitationRequest {
+  fullName?: string;
+  phone?: string;
+  password?: string;
 }
 
 /** The currently authenticated user (same shape as User). */

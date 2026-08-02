@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
   addUserToOrganisation,
+  createAdminUser,
+  deleteAdminUser,
   getAllUsers,
   getOrganisations,
   removeUserFromOrganisation,
@@ -35,6 +37,16 @@ const formFor = (u: AdminUser): AccountForm => ({
   globalPermissions: [...(u.globalPermissions ?? [])],
 });
 
+/** A blank create form. At least one organisation must be picked before it can be saved. */
+const emptyNewUser = () => ({
+  email: '',
+  password: '',
+  fullName: '',
+  phone: '',
+  globalPermissions: [] as string[],
+  organisationIds: [] as number[],
+});
+
 /**
  * Every account in the installation, with every organisation it belongs to — the Global
  * Administrator's counterpart to the organisation-scoped Users screen.
@@ -57,6 +69,13 @@ export default function AllUsersPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [addOrgId, setAddOrgId] = useState('');
+
+  // Creating an account. This screen is the only place it happens other than someone accepting an
+  // invitation — an Organisation Admin invites instead (see the Users screen).
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newUser, setNewUser] = useState(emptyNewUser());
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -118,6 +137,52 @@ export default function AllUsersPage() {
       setFormError((e as Error).message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openCreate = () => {
+    setNewUser(emptyNewUser());
+    setCreateError(null);
+    setCreateOpen(true);
+  };
+
+  const handleCreate = async () => {
+    setCreating(true);
+    setCreateError(null);
+    try {
+      await createAdminUser({
+        email: newUser.email.trim(),
+        password: newUser.password,
+        fullName: newUser.fullName.trim(),
+        phone: newUser.phone.trim(),
+        permissions: [],
+        globalPermissions: newUser.globalPermissions,
+        organisationIds: newUser.organisationIds,
+      });
+      setCreateOpen(false);
+      load();
+    } catch (e: unknown) {
+      setCreateError((e as Error).message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeleteAccount = async (u: AdminUser) => {
+    if (
+      !confirm(
+        `Delete the account "${u.email}" entirely, in every organisation?\n\n` +
+          'This cannot be undone. If they created parts, delete those first (Users screen → ' +
+          'Delete parts) — the database refuses while any of their parts remain.',
+      )
+    )
+      return;
+    try {
+      await deleteAdminUser(u.id);
+      if (selected?.id === u.id) setSelected(null);
+      load();
+    } catch (e: unknown) {
+      alert((e as Error).message);
     }
   };
 
@@ -184,10 +249,19 @@ export default function AllUsersPage() {
 
   return (
     <div className="p-8">
-      <h1 className="mb-2 text-2xl font-bold text-gray-900">All Users</h1>
+      <div className="mb-2 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-gray-900">All Users</h1>
+        <button
+          onClick={openCreate}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          + New User
+        </button>
+      </div>
       <p className="mb-6 text-sm text-gray-600">
         Every account in this installation. Select one to edit its details, change which
-        organisations it belongs to, and set what it may do in each of them.
+        organisations it belongs to, and set what it may do in each of them. This is the only place
+        accounts are created and edited — an Organisation Admin invites people instead.
       </p>
 
       {loading && <p className="text-gray-500">Loading...</p>}
@@ -200,15 +274,132 @@ export default function AllUsersPage() {
           keyExtractor={(u) => u.id}
           onRowClick={open}
           actions={(u) => (
-            <button
-              onClick={() => open(u)}
-              className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-            >
-              Manage
-            </button>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => open(u)}
+                className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+              >
+                Manage
+              </button>
+              <button
+                onClick={(e) => {
+                  // The row itself opens the manage panel; deleting must not also do that.
+                  e.stopPropagation();
+                  void handleDeleteAccount(u);
+                }}
+                className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                title="Delete this account entirely"
+              >
+                Delete
+              </button>
+            </div>
           )}
         />
       )}
+
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="New user account">
+        <FormField
+          label="Email *"
+          type="email"
+          value={newUser.email}
+          onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+          placeholder="e.g. jane@example.com"
+        />
+        <FormField
+          label="Full name"
+          value={newUser.fullName}
+          onChange={(e) => setNewUser({ ...newUser, fullName: e.target.value })}
+        />
+        <FormField
+          label="Phone"
+          value={newUser.phone}
+          onChange={(e) => setNewUser({ ...newUser, phone: e.target.value })}
+        />
+        <FormField
+          label="Password *"
+          type="password"
+          autoComplete="new-password"
+          value={newUser.password}
+          onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+        />
+
+        <div className="mb-4">
+          <span className="block text-sm font-medium text-gray-700">Organisations *</span>
+          <p className="mb-2 text-xs text-gray-500">
+            At least one — an account belonging to none can sign in and see nothing.
+          </p>
+          <div className="max-h-40 overflow-y-auto">
+            {organisations.map((o) => (
+              <label key={o.id} className="mb-1 flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={newUser.organisationIds.includes(o.id)}
+                  onChange={() =>
+                    setNewUser({
+                      ...newUser,
+                      organisationIds: newUser.organisationIds.includes(o.id)
+                        ? newUser.organisationIds.filter((id) => id !== o.id)
+                        : [...newUser.organisationIds, o.id],
+                    })
+                  }
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <span className="text-sm text-gray-700">
+                  {o.name}
+                  {o.template ? ' (template)' : ''}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <span className="block text-sm font-medium text-gray-700">Global permissions</span>
+          {GLOBAL_PERMISSIONS.map((p) => (
+            <label key={p.key} className="mt-2 flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={newUser.globalPermissions.includes(p.key)}
+                onChange={() =>
+                  setNewUser({
+                    ...newUser,
+                    globalPermissions: newUser.globalPermissions.includes(p.key)
+                      ? newUser.globalPermissions.filter((k) => k !== p.key)
+                      : [...newUser.globalPermissions, p.key],
+                  })
+                }
+                className="rounded border-gray-300 text-blue-600"
+              />
+              <span className="text-sm text-gray-700">{p.label}</span>
+            </label>
+          ))}
+          <p className="mt-1 text-xs text-gray-500">
+            Permissions within each organisation are set after creating, in the manage panel.
+          </p>
+        </div>
+
+        {createError && <p className="mb-3 text-sm text-red-600">{createError}</p>}
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={() => setCreateOpen(false)}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={
+              creating ||
+              !newUser.email.trim() ||
+              !newUser.password.trim() ||
+              newUser.organisationIds.length === 0
+            }
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {creating ? 'Creating…' : 'Create'}
+          </button>
+        </div>
+      </Modal>
 
       <Modal
         open={!!selected}

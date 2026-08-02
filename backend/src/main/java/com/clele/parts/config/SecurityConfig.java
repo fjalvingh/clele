@@ -111,6 +111,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login").permitAll()
                         .requestMatchers("/api/settings").permitAll()
+                        // Answering an invitation is done from a mailed link by someone who may
+                        // have no account at all. The token in the path is the credential; see
+                        // InvitationAccessController.
+                        .requestMatchers("/api/invitations/token/**").permitAll()
                         .requestMatchers("/api-docs/**", "/v3/api-docs/**",
                                 "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/**").authenticated()

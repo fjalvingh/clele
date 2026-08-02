@@ -10,6 +10,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -43,6 +45,19 @@ public class AdminUserController {
     @Operation(summary = "Get one user account with all of its organisation memberships")
     public AdminUserDTO getById(@PathVariable Long id) {
         return adminUserService.findById(id);
+    }
+
+    @PostMapping
+    @Operation(summary = "Create a user account in one or more organisations")
+    public ResponseEntity<AdminUserDTO> create(@Valid @RequestBody UserRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(adminUserService.create(request));
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete a user account entirely, in every organisation")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        adminUserService.delete(id);
+        return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{id}")

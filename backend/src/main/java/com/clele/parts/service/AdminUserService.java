@@ -41,6 +41,7 @@ public class AdminUserService {
     private final OrganisationRepository organisationRepository;
     private final PasswordEncoder passwordEncoder;
     private final CurrentUserService currentUserService;
+    private final ChangesService changesService;
 
     /** Every account, with all of its memberships. */
     public List<AdminUserDTO> findAll() {
@@ -49,6 +50,63 @@ public class AdminUserService {
 
     public AdminUserDTO findById(Long id) {
         return toDTO(getOrThrow(id));
+    }
+
+    /**
+     * Create an account. This is the only place an account comes into being other than someone
+     * accepting an invitation, and both are deliberate: an Organisation Admin gets neither, because
+     * an email is unique across the installation and an account outlives any one organisation.
+     *
+     * <p>At least one organisation is required — an account belonging to none can log in and then
+     * see nothing at all.
+     */
+    @Transactional
+    public AdminUserDTO create(UserRequest request) {
+        if (request.getPassword() == null || request.getPassword().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password is required");
+        }
+        String email = normalizeEmail(request.getEmail());
+        if (userRepository.existsByEmail(email)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists: " + email);
+        }
+        Set<Organisation> organisations = resolveOrganisations(request.getOrganisationIds());
+        AppUser user = AppUser.builder()
+                .email(email)
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .fullName(request.getFullName())
+                .phone(request.getPhone())
+                .permissions(sanitize(request.getGlobalPermissions(), Permissions.GLOBAL::contains))
+                .organisations(new HashSet<>(organisations))
+                // A brand-new account has nothing to catch up on in the changelog.
+                .lastReadChanges(changesService.getLatestDate())
+                .build();
+        user.setLastOrganisation(organisations.iterator().next());
+        return toDTO(userRepository.save(user));
+    }
+
+    /**
+     * Delete an account outright, in every organisation. Parts they created keep a non-null FK to
+     * them, so the DB refuses this until those are removed (the Users screen's "Delete parts").
+     */
+    @Transactional
+    public void delete(Long id) {
+        AppUser user = getOrThrow(id);
+        if (user.getId().equals(currentUserService.current().getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "You cannot delete your own account");
+        }
+        userRepository.delete(user);
+    }
+
+    private Set<Organisation> resolveOrganisations(Set<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Pick at least one organisation for this user");
+        }
+        return ids.stream()
+                .map(id -> organisationRepository.findById(id)
+                        .orElseThrow(() -> new EntityNotFoundException("Organisation not found: " + id)))
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
     }
 
     /**

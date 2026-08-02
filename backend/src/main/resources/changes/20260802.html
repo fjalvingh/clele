@@ -1,0 +1,55 @@
+<h4>Inviting people, instead of adding them</h4>
+<p>
+  An Organisation Admin no longer adds people to an organisation directly. The
+  <strong>Users</strong> screen has a new <strong>Invite user</strong> button: type the email address
+  of the person you want, tick what they should be allowed to do in this organisation, and send it.
+  They receive a mail naming you and the organisation, with a link to accept or refuse.
+</p>
+<p>
+  While you type the address, the name of the account behind it appears underneath, so you can see
+  you are inviting the person you meant. If they are already a member, or already have an invitation
+  outstanding, it says so and the button is disabled.
+</p>
+<p>
+  The reason for the change is consent: the old <em>Add existing user</em> button let one
+  organisation's administrator pull in anyone whose email address they happened to know, without
+  that person ever being asked. Now the invitee decides. Only when they accept do they join, and
+  only then do the permissions you chose take effect.
+</p>
+<p>
+  If the invitee has no account yet, one is created for them when they accept — they are asked for
+  their name, phone number and a password on the spot. If they already have an account, nothing
+  about it changes: accepting only adds the new organisation.
+</p>
+<p>
+  Every invitation you have sent is listed under the member table, with its status — awaiting reply,
+  accepted, refused, withdrawn or expired. Outstanding ones can be withdrawn with
+  <strong>Withdraw</strong>. Invitations expire after two weeks.
+</p>
+
+<h4>Accounts are managed in one place</h4>
+<p>
+  Creating, editing and deleting a user <em>account</em> now happens only on <strong>All
+  Users</strong>, the Global Administrator's screen. That screen gained a <strong>+ New User</strong>
+  button (pick the organisations the account belongs to — at least one) and a
+  <strong>Delete</strong> action per row.
+</p>
+<p>
+  The Users screen keeps everything that is genuinely about <em>this</em> organisation: who is in it,
+  what they may do here, removing them from it, and deleting the parts they created. Its
+  <em>New User</em>, <em>Edit</em> and <em>Add existing user</em> buttons are gone — an email address
+  identifies one person across the whole installation, so an account was never an organisation's to
+  create.
+</p>
+
+<h4>For administrators: sending mail</h4>
+<p>
+  Invitation mails need an SMTP server. Set <code>MAIL_HOST</code> (and where needed
+  <code>MAIL_PORT</code>, <code>MAIL_USERNAME</code>, <code>MAIL_PASSWORD</code>,
+  <code>MAIL_FROM</code>) in the environment. Set <code>APP_BASE_URL</code> to the address users
+  reach the app on if it sits behind a proxy; otherwise the link is built from the request.
+</p>
+<p>
+  Without a mail server configured nothing breaks: the invitation is still created, and the dialog
+  shows you the link to pass on yourself.
+</p>

@@ -7,6 +7,7 @@ import AdminActionsPage from './pages/AdminActions';
 import CategoriesPage from './pages/Categories';
 import DashboardPage from './pages/Dashboard';
 import LocationsPage from './pages/Locations';
+import AcceptInvitationPage from './pages/AcceptInvitation';
 import LoginPage from './pages/Login';
 import LowStockPage from './pages/LowStock';
 import PartDetailPage from './pages/PartDetail';
@@ -66,6 +67,8 @@ export default function App() {
         <SettingsProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* Public: followed from an invitation mail by someone who may have no account yet. */}
+          <Route path="/invite/:token" element={<AcceptInvitationPage />} />
           <Route
             element={
               <RequireAuth>

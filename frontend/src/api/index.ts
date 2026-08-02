@@ -1,5 +1,6 @@
 import client from './client';
 import type {
+  AcceptInvitationRequest,
   AdminUser,
   AppSettings,
   AuthUser,
@@ -10,6 +11,9 @@ import type {
   CategoryTree,
   Dashboard,
   DatasheetSuggestion,
+  EmailLookup,
+  Invitation,
+  InvitationRequest,
   ImageSuggestion,
   Location,
   LocationRequest,
@@ -21,6 +25,7 @@ import type {
   OctopartResult,
   Organisation,
   OrganisationRequest,
+  PublicInvitation,
   OctopartUsage,
   PrintDaemon,
   PrintDaemonUpdateRequest,
@@ -201,10 +206,6 @@ export const getSettings = () =>
   client.get<AppSettings>('/settings').then((r) => r.data);
 
 // Users
-/** Add an existing account to the current organisation, by email. */
-export const addOrganisationMember = (email: string) =>
-  client.post<User>('/users/members', { email }).then((r) => r.data);
-
 /** Remove a user from the current organisation (the account itself remains). */
 export const removeOrganisationMember = (id: number) => client.delete(`/users/members/${id}`);
 
@@ -218,14 +219,30 @@ export const getUsers = () =>
 export const getUser = (id: number) =>
   client.get<User>(`/users/${id}`).then((r) => r.data);
 
-export const createUser = (data: UserRequest) =>
-  client.post<User>('/users', data).then((r) => r.data);
+// Invitations — how an Organisation Admin brings someone in. Creating and editing the account
+// itself is GLOBAL_ADMIN and lives under /admin/users below.
+export const getInvitations = () =>
+  client.get<Invitation[]>('/invitations').then((r) => r.data);
 
-export const updateUser = (id: number, data: UserRequest) =>
-  client.put<User>(`/users/${id}`, data).then((r) => r.data);
+/** Who an email address belongs to, for the invite dialog. */
+export const lookupEmail = (email: string) =>
+  client.get<EmailLookup>('/invitations/lookup', { params: { email } }).then((r) => r.data);
 
-export const deleteUser = (id: number) =>
-  client.delete(`/users/${id}`);
+export const createInvitation = (data: InvitationRequest) =>
+  client.post<Invitation>('/invitations', data).then((r) => r.data);
+
+export const revokeInvitation = (id: number) => client.delete(`/invitations/${id}`);
+
+// The invitee's side: reached from a mailed link with no session at all, so these are the only
+// user endpoints that work unauthenticated. The token is the credential.
+export const getInvitationByToken = (token: string) =>
+  client.get<PublicInvitation>(`/invitations/token/${token}`).then((r) => r.data);
+
+export const acceptInvitation = (token: string, data: AcceptInvitationRequest) =>
+  client.post<PublicInvitation>(`/invitations/token/${token}/accept`, data).then((r) => r.data);
+
+export const declineInvitation = (token: string) =>
+  client.post<PublicInvitation>(`/invitations/token/${token}/decline`).then((r) => r.data);
 
 // All Users — installation-wide administration (GLOBAL_ADMIN). Unlike the /users endpoints above,
 // these cross organisation boundaries: they see every account and its permissions everywhere.
@@ -234,6 +251,13 @@ export const getAllUsers = () =>
 
 export const getAdminUser = (id: number) =>
   client.get<AdminUser>(`/admin/users/${id}`).then((r) => r.data);
+
+/** Create an account, in one or more organisations. */
+export const createAdminUser = (data: UserRequest) =>
+  client.post<AdminUser>('/admin/users', data).then((r) => r.data);
+
+/** Delete an account entirely, in every organisation. */
+export const deleteAdminUser = (id: number) => client.delete(`/admin/users/${id}`);
 
 /** Update account details and global permissions (not per-organisation ones). */
 export const updateAdminUser = (id: number, data: UserRequest) =>

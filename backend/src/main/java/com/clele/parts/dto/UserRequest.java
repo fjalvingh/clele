@@ -31,4 +31,10 @@ public class UserRequest {
 
     /** Global permissions (GLOBAL_ADMIN). Only a Global Administrator may set these. */
     private Set<String> globalPermissions = new HashSet<>();
+
+    /**
+     * Organisations the new account belongs to. Used when creating an account from the All Users
+     * screen, where there is no "current" organisation to fall back on; at least one is required.
+     */
+    private Set<Long> organisationIds = new HashSet<>();
 }

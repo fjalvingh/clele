@@ -2,7 +2,6 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.OrganisationDTO;
 import com.clele.parts.dto.UserDTO;
-import com.clele.parts.dto.UserRequest;
 import com.clele.parts.model.AppUser;
 import com.clele.parts.model.Location;
 import com.clele.parts.model.Organisation;
@@ -11,7 +10,6 @@ import com.clele.parts.repository.AppUserRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -35,8 +33,6 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private final AppUserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final ChangesService changesService;
     private final CurrentOrganisationService currentOrganisationService;
 
     /** The members of the current organisation. */
@@ -50,51 +46,6 @@ public class UserService {
     public UserDTO findById(Long id) {
         Organisation organisation = currentOrganisationService.current();
         return toDTO(requireMember(id, organisation), organisation);
-    }
-
-    /**
-     * Create a new account and make it a member of the current organisation. Restricted to a Global
-     * Administrator at the controller: an account is an installation-wide object.
-     */
-    @Transactional
-    public UserDTO create(UserRequest request) {
-        if (request.getPassword() == null || request.getPassword().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Password is required");
-        }
-        String email = normalizeEmail(request.getEmail());
-        if (userRepository.existsByEmail(email)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists: " + email);
-        }
-        Organisation organisation = currentOrganisationService.current();
-        AppUser user = AppUser.builder()
-                .email(email)
-                .passwordHash(passwordEncoder.encode(request.getPassword()))
-                .fullName(request.getFullName())
-                .phone(request.getPhone())
-                .permissions(sanitizeGlobalPermissions(request.getGlobalPermissions()))
-                .organisations(new HashSet<>(Set.of(organisation)))
-                .build();
-        user.setPermissionsIn(organisation.getId(),
-                sanitizeOrganisationPermissions(request.getPermissions()));
-        user.setLastOrganisation(organisation);
-        user.setLastReadChanges(changesService.getLatestDate());
-        return toDTO(userRepository.save(user), organisation);
-    }
-
-    /** Add an existing account to the current organisation, with no permissions to start with. */
-    @Transactional
-    public UserDTO addMember(String rawEmail) {
-        String email = normalizeEmail(rawEmail);
-        AppUser user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "No user account with email: " + email));
-        Organisation organisation = currentOrganisationService.current();
-        if (user.getOrganisations().stream().anyMatch(o -> o.getId().equals(organisation.getId()))) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "That user is already a member of this organisation");
-        }
-        user.getOrganisations().add(organisation);
-        return toDTO(userRepository.save(user), organisation);
     }
 
     /**
@@ -135,36 +86,6 @@ public class UserService {
         return toDTO(userRepository.save(user), organisation);
     }
 
-    /** Update account details. Global Administrator only — an account is installation-wide. */
-    @Transactional
-    public UserDTO update(Long id, UserRequest request) {
-        AppUser user = getOrThrow(id);
-        String email = normalizeEmail(request.getEmail());
-        if (userRepository.existsByEmailAndIdNot(email, id)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Email already exists: " + email);
-        }
-        user.setEmail(email);
-        user.setFullName(request.getFullName());
-        user.setPhone(request.getPhone());
-        if (request.getGlobalPermissions() != null) {
-            user.setPermissions(sanitizeGlobalPermissions(request.getGlobalPermissions()));
-        }
-        if (request.getPermissions() != null) {
-            user.setPermissionsIn(currentOrganisationService.currentId(),
-                    sanitizeOrganisationPermissions(request.getPermissions()));
-        }
-        // Only change the password when a new, non-blank one is supplied.
-        if (request.getPassword() != null && !request.getPassword().isBlank()) {
-            user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
-        }
-        return toDTO(userRepository.save(user), currentOrganisationService.current());
-    }
-
-    @Transactional
-    public void delete(Long id) {
-        userRepository.delete(getOrThrow(id));
-    }
-
     public long countAll() {
         return userRepository.count();
     }
@@ -186,15 +107,6 @@ public class UserService {
             throw new EntityNotFoundException("User not found: " + id);
         }
         return user;
-    }
-
-    private String normalizeEmail(String email) {
-        return email == null ? null : email.trim().toLowerCase();
-    }
-
-    /** Keep only recognised global permissions — a per-organisation key here would be meaningless. */
-    private Set<String> sanitizeGlobalPermissions(Set<String> permissions) {
-        return sanitize(permissions, Permissions.GLOBAL::contains);
     }
 
     /** Keep only recognised per-organisation permissions; GLOBAL_ADMIN cannot be granted this way. */
