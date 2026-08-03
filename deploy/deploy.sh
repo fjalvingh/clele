@@ -13,7 +13,7 @@ set -euo pipefail
 
 # ---- configuration (override via env) --------------------------------------
 DEPLOY_USER="${DEPLOY_USER:-jal}"                       # ssh login user (needs sudo on the server)
-DEPLOY_HOST="${DEPLOY_HOST:-surly.qd.ax}"               # ssh host, e.g. myserver.example.com
+DEPLOY_HOST="${DEPLOY_HOST:-pigalle.qd.ax}"               # ssh host, e.g. myserver.example.com
 SSH_PORT="${SSH_PORT:-22}"
 DEPLOY_DIR="${DEPLOY_DIR:-/env/clele}"               # where the jar lives on the server
 ENV_DIR="${ENV_DIR:-/etc/clele}"                     # where clele.env lives on the server
