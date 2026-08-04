@@ -171,10 +171,20 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     and drops Technical/Physical. It moves **only listed json_names**, so fields added since (and
     another organisation's own) keep their group, and it is **re-runnable** (upsert + idempotent
     update + conditional delete)
+  - V42 merges the spec definitions that were the same spec under a different source name — 24 per
+    organisation folded into 20 survivors (RDS(on) held as `rdsonmax`/`on_stateresistance`/
+    `draintosourceresistance`, IFSM as three names, VCEO/VDSS/VGS doublets, `gender`->`contactgender`
+    ...). It is the SQL equivalent of `SpecDefinitionService.merge`: aliases the source names, re-keys
+    part values (target's own non-blank value wins), re-points `category_spec`, drops the source.
+    Only **same-data_type** pairs are merged - a TEXT spec carries Partsbox ranges ("3..16") and a
+    NUMBER spec a scalar, so the cross-type near-duplicates (`operatingsupplyvoltage`/`supplyvoltage`,
+    `powerconsumption`/`powerdissipation`, `reversevoltage_dc_`/`reversevoltage`, `dielectric`/
+    `dielectricmaterial`, `breakdownvoltage`/`reversebreakdownvoltage`) are left for the UI after a
+    convert-to-number. Re-runnable
   - V39 adds `organisation_invitation` (+ `organisation_invitation_permission`): an Organisation
     Admin no longer adds members directly, they **invite** an email address (see Invitations below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V42** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V43** (always check `db/migration/` for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
