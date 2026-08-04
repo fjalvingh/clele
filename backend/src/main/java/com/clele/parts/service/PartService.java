@@ -37,6 +37,7 @@ public class PartService {
     private final CurrentUserService currentUserService;
     private final CurrentOrganisationService currentOrganisationService;
     private final TagService tagService;
+    private final SpecDefinitionService specDefinitionService;
 
     /**
      * Search the catalogue. Everything but {@code sort} is an optional filter, combined with AND:
@@ -197,7 +198,7 @@ public class PartService {
             java.util.Map<String, Object> merged = part.getSpecs() != null
                     ? new java.util.LinkedHashMap<>(part.getSpecs())
                     : new java.util.LinkedHashMap<>();
-            merged.putAll(request.getSpecs());
+            merged.putAll(specDefinitionService.canonicalizeKeys(request.getSpecs()));
             part.setSpecs(merged);
         }
 
@@ -248,7 +249,7 @@ public class PartService {
         part.setManufacturer(request.getManufacturer());
         part.setPersonalNumber(request.isPersonalNumber());
         part.setDatasheetUrl(request.getDatasheetUrl());
-        part.setSpecs(request.getSpecs());
+        part.setSpecs(specDefinitionService.canonicalizeKeys(request.getSpecs()));
         if (request.getCategoryId() != null) {
             Category category = categoryRepository
                     .findByIdAndOrganisationId(request.getCategoryId(), part.getOrganisation().getId())

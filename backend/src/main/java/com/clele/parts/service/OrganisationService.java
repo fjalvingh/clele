@@ -4,7 +4,9 @@ import com.clele.parts.dto.OrganisationDTO;
 import com.clele.parts.dto.OrganisationRequest;
 import com.clele.parts.model.Category;
 import com.clele.parts.model.Organisation;
+import com.clele.parts.model.SpecAlias;
 import com.clele.parts.model.SpecDefinition;
+import com.clele.parts.model.SpecGroup;
 import com.clele.parts.model.Tag;
 import com.clele.parts.repository.*;
 import jakarta.persistence.EntityNotFoundException;
@@ -33,6 +35,8 @@ public class OrganisationService {
     private final OrganisationRepository organisationRepository;
     private final CategoryRepository categoryRepository;
     private final SpecDefinitionRepository specDefinitionRepository;
+    private final SpecGroupRepository specGroupRepository;
+    private final SpecAliasRepository specAliasRepository;
     private final TagRepository tagRepository;
     private final PartRepository partRepository;
     private final LocationRepository locationRepository;
@@ -112,6 +116,19 @@ public class OrganisationService {
      * links are rebuilt against the copies.
      */
     private void copyContent(Organisation from, Organisation to) {
+        // Groups first — a spec definition cannot exist without one.
+        Map<Long, SpecGroup> groupCopies = new HashMap<>();
+        for (SpecGroup source :
+                specGroupRepository.findByOrganisationIdOrderByDisplayOrderAscNameAsc(from.getId())) {
+            SpecGroup copy = SpecGroup.builder()
+                    .organisation(to)
+                    .name(source.getName())
+                    .description(source.getDescription())
+                    .displayOrder(source.getDisplayOrder())
+                    .build();
+            groupCopies.put(source.getId(), specGroupRepository.save(copy));
+        }
+
         Map<Long, SpecDefinition> specCopies = new HashMap<>();
         for (SpecDefinition source :
                 specDefinitionRepository.findByOrganisationIdOrderByDisplayOrderAscNameAsc(from.getId())) {
@@ -124,9 +141,21 @@ public class OrganisationService {
                     .metricPrefix(source.isMetricPrefix())
                     .options(source.getOptions())
                     .displayOrder(source.getDisplayOrder())
-                    .majorType(source.getMajorType())
+                    .group(groupCopies.get(source.getGroup().getId()))
                     .build();
-            specCopies.put(source.getId(), specDefinitionRepository.save(copy));
+            SpecDefinition savedSpec = specDefinitionRepository.save(copy);
+            specCopies.put(source.getId(), savedSpec);
+
+            // The alternate names the spec is known by travel with it, or the copy would start
+            // re-accumulating the duplicates the original had already merged away.
+            for (SpecAlias alias :
+                    specAliasRepository.findBySpecDefinitionIdOrderByJsonNameAsc(source.getId())) {
+                specAliasRepository.save(SpecAlias.builder()
+                        .specDefinition(savedSpec)
+                        .organisation(to)
+                        .jsonName(alias.getJsonName())
+                        .build());
+            }
         }
 
         for (Tag source : tagRepository.findByOrganisationId(from.getId())) {

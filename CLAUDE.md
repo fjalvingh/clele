@@ -94,7 +94,8 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     Parts description search
   - V10 adds the `app_user` table (note: `user` is reserved in PostgreSQL) + `app_user_permission`
     child table, and seeds a bootstrap admin (see Authentication below)
-  - V11 adds `spec_definition.major_type` (display grouping); V12 adds location ownership
+  - V11 added `spec_definition.major_type` (display grouping — replaced by spec groups in V40);
+    V12 adds location ownership
     (`location.owner_id` + `app_user.default_location_id`, locations are per-user)
   - V13 adds per-user OctoPart (Nexar) credentials (`app_user.octopart_client_id` /
     `octopart_client_secret`) + the `octopart_usage(user_id, period 'YYYY-MM', request_count)`
@@ -155,10 +156,15 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   - V38 deletes the `USERS_EDIT` permission rows from both permission tables. It granted nothing
     once V37 gated the member list, membership and permission editing on `ORG_ADMIN`, and V37 had
     already given `ORG_ADMIN` to every holder — so nothing is lost
+  - V40 replaces `spec_definition.major_type` with **spec groups** and adds **spec aliases**:
+    `spec_group` (per organisation) + `spec_definition.group_id NOT NULL`, seeded so the three
+    MAJOR_TYPE values become each organisation's first groups (Dimensions/Technical/Physical), and
+    `spec_alias(spec_definition_id, organisation_id, json_name)` unique per organisation — the
+    alternate JSON names one spec is known by at its various sources (see Spec Groups & Aliases)
   - V39 adds `organisation_invitation` (+ `organisation_invitation_permission`): an Organisation
     Admin no longer adds members directly, they **invite** an email address (see Invitations below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V40** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V41** (always check `db/migration/` for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
@@ -480,6 +486,46 @@ configuration, never by code**. Package `com.clele.parts.mail`:
   `MAIL_HOST`/`MAIL_PORT`/`MAIL_USERNAME`/`MAIL_PASSWORD` under `spring.mail.*`.
   MailerSend requires the `from` address to be on a domain verified in the MailerSend account.
 
+## Spec Groups & Aliases
+
+Specifications come from several sources (Partsbox, OctoPart/Nexar, the AI lookup, hand entry), each
+with its own JSON key for the same concept. Two mechanisms keep that manageable:
+
+- **Groups** (`spec_group`, V40) are sets of related fields — "Power" holds supply voltage, average
+  current draw, max driver current; "MCU Specs" holds RAM/Flash/EEPROM size and the interface counts.
+  A spec belongs to **exactly one** (`spec_definition.group_id NOT NULL`), replacing the old fixed
+  `major_type` buckets — whose three values (Dimensions/Technical/Physical) V40 seeds as every
+  organisation's first groups. `SpecGroupService.defaultGroup()` is where a spec lands when the
+  caller names no group ("Technical", else the first by display order, else one created on the spot),
+  and it is what makes `rescanFromParts` and an API client that omits `groupId` work.
+- **Aliases** (`spec_alias`, V40) are the alternate JSON names one spec is known by, unique per
+  organisation exactly like `json_name`. They are what makes **merging** durable: folding `vsupply`
+  into `supplyvoltage` keeps `vsupply` as an alias, so the source that keeps sending it still lands on
+  the surviving spec instead of re-creating the duplicate. They can also be added by hand in the field
+  editor, to register a source's naming before a duplicate ever appears.
+
+**`SpecDefinitionService.canonicalizeKeys(specs)`** is the single resolution point: it rewrites an
+incoming spec map's keys onto the canonical names, and is called on every path that stores specs from
+outside (`PartService.buildPartFromRequest`, `applyOctopart`, `QuickAddService.createPart`). Unknown
+keys pass through untouched — an unrecognised spec is still worth storing, and a rescan turns it into
+a definition later. `rescanFromParts` skips keys that are an alias, or it would recreate exactly the
+duplicate a merge removed.
+
+**Merging** (`POST /spec-definitions/merge`, `PARTS_EDIT`) re-keys every part value from the sources
+onto the target's JSON name (**the target's own value wins** where a part has both — it is the
+definition the user chose to keep), moves the sources' names *and* their existing aliases onto the
+target, then deletes the sources. Deleting a group is refused while it still holds fields, so no spec
+is ever orphaned; the field-level "Move to group" is how you empty one.
+
+**Frontend**: `pages/SpecDefinitions.tsx` (`/specs`) is now the **group** overview — name,
+description, field count, plus the global "Rescan from parts". Opening a group navigates to
+`pages/SpecGroupDetail.tsx` (`/specs/:groupId`), which holds the field table with checkbox
+multi-select and the toolbar actions **Merge selected** (a radio picks which of the selected fields
+survives) and **Move to group**, alongside the per-row → Number / Edit / Delete. The field editor has
+the group selector and the comma-separated alias list. On **Part detail**, the Specifications card
+renders one section per group in a 3-column grid, in the groups' display order, with values whose key
+matches no definition collecting in a trailing "Other" section.
+
 ## Locations
 
 - Locations are **organisation-owned** (`location.organisation_id`, V36 — `owner_id` was dropped)
@@ -790,6 +836,8 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
   part, keyed by `type` (PHOTO/DATASHEET/ATTACHMENT) — see Part Attachments below. Photos: PNG-
   normalized, max 5. Datasheets & user attachments: original bytes + filename + content-type, uncapped
 - **Spec definitions**: configurable specification fields (text, number, boolean, select) with units; can be associated with categories
+  - Every definition belongs to exactly one **spec group** and may carry **aliases** — the other
+    JSON names the same spec has at other sources (see Spec Groups & Aliases)
   - Each definition has a `jsonName` (the exact key stored inside `part.specs`) separate from its
     human-readable `name`/title. All matching (AI prompt, Quick Add, Parts edit, Part detail) keys off `jsonName`
   - **Metric-prefix scaling** (`metricPrefix` flag, NUMBER + single unit): the stored value is in the
@@ -916,6 +964,10 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
 - `GET /parts-search?q=` — AI part search
 - `GET /parts-search/images?q=` — image suggestions
 - `GET /image-proxy?url=` — external image proxy
+- `GET/POST /spec-groups`, `GET/PUT/DELETE /spec-groups/{id}`, `GET /spec-groups/{id}/spec-definitions`
+  — spec groups and the fields inside one (see Spec Groups & Aliases)
+- `POST /spec-definitions/merge` `{targetId, sourceIds}` folds duplicate spec fields into one
+  (`PARTS_EDIT`); `POST /spec-definitions/move` `{specIds, groupId}` moves fields between groups
 - `GET/POST /spec-definitions`, `PUT/DELETE /spec-definitions/{id}`, `POST /spec-definitions/rescan`;
   `POST /spec-definitions/{id}/convert-to-number` converts a TEXT spec to NUMBER, parsing part values into
   a base unit (dry-run unless `commit:true`; requires `PARTS_EDIT`)

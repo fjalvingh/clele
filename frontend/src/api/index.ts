@@ -50,6 +50,10 @@ import type {
   QuickAddResponse,
   SpecDefinition,
   SpecDefinitionRequest,
+  SpecGroup,
+  SpecGroupRequest,
+  MergeSpecsRequest,
+  MoveSpecsRequest,
   StockAdjustRequest,
   StockEntry,
   StockEntryRequest,
@@ -361,6 +365,31 @@ export const updateSpecDefinition = (id: number, data: SpecDefinitionRequest) =>
 
 export const deleteSpecDefinition = (id: number) =>
   client.delete(`/spec-definitions/${id}`);
+
+export const mergeSpecDefinitions = (data: MergeSpecsRequest) =>
+  client.post<SpecDefinition>('/spec-definitions/merge', data).then((r) => r.data);
+
+export const moveSpecDefinitions = (data: MoveSpecsRequest) =>
+  client.post<SpecDefinition[]>('/spec-definitions/move', data).then((r) => r.data);
+
+// ---- Spec groups ----
+
+export const getSpecGroups = () =>
+  client.get<SpecGroup[]>('/spec-groups').then((r) => r.data);
+
+export const getSpecGroup = (id: number) =>
+  client.get<SpecGroup>(`/spec-groups/${id}`).then((r) => r.data);
+
+export const getSpecGroupFields = (id: number) =>
+  client.get<SpecDefinition[]>(`/spec-groups/${id}/spec-definitions`).then((r) => r.data);
+
+export const createSpecGroup = (data: SpecGroupRequest) =>
+  client.post<SpecGroup>('/spec-groups', data).then((r) => r.data);
+
+export const updateSpecGroup = (id: number, data: SpecGroupRequest) =>
+  client.put<SpecGroup>(`/spec-groups/${id}`, data).then((r) => r.data);
+
+export const deleteSpecGroup = (id: number) => client.delete(`/spec-groups/${id}`);
 
 export const rescanSpecDefinitions = () =>
   client.post<SpecDefinition[]>('/spec-definitions/rescan').then((r) => r.data);

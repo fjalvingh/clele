@@ -13,4 +13,8 @@ public interface SpecDefinitionRepository extends JpaRepository<SpecDefinition, 
     Optional<SpecDefinition> findByIdAndOrganisationId(Long id, Long organisationId);
 
     Optional<SpecDefinition> findByOrganisationIdAndJsonName(Long organisationId, String jsonName);
+
+    List<SpecDefinition> findByGroupIdOrderByDisplayOrderAscNameAsc(Long groupId);
+
+    long countByGroupId(Long groupId);
 }

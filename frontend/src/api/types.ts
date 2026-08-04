@@ -1,9 +1,18 @@
-// Display grouping for specs. Order here drives the column order on the Part detail page.
-export const MAJOR_TYPES = [
-  { key: 'DIMENSIONS', label: 'Dimensions' },
-  { key: 'TECHNICAL', label: 'Technical' },
-  { key: 'PHYSICAL', label: 'Physical' },
-] as const;
+// A set of related spec fields ("Power", "MCU Specs"). Groups replace the old fixed MAJOR_TYPES
+// buckets: every spec belongs to exactly one, and they drive the sections on the Part detail page.
+export interface SpecGroup {
+  id: number;
+  name: string;
+  description?: string;
+  displayOrder: number;
+  specCount: number;
+}
+
+export interface SpecGroupRequest {
+  name: string;
+  description?: string;
+  displayOrder: number;
+}
 
 export interface SpecDefinition {
   id: number;
@@ -14,7 +23,9 @@ export interface SpecDefinition {
   metricPrefix?: boolean; // NUMBER + single unit: scale value with metric prefixes
   options?: string[];
   displayOrder: number;
-  majorType: string; // DIMENSIONS | TECHNICAL | PHYSICAL
+  groupId: number;
+  groupName: string;
+  aliases?: string[]; // other JSON names this spec is known by, at other sources
 }
 
 export interface SpecDefinitionRequest {
@@ -25,7 +36,18 @@ export interface SpecDefinitionRequest {
   metricPrefix?: boolean;
   options?: string[];
   displayOrder: number;
-  majorType: string;
+  groupId?: number;
+  aliases?: string[];
+}
+
+export interface MergeSpecsRequest {
+  targetId: number;
+  sourceIds: number[];
+}
+
+export interface MoveSpecsRequest {
+  specIds: number[];
+  groupId: number;
 }
 
 export interface ConvertToNumberRequest {

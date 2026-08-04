@@ -2,6 +2,8 @@ package com.clele.parts.controller;
 
 import com.clele.parts.dto.ConvertToNumberRequest;
 import com.clele.parts.dto.ConvertToNumberResult;
+import com.clele.parts.dto.MergeSpecsRequest;
+import com.clele.parts.dto.MoveSpecsRequest;
 import com.clele.parts.dto.SpecDefinitionDTO;
 import com.clele.parts.dto.SpecDefinitionRequest;
 import com.clele.parts.model.Permissions;
@@ -48,6 +50,20 @@ public class SpecDefinitionController {
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         specService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/merge")
+    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
+    @Operation(summary = "Merge duplicate spec definitions into one, keeping their JSON names as "
+            + "aliases and re-keying every part value onto the surviving definition")
+    public SpecDefinitionDTO merge(@Valid @RequestBody MergeSpecsRequest request) {
+        return specService.merge(request);
+    }
+
+    @PostMapping("/move")
+    @Operation(summary = "Move spec definitions into another group")
+    public List<SpecDefinitionDTO> move(@Valid @RequestBody MoveSpecsRequest request) {
+        return specService.moveToGroup(request);
     }
 
     @PostMapping("/rescan")

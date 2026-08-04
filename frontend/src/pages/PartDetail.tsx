@@ -43,7 +43,6 @@ import type {
   StockMovement,
   StockThreshold,
 } from '../api/types';
-import { MAJOR_TYPES } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { useSettings } from '../settings/SettingsContext';
 import Badge from '../components/Badge';
@@ -98,6 +97,9 @@ function formatSpecValue(spec: SpecDefinition, value: string): string {
 
 // Real part columns that an OctoPart result can change. Each must be confirmed (per-field
 // checkbox) before it overwrites the existing value. Specs are applied wholesale, separately.
+/** Bucket for spec values no definition covers — they still deserve to be shown, just last. */
+const UNGROUPED = 'Other';
+
 const OCTOPART_FIELDS = [
   { key: 'mpn', label: 'MPN' },
   { key: 'manufacturer', label: 'Manufacturer' },
@@ -219,7 +221,7 @@ export default function PartDetailPage() {
         getPartMovements(partId)
           .then(setMovements)
           .catch(() => setMovements([]));
-        // Match against the full definition list (every key has a name + majorType),
+        // Match against the full definition list (every key has a name + group),
         // not the category-scoped subset. Best-effort — don't fail the page if unavailable.
         getSpecDefinitions()
           .then(setSpecDefs)
@@ -737,21 +739,34 @@ export default function PartDetailPage() {
   // Defined specs that have a value
   const definedSpecEntries = specDefs
     .filter((d) => partSpecs[d.jsonName] !== undefined && partSpecs[d.jsonName] !== '')
-    .map((d) => ({ label: d.name, value: formatSpecValue(d, partSpecs[d.jsonName]), majorType: d.majorType }));
+    .map((d) => ({
+      label: d.name,
+      value: formatSpecValue(d, partSpecs[d.jsonName]),
+      group: d.groupName ?? UNGROUPED,
+    }));
 
   // Raw keys not covered by any definition
   const unmatchedEntries = Object.entries(partSpecs).filter(
     ([k, v]) => !specDefsMap.has(k) && v !== ''
   );
 
-  // Group every spec row into its major type; unmatched raw keys fall under TECHNICAL.
+  // Group every spec row under its spec group. Raw keys that no definition covers have no group,
+  // so they collect in a trailing bucket rather than being silently attached to a real one.
   const specRows = [
     ...definedSpecEntries,
-    ...unmatchedEntries.map(([k, v]) => ({ label: k, value: String(v), majorType: 'TECHNICAL' })),
+    ...unmatchedEntries.map(([k, v]) => ({ label: k, value: String(v), group: UNGROUPED })),
   ];
-  const specGroups = MAJOR_TYPES.map((t) => ({
-    label: t.label,
-    rows: specRows.filter((r) => (r.majorType ?? 'TECHNICAL') === t.key),
+  // Group order follows the definition list, which the API returns in display order; the
+  // ungrouped bucket always comes last.
+  const groupOrder: string[] = [];
+  for (const def of specDefs) {
+    const name = def.groupName ?? UNGROUPED;
+    if (name !== UNGROUPED && !groupOrder.includes(name)) groupOrder.push(name);
+  }
+  groupOrder.push(UNGROUPED);
+  const specGroups = groupOrder.map((name) => ({
+    label: name,
+    rows: specRows.filter((r) => r.group === name),
   }));
   const hasSpecs = specRows.length > 0;
 
@@ -1203,10 +1218,8 @@ export default function PartDetailPage() {
             <span className="h-5 w-1 rounded-full bg-blue-500" />
             Specifications
           </h2>
-          {/* Each group sizes to its own content (wrapping when the row runs out of
-              room) instead of three equal thirds — so short groups stop wasting
-              space and the wide Technical group can take what it needs. */}
-          <div className="flex flex-col gap-x-12 gap-y-6 md:flex-row md:flex-wrap md:items-start">
+          {/* Three columns of groups, each group's rows kept together under its heading. */}
+          <div className="grid grid-cols-1 items-start gap-x-10 gap-y-6 sm:grid-cols-2 lg:grid-cols-3">
             {specGroups
               .filter((group) => group.rows.length > 0)
               .map((group) => (
@@ -1214,7 +1227,7 @@ export default function PartDetailPage() {
                   <h3 className="mb-2 border-b border-gray-200 pb-1.5 text-xs font-semibold uppercase tracking-wider text-blue-700/80">
                     {group.label}
                   </h3>
-                  <table className="w-auto text-sm">
+                  <table className="w-full text-sm">
                     <tbody>
                       {group.rows.map((row) => (
                         <tr key={row.label} className="align-top odd:bg-gray-50">

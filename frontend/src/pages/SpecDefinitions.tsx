@@ -1,80 +1,43 @@
 import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
-  createSpecDefinition,
-  deleteSpecDefinition,
-  getSpecDefinitions,
+  createSpecGroup,
+  deleteSpecGroup,
+  getSpecGroups,
   rescanSpecDefinitions,
-  updateSpecDefinition,
+  updateSpecGroup,
 } from '../api';
-import type { SpecDefinition, SpecDefinitionRequest } from '../api/types';
-import { MAJOR_TYPES } from '../api/types';
-import ConvertToNumberModal from '../components/ConvertToNumberModal';
+import type { SpecGroup, SpecGroupRequest } from '../api/types';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
 
-const DATA_TYPES = ['TEXT', 'NUMBER', 'BOOLEAN', 'SELECT'] as const;
-
-const emptyForm = (): SpecDefinitionRequest => ({
-  jsonName: '',
+const emptyForm = (order: number): SpecGroupRequest => ({
   name: '',
-  dataType: 'TEXT',
-  unit: '',
-  metricPrefix: false,
-  options: [],
-  displayOrder: 0,
-  majorType: 'TECHNICAL',
+  description: '',
+  displayOrder: order,
 });
 
-function typeLabel(dataType: string): string {
-  switch (dataType) {
-    case 'TEXT': return 'Text';
-    case 'NUMBER': return 'Number';
-    case 'BOOLEAN': return 'Boolean';
-    case 'SELECT': return 'Select';
-    default: return dataType;
-  }
-}
-
-function majorTypeLabel(majorType: string): string {
-  return MAJOR_TYPES.find((t) => t.key === majorType)?.label ?? majorType;
-}
-
-// Sort by major type (in MAJOR_TYPES display order), then by json name.
-function majorTypeRank(majorType: string): number {
-  const i = MAJOR_TYPES.findIndex((t) => t.key === majorType);
-  return i === -1 ? MAJOR_TYPES.length : i;
-}
-
-function compareSpecs(a: SpecDefinition, b: SpecDefinition): number {
-  const byType = majorTypeRank(a.majorType) - majorTypeRank(b.majorType);
-  return byType !== 0 ? byType : a.jsonName.localeCompare(b.jsonName);
-}
-
-function unitOrOptions(spec: SpecDefinition): string {
-  if (spec.dataType === 'NUMBER' && spec.unit)
-    return spec.metricPrefix ? `${spec.unit} (metric)` : spec.unit;
-  if (spec.dataType === 'SELECT' && spec.options && spec.options.length > 0)
-    return spec.options.join(', ');
-  return '—';
-}
-
+/**
+ * Spec Fields — the group overview. Individual fields live one level down, inside their group
+ * (see SpecGroupDetail): a flat list of several hundred fields was the thing that made these
+ * impossible to edit.
+ */
 export default function SpecDefinitionsPage() {
-  const [specs, setSpecs] = useState<SpecDefinition[]>([]);
+  const navigate = useNavigate();
+  const [groups, setGroups] = useState<SpecGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<SpecDefinition | null>(null);
-  const [form, setForm] = useState<SpecDefinitionRequest>(emptyForm());
-  const [optionsText, setOptionsText] = useState('');
+  const [editing, setEditing] = useState<SpecGroup | null>(null);
+  const [form, setForm] = useState<SpecGroupRequest>(emptyForm(0));
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [rescanning, setRescanning] = useState(false);
-  const [converting, setConverting] = useState<SpecDefinition | null>(null);
 
   const load = () => {
     setLoading(true);
-    getSpecDefinitions()
-      .then(setSpecs)
+    getSpecGroups()
+      .then(setGroups)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   };
@@ -83,25 +46,19 @@ export default function SpecDefinitionsPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyForm());
-    setOptionsText('');
+    // Land new groups at the end of the current order rather than colliding at 0.
+    setForm(emptyForm(groups.reduce((max, g) => Math.max(max, g.displayOrder), -1) + 1));
     setFormError(null);
     setModalOpen(true);
   };
 
-  const openEdit = (spec: SpecDefinition) => {
-    setEditing(spec);
+  const openEdit = (group: SpecGroup) => {
+    setEditing(group);
     setForm({
-      jsonName: spec.jsonName,
-      name: spec.name,
-      dataType: spec.dataType,
-      unit: spec.unit ?? '',
-      metricPrefix: spec.metricPrefix ?? false,
-      options: spec.options ?? [],
-      displayOrder: spec.displayOrder,
-      majorType: spec.majorType ?? 'TECHNICAL',
+      name: group.name,
+      description: group.description ?? '',
+      displayOrder: group.displayOrder,
     });
-    setOptionsText(spec.options ? spec.options.join(', ') : '');
     setFormError(null);
     setModalOpen(true);
   };
@@ -109,27 +66,11 @@ export default function SpecDefinitionsPage() {
   const handleSave = async () => {
     setSaving(true);
     setFormError(null);
-
-    const parsedOptions =
-      form.dataType === 'SELECT'
-        ? optionsText.split(',').map((s) => s.trim()).filter(Boolean)
-        : [];
-
-    const unit = form.dataType === 'NUMBER' ? (form.unit ?? '') : '';
-    // Metric scaling only applies to a NUMBER spec with a single base unit.
-    const isSingleUnit = unit.trim() !== '' && !unit.includes(',');
-    const payload: SpecDefinitionRequest = {
-      ...form,
-      unit,
-      metricPrefix: isSingleUnit ? !!form.metricPrefix : false,
-      options: parsedOptions,
-    };
-
     try {
       if (editing) {
-        await updateSpecDefinition(editing.id, payload);
+        await updateSpecGroup(editing.id, form);
       } else {
-        await createSpecDefinition(payload);
+        await createSpecGroup(form);
       }
       setModalOpen(false);
       load();
@@ -137,6 +78,16 @@ export default function SpecDefinitionsPage() {
       setFormError((e as Error).message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (group: SpecGroup) => {
+    if (!confirm(`Delete spec group "${group.name}"?`)) return;
+    try {
+      await deleteSpecGroup(group.id);
+      load();
+    } catch (e: unknown) {
+      alert((e as Error).message);
     }
   };
 
@@ -151,21 +102,12 @@ export default function SpecDefinitionsPage() {
     setRescanning(true);
     setError(null);
     try {
-      setSpecs(await rescanSpecDefinitions());
+      await rescanSpecDefinitions();
+      load();
     } catch (e: unknown) {
       setError((e as Error).message);
     } finally {
       setRescanning(false);
-    }
-  };
-
-  const handleDelete = async (spec: SpecDefinition) => {
-    if (!confirm(`Delete spec field "${spec.name}"?`)) return;
-    try {
-      await deleteSpecDefinition(spec.id);
-      load();
-    } catch (e: unknown) {
-      alert((e as Error).message);
     }
   };
 
@@ -175,7 +117,8 @@ export default function SpecDefinitionsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Spec Fields</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Define typed specification fields that can be assigned to categories.
+            Specification fields are organised in groups of related fields. Open a group to add,
+            edit, merge or move its fields.
           </p>
         </div>
         <div className="flex gap-3">
@@ -190,7 +133,7 @@ export default function SpecDefinitionsPage() {
             onClick={openCreate}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
-            + New Spec Field
+            + New Group
           </button>
         </div>
       </div>
@@ -199,56 +142,51 @@ export default function SpecDefinitionsPage() {
       {error && <p className="text-red-600">{error}</p>}
 
       {!loading && (
-        <div className="rounded-xl border border-gray-200 bg-surface shadow-sm overflow-hidden">
-          {specs.length === 0 ? (
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-surface shadow-sm">
+          {groups.length === 0 ? (
             <p className="p-6 text-sm text-gray-400">
-              No spec fields defined yet. Create one to get started.
+              No spec groups yet. Create one to get started.
             </p>
           ) : (
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">JSON Name</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Title</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Major Type</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Type</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Unit / Options</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Group</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Description</th>
+                  <th className="px-4 py-3 text-left font-medium text-gray-500">Fields</th>
                   <th className="px-4 py-3 text-left font-medium text-gray-500">Order</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {[...specs].sort(compareSpecs).map((spec) => (
-                  <tr key={spec.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{spec.jsonName}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{spec.name}</td>
-                    <td className="px-4 py-3 text-gray-600">{majorTypeLabel(spec.majorType)}</td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
-                        {typeLabel(spec.dataType)}
-                      </span>
+                {groups.map((group) => (
+                  <tr
+                    key={group.id}
+                    onClick={() => navigate(`/specs/${group.id}`)}
+                    className="cursor-pointer hover:bg-gray-50"
+                  >
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      <Link
+                        to={`/specs/${group.id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="hover:underline"
+                      >
+                        {group.name}
+                      </Link>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{unitOrOptions(spec)}</td>
-                    <td className="px-4 py-3 text-gray-500">{spec.displayOrder}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-gray-600">{group.description || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600">{group.specCount}</td>
+                    <td className="px-4 py-3 text-gray-500">{group.displayOrder}</td>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-2">
-                        {spec.dataType === 'TEXT' && (
-                          <button
-                            onClick={() => setConverting(spec)}
-                            className="rounded px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50"
-                            title="Convert this text field to a numeric field"
-                          >
-                            → Number
-                          </button>
-                        )}
                         <button
-                          onClick={() => openEdit(spec)}
+                          onClick={() => openEdit(group)}
                           className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
                         >
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDelete(spec)}
+                          onClick={() => handleDelete(group)}
                           className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
                         >
                           Delete
@@ -266,91 +204,20 @@ export default function SpecDefinitionsPage() {
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={editing ? 'Edit Spec Field' : 'New Spec Field'}
+        title={editing ? 'Edit Spec Group' : 'New Spec Group'}
       >
         <FormField
-          label="JSON Name *"
-          value={form.jsonName}
-          onChange={(e) => setForm({ ...form, jsonName: e.target.value })}
-          placeholder="e.g. supply_voltage — exact key inside part.specs"
-        />
-        <FormField
-          label="Title *"
+          label="Name *"
           value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
-          placeholder="e.g. Package, Voltage Rating"
+          placeholder="e.g. Power, MCU Specs"
         />
         <FormField
-          as="select"
-          label="Major Type *"
-          value={form.majorType}
-          onChange={(e) => setForm({ ...form, majorType: e.target.value })}
-        >
-          {MAJOR_TYPES.map((t) => (
-            <option key={t.key} value={t.key}>
-              {t.label}
-            </option>
-          ))}
-        </FormField>
-        <FormField
-          as="select"
-          label="Type *"
-          value={form.dataType}
-          onChange={(e) => setForm({ ...form, dataType: e.target.value })}
-        >
-          {DATA_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {typeLabel(t)}
-            </option>
-          ))}
-        </FormField>
-
-        {form.dataType === 'NUMBER' && (
-          <FormField
-            label="Unit — or comma-separated list for a selector"
-            value={form.unit ?? ''}
-            onChange={(e) => setForm({ ...form, unit: e.target.value })}
-            placeholder="e.g. V  or  B,KB,MB,GB"
-          />
-        )}
-
-        {form.dataType === 'NUMBER' &&
-          (form.unit ?? '').trim() !== '' &&
-          !(form.unit ?? '').includes(',') && (
-            <div className="mb-4">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!!form.metricPrefix}
-                  onChange={(e) => setForm({ ...form, metricPrefix: e.target.checked })}
-                  className="rounded border-gray-300 text-blue-600"
-                />
-                <span className="text-sm font-medium text-gray-700">
-                  Scale with metric prefixes
-                </span>
-              </label>
-              <p className="mt-1 text-xs text-gray-500">
-                Value is stored in the base unit ({(form.unit ?? '').trim()}); it's shown as e.g.
-                0.009 → 9 m{(form.unit ?? '').trim()}.
-              </p>
-            </div>
-          )}
-
-        {form.dataType === 'SELECT' && (
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700">
-              Options (comma-separated)
-            </label>
-            <textarea
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              rows={3}
-              value={optionsText}
-              onChange={(e) => setOptionsText(e.target.value)}
-              placeholder="e.g. DIP-8, SOIC-8, SOT-23"
-            />
-          </div>
-        )}
-
+          label="Description"
+          value={form.description ?? ''}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+          placeholder="What this group covers"
+        />
         <FormField
           label="Display Order"
           type="number"
@@ -369,24 +236,13 @@ export default function SpecDefinitionsPage() {
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !form.jsonName.trim() || !form.name.trim()}
+            disabled={saving || !form.name.trim()}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </Modal>
-
-      {converting && (
-        <ConvertToNumberModal
-          spec={converting}
-          onClose={() => setConverting(null)}
-          onConverted={() => {
-            setConverting(null);
-            load();
-          }}
-        />
-      )}
     </div>
   );
 }

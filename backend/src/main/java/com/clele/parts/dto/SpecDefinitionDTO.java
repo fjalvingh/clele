@@ -17,5 +17,8 @@ public class SpecDefinitionDTO {
     private boolean metricPrefix;
     private List<String> options;
     private int displayOrder;
-    private String majorType;
+    private Long groupId;
+    private String groupName;
+    /** Alternate JSON names this spec is also known by (from merges or set by hand). */
+    private List<String> aliases;
 }

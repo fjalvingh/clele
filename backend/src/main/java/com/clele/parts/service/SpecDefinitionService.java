@@ -2,14 +2,19 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.ConvertToNumberRequest;
 import com.clele.parts.dto.ConvertToNumberResult;
+import com.clele.parts.dto.MergeSpecsRequest;
+import com.clele.parts.dto.MoveSpecsRequest;
 import com.clele.parts.dto.SpecDefinitionDTO;
 import com.clele.parts.dto.SpecDefinitionRequest;
 import com.clele.parts.model.Category;
 import com.clele.parts.model.Organisation;
 import com.clele.parts.model.Part;
+import com.clele.parts.model.SpecAlias;
 import com.clele.parts.model.SpecDefinition;
+import com.clele.parts.model.SpecGroup;
 import com.clele.parts.repository.CategoryRepository;
 import com.clele.parts.repository.PartRepository;
+import com.clele.parts.repository.SpecAliasRepository;
 import com.clele.parts.repository.SpecDefinitionRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -36,6 +41,8 @@ import java.util.stream.Collectors;
 public class SpecDefinitionService {
 
     private final SpecDefinitionRepository specRepo;
+    private final SpecAliasRepository aliasRepo;
+    private final SpecGroupService specGroupService;
     private final CategoryRepository categoryRepository;
     private final PartRepository partRepository;
     private final CurrentOrganisationService currentOrganisationService;
@@ -51,24 +58,143 @@ public class SpecDefinitionService {
                 .collect(Collectors.toList());
     }
 
+    /** The spec fields filed under one group (the group detail screen). */
+    public List<SpecDefinitionDTO> findByGroup(Long groupId) {
+        specGroupService.requireGroup(groupId);   // 404s a group of another organisation
+        return specRepo.findByGroupIdOrderByDisplayOrderAscNameAsc(groupId).stream()
+                .map(this::toDTO)
+                .collect(Collectors.toList());
+    }
+
     @Transactional
     public SpecDefinitionDTO create(SpecDefinitionRequest request) {
         SpecDefinition spec = new SpecDefinition();
         spec.setOrganisation(currentOrganisationService.current());
         applyRequest(spec, request);
-        return toDTO(specRepo.save(spec));
+        SpecDefinition saved = specRepo.save(spec);
+        if (request.getAliases() != null) applyAliases(saved, request.getAliases());
+        return toDTO(saved);
     }
 
     @Transactional
     public SpecDefinitionDTO update(Long id, SpecDefinitionRequest request) {
         SpecDefinition spec = requireSpec(id);
         applyRequest(spec, request);
-        return toDTO(specRepo.save(spec));
+        SpecDefinition saved = specRepo.save(spec);
+        if (request.getAliases() != null) applyAliases(saved, request.getAliases());
+        return toDTO(saved);
     }
 
     @Transactional
     public void delete(Long id) {
-        specRepo.delete(requireSpec(id));
+        SpecDefinition spec = requireSpec(id);
+        aliasRepo.deleteAll(aliasRepo.findBySpecDefinitionIdOrderByJsonNameAsc(id));
+        specRepo.delete(spec);
+    }
+
+    /**
+     * Folds duplicate spec definitions into one. Each source's JSON name (and any alias it already
+     * carried) becomes an alias of the target, so a later update from the source that used that name
+     * still lands here; every part holding a source key has the value re-keyed onto the target's
+     * JSON name; then the sources are deleted. An existing target value wins — the target is the
+     * definition the user chose to keep, so its data is the data they meant to keep.
+     */
+    @Transactional
+    public SpecDefinitionDTO merge(MergeSpecsRequest request) {
+        SpecDefinition target = requireSpec(request.getTargetId());
+        Organisation organisation = target.getOrganisation();
+
+        List<SpecDefinition> sources = new ArrayList<>();
+        for (Long sourceId : request.getSourceIds()) {
+            if (sourceId.equals(target.getId())) continue;   // merging into itself is a no-op
+            sources.add(requireSpec(sourceId));
+        }
+        if (sources.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Nothing to merge: no source spec other than the target");
+        }
+
+        // Re-key every part value from a source key onto the target key.
+        Set<String> sourceKeys = sources.stream()
+                .map(SpecDefinition::getJsonName)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<Part> changed = new ArrayList<>();
+        for (Part part : partRepository.findByOrganisationId(organisation.getId())) {
+            Map<String, Object> specs = part.getSpecs();
+            if (specs == null || specs.isEmpty()) continue;
+            boolean touched = false;
+            for (String key : sourceKeys) {
+                if (!specs.containsKey(key)) continue;
+                Object value = specs.remove(key);
+                touched = true;
+                Object existing = specs.get(target.getJsonName());
+                boolean targetEmpty = existing == null || String.valueOf(existing).isBlank();
+                if (targetEmpty && value != null && !String.valueOf(value).isBlank()) {
+                    specs.put(target.getJsonName(), value);
+                }
+            }
+            if (touched) changed.add(part);
+        }
+        partRepository.saveAll(changed);
+
+        // The sources' names — and the aliases they already held — carry over to the target.
+        for (SpecDefinition source : sources) {
+            List<SpecAlias> theirs = aliasRepo.findBySpecDefinitionIdOrderByJsonNameAsc(source.getId());
+            aliasRepo.deleteAll(theirs);
+            aliasRepo.flush();
+            Set<String> names = new LinkedHashSet<>();
+            names.add(source.getJsonName());
+            theirs.forEach(a -> names.add(a.getJsonName()));
+            specRepo.delete(source);
+            specRepo.flush();
+            for (String name : names) {
+                if (name.equals(target.getJsonName())) continue;
+                aliasRepo.save(SpecAlias.builder()
+                        .specDefinition(target)
+                        .organisation(organisation)
+                        .jsonName(name)
+                        .build());
+            }
+        }
+
+        return toDTO(target);
+    }
+
+    /** Move a set of spec fields into another group. */
+    @Transactional
+    public List<SpecDefinitionDTO> moveToGroup(MoveSpecsRequest request) {
+        SpecGroup group = specGroupService.requireGroup(request.getGroupId());
+        List<SpecDefinition> specs = request.getSpecIds().stream().map(this::requireSpec).toList();
+        specs.forEach(spec -> spec.setGroup(group));
+        return specRepo.saveAll(specs).stream().map(this::toDTO).collect(Collectors.toList());
+    }
+
+    /**
+     * Rewrites the keys of an incoming spec map from any source onto the canonical JSON names,
+     * resolving aliases. This is what makes merging durable: a source that keeps sending
+     * {@code vsupply} lands on the spec whose canonical name is {@code supplyvoltage}. Keys that
+     * match nothing are passed through untouched (an unknown spec is still worth storing — the
+     * Spec Fields rescan turns it into a definition later).
+     */
+    public Map<String, Object> canonicalizeKeys(Map<String, Object> specs) {
+        if (specs == null || specs.isEmpty()) return specs;
+        Long orgId = currentOrganisationService.currentId();
+        Map<String, String> byAlias = new LinkedHashMap<>();
+        for (SpecAlias alias : aliasRepo.findByOrganisationIdOrderByJsonNameAsc(orgId)) {
+            byAlias.put(alias.getJsonName(), alias.getSpecDefinition().getJsonName());
+        }
+        if (byAlias.isEmpty()) return specs;
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        specs.forEach((key, value) -> {
+            String canonical = byAlias.getOrDefault(key, key);
+            // A canonical value already present wins over one arriving under an alias.
+            Object existing = result.get(canonical);
+            if (existing == null || String.valueOf(existing).isBlank()) {
+                result.put(canonical, value);
+            }
+        });
+        return result;
     }
 
     /** Spec fields outside the current organisation are reported as not found. */
@@ -112,9 +238,18 @@ public class SpecDefinitionService {
         int nextOrder = existing.values().stream()
                 .mapToInt(SpecDefinition::getDisplayOrder).max().orElse(0) + 1;
 
+        // Keys that are an alias of an existing spec must not become a definition of their own —
+        // that is exactly the duplicate a merge was performed to remove.
+        Map<String, SpecDefinition> byAlias = new LinkedHashMap<>();
+        for (SpecAlias alias : aliasRepo.findByOrganisationIdOrderByJsonNameAsc(organisation.getId())) {
+            byAlias.put(alias.getJsonName(), alias.getSpecDefinition());
+        }
+
+        SpecGroup defaultGroup = specGroupService.defaultGroup();
         List<SpecDefinition> toSave = new ArrayList<>();
         for (Map.Entry<String, SpecStats> e : stats.entrySet()) {
             String jsonName = e.getKey();
+            if (byAlias.containsKey(jsonName)) continue;
             SpecStats s = e.getValue();
             String dataType = s.inferType();
             String options = "SELECT".equals(dataType) ? writeOptions(s.distinctValues) : null;
@@ -126,7 +261,7 @@ public class SpecDefinitionService {
                         .jsonName(jsonName)
                         .name(SpecNameHumanizer.humanize(jsonName))
                         .displayOrder(nextOrder++)
-                        .majorType("TECHNICAL")
+                        .group(defaultGroup)
                         .build();
             }
             // Preserve name/unit/displayOrder; refresh inferred type + options.
@@ -332,7 +467,9 @@ public class SpecDefinitionService {
         spec.setUnit(request.getUnit());
         spec.setMetricPrefix(request.isMetricPrefix());
         spec.setDisplayOrder(request.getDisplayOrder());
-        spec.setMajorType(request.getMajorType() != null ? request.getMajorType() : "TECHNICAL");
+        spec.setGroup(request.getGroupId() != null
+                ? specGroupService.requireGroup(request.getGroupId())
+                : specGroupService.defaultGroup());
 
         if (request.getOptions() != null && !request.getOptions().isEmpty()) {
             try {
@@ -342,6 +479,53 @@ public class SpecDefinitionService {
             }
         } else {
             spec.setOptions(null);
+        }
+    }
+
+    /**
+     * Replaces a spec's aliases with the requested list. Each must be unique within the
+     * organisation — an alias colliding with another spec's canonical name or alias would make
+     * incoming data ambiguous, so it is rejected rather than silently repointed.
+     */
+    private void applyAliases(SpecDefinition spec, List<String> requested) {
+        Long orgId = currentOrganisationService.currentId();
+        List<SpecAlias> existing = spec.getId() == null
+                ? List.of()
+                : aliasRepo.findBySpecDefinitionIdOrderByJsonNameAsc(spec.getId());
+
+        Set<String> wanted = requested.stream()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty() && !s.equals(spec.getJsonName()))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        // Drop the ones no longer wanted first, so an alias can be moved between specs in one edit.
+        List<SpecAlias> removed = existing.stream()
+                .filter(a -> !wanted.contains(a.getJsonName()))
+                .toList();
+        aliasRepo.deleteAll(removed);
+        aliasRepo.flush();
+
+        Set<String> kept = existing.stream()
+                .filter(a -> wanted.contains(a.getJsonName()))
+                .map(SpecAlias::getJsonName)
+                .collect(Collectors.toSet());
+
+        for (String name : wanted) {
+            if (kept.contains(name)) continue;
+            if (specRepo.findByOrganisationIdAndJsonName(orgId, name).isPresent()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "'" + name + "' is already the JSON name of another spec field. "
+                                + "Merge the two spec fields instead.");
+            }
+            if (aliasRepo.findByOrganisationIdAndJsonName(orgId, name).isPresent()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "'" + name + "' is already an alias of another spec field");
+            }
+            aliasRepo.save(SpecAlias.builder()
+                    .specDefinition(spec)
+                    .organisation(spec.getOrganisation())
+                    .jsonName(name)
+                    .build());
         }
     }
 
@@ -356,7 +540,12 @@ public class SpecDefinitionService {
                 .metricPrefix(spec.isMetricPrefix())
                 .options(options.isEmpty() ? null : options)
                 .displayOrder(spec.getDisplayOrder())
-                .majorType(spec.getMajorType())
+                .groupId(spec.getGroup() != null ? spec.getGroup().getId() : null)
+                .groupName(spec.getGroup() != null ? spec.getGroup().getName() : null)
+                .aliases(spec.getId() == null ? List.of()
+                        : aliasRepo.findBySpecDefinitionIdOrderByJsonNameAsc(spec.getId()).stream()
+                                .map(SpecAlias::getJsonName)
+                                .collect(Collectors.toList()))
                 .build();
     }
 

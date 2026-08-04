@@ -29,6 +29,9 @@ public class SpecDefinitionRequest {
 
     private int displayOrder;
 
-    /** One of DIMENSIONS, PHYSICAL, TECHNICAL. Defaults to TECHNICAL when null. */
-    private String majorType;
+    /** The group this spec belongs to. Defaults to the organisation's first group when null. */
+    private Long groupId;
+
+    /** Alternate JSON names for this spec. Null leaves the existing aliases untouched. */
+    private List<String> aliases;
 }

@@ -18,6 +18,7 @@ import QuickAddPage from './pages/QuickAdd';
 import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectsPage from './pages/Projects';
 import SpecDefinitionsPage from './pages/SpecDefinitions';
+import SpecGroupDetailPage from './pages/SpecGroupDetail';
 import OrganisationsPage from './pages/Organisations';
 import UsersPage from './pages/Users';
 import AllUsersPage from './pages/AllUsers';
@@ -83,6 +84,7 @@ export default function App() {
             <Route path="barcode-scan" element={<BarcodeScannerPage />} />
             <Route path="categories" element={<CategoriesPage />} />
             <Route path="specs" element={<SpecDefinitionsPage />} />
+            <Route path="specs/:groupId" element={<SpecGroupDetailPage />} />
             <Route path="locations" element={<LocationsPage />} />
             <Route path="low-stock" element={<LowStockPage />} />
             <Route path="projects" element={<ProjectsPage />} />

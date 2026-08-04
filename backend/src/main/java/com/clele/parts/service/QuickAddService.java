@@ -32,6 +32,7 @@ public class QuickAddService {
     private final CurrentOrganisationService currentOrganisationService;
     private final StockMovementService stockMovementService;
     private final TagService tagService;
+    private final SpecDefinitionService specDefinitionService;
 
     @Transactional
     public QuickAddResponseDTO quickAdd(QuickAddRequest request) {
@@ -83,7 +84,7 @@ public class QuickAddService {
         part.setManufacturer(request.getManufacturer());
         part.setPersonalNumber(request.isPersonalNumber());
         part.setDatasheetUrl(request.getDatasheetUrl());
-        part.setSpecs(request.getSpecs());
+        part.setSpecs(specDefinitionService.canonicalizeKeys(request.getSpecs()));
         if (request.getCategoryId() != null) {
             Category category = categoryRepository
                     .findByIdAndOrganisationId(request.getCategoryId(), currentOrganisationService.currentId())
