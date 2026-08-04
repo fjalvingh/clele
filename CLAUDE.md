@@ -161,10 +161,20 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     MAJOR_TYPE values become each organisation's first groups (Dimensions/Technical/Physical), and
     `spec_alias(spec_definition_id, organisation_id, json_name)` unique per organisation — the
     alternate JSON names one spec is known by at its various sources (see Spec Groups & Aliases)
+  - V41 lays a real taxonomy over the spec fields: **19 groups** (Dimensions, Package & Mounting,
+    Materials & Finish, Power Supply, Voltage & Current Ratings, Passive Values, Semiconductor
+    Characteristics, Analog & Amplifier, Data Conversion, Logic & Digital, Processor & Memory,
+    Interfaces & Channels, Timing & Frequency, Optoelectronics, Switches/Relays & Connectors,
+    Protection & Isolation, Thermal & Environmental, Compliance & Lifecycle, General) created per
+    organisation, with all 355 catalogued `json_name`s assigned by hand. V40 could only carry over
+    what `major_type` knew, which left ~290 unrelated fields in one "Technical" pile; V41 empties
+    and drops Technical/Physical. It moves **only listed json_names**, so fields added since (and
+    another organisation's own) keep their group, and it is **re-runnable** (upsert + idempotent
+    update + conditional delete)
   - V39 adds `organisation_invitation` (+ `organisation_invitation_permission`): an Organisation
     Admin no longer adds members directly, they **invite** an email address (see Invitations below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V41** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V42** (always check `db/migration/` for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
