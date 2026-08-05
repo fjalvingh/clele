@@ -57,8 +57,29 @@ sudo systemctl daemon-reload
 sudo systemctl restart ${SERVICE_NAME}
 sleep 2
 sudo systemctl --no-pager --full status ${SERVICE_NAME} || true
-echo "==> Local health check (expect HTTP 200/302 or a redirect to login):"
-curl -s -o /dev/null -w '  GET / -> %{http_code}\n' http://127.0.0.1:8080/ || true
+
+# The port comes from the service's own EnvironmentFile — the one place that decides it — so this
+# check cannot drift from what the app actually binds. Unset there means the app default (8080).
+# tr -cd keeps only digits, so a quoted value ("8084"), stray spaces or a CRLF line ending all
+# still yield a usable port.
+PORT=\$(sudo sed -n 's/^SERVER_PORT=//p' "${ENV_DIR}/clele.env" 2>/dev/null | tail -1 | tr -cd '0-9')
+PORT=\${PORT:-8080}
+
+# Poll rather than probe once: a cold start takes ~12s, so the old single check 2s after restart
+# reported a connection failure on a perfectly healthy deploy.
+echo "==> Local health check on port \${PORT} (expect 200, or a redirect to login):"
+code=000
+for _ in \$(seq 1 30); do
+  code=\$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:\${PORT}/" || true)
+  if [ "\$code" != "000" ]; then break; fi
+  sleep 2
+done
+
+if [ "\$code" = "000" ]; then
+  echo "  GET / -> no answer after 60s — the app is not serving" >&2
+  exit 1
+fi
+echo "  GET / -> \$code"
 EOF
 echo "Done"
 
