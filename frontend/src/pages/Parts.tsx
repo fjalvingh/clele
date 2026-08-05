@@ -414,20 +414,23 @@ export default function PartsPage() {
 
       {/* Search / filter bar, with a collapsible panel of extra fields underneath */}
       <form onSubmit={handleSearch} className="mb-6">
-        <div className="flex gap-3">
+        {/* Wraps below sm: the five controls need ~795px side by side, so on a phone they used to
+            run off the page and Search could only be reached by panning the whole view sideways.
+            At sm+ the sm: overrides restore the original single row. */}
+        <div className="flex flex-wrap gap-3">
           <input
             type="text"
             value={criteria.search}
             onChange={(e) => setCriteria({ ...criteria, search: e.target.value })}
             placeholder="Search by part number or description…"
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="basis-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:flex-1"
           />
           <CategoryPicker
             categories={categoryTree}
             value={criteria.categoryId ?? null}
             onChange={(id) => setCriteria({ ...criteria, categoryId: id ?? undefined })}
             emptyLabel="All categories"
-            className="w-48 shrink-0"
+            className="w-full shrink-0 sm:w-48"
           />
           <select
             value={criteria.sort}

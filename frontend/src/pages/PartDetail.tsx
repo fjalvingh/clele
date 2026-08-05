@@ -79,6 +79,33 @@ function displayUrl(img: { url: string; thumbnailUrl?: string }) {
   return `${import.meta.env.BASE_URL}api/image-proxy?url=${encodeURIComponent(src)}`;
 }
 
+// Button glyphs as inline SVG. Emoji (🔍 🏷️) render as empty boxes wherever the platform font
+// lacks them, so the project rule is SVG everywhere; `currentColor` inherits the button's colour.
+const btnIcon = {
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.7,
+  strokeLinecap: 'round' as const,
+  strokeLinejoin: 'round' as const,
+  viewBox: '0 0 24 24',
+  className: 'h-4 w-4 shrink-0',
+  'aria-hidden': true,
+};
+
+const SearchIcon = (
+  <svg {...btnIcon}>
+    <circle cx="11" cy="11" r="6" />
+    <path d="m20 20-3.2-3.2" />
+  </svg>
+);
+
+const TagIcon = (
+  <svg {...btnIcon}>
+    <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8A2 2 0 0 1 4.8 2.8H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8Z" />
+    <circle cx="7.8" cy="7.8" r="1.4" />
+  </svg>
+);
+
 // Render a spec value as a display string for a table cell.
 function formatSpecValue(spec: SpecDefinition, value: string): string {
   if (spec.dataType === 'BOOLEAN') {
@@ -782,9 +809,10 @@ export default function PartDetailPage() {
         / <span className="text-gray-800 font-medium">{part.partNumber}</span>
       </nav>
 
-      {/* Part header card — image left, details right */}
+      {/* Part header card — image left, details right; stacked below sm, where the fixed 208px
+          image column left the details ~110px and broke the description onto one word per line. */}
       <div className="mb-6 rounded-xl border border-gray-200 bg-surface p-6 shadow-sm">
-        <div className="flex gap-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
           {/* Image column */}
           <div className="flex shrink-0 flex-col gap-2">
             {/* Primary image */}
@@ -850,9 +878,10 @@ export default function PartDetailPage() {
             {canEdit && images.length < 5 && (
               <button
                 onClick={openFindImage}
-                className="rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
               >
-                🔍 Find image
+                {SearchIcon}
+                Find image
               </button>
             )}
 
@@ -882,7 +911,10 @@ export default function PartDetailPage() {
 
           {/* Details column */}
           <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between">
+            {/* Wraps below sm: the action group is ~330px and used to be shrink-0 at every width,
+                which squeezed the title column to ~60px on a phone and pushed the buttons off the
+                page. From sm up the sm: overrides restore the original single row. */}
+            <div className="flex flex-wrap items-start justify-between gap-3 lg:flex-nowrap">
               <div className="min-w-0">
                 <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold font-mono text-gray-900">
                   {part.partNumber}
@@ -906,7 +938,7 @@ export default function PartDetailPage() {
                   )}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
                 {/* OctoPart enrichment — only when the part has no link yet */}
                 {canEdit && !part.octopartId && (
                   user?.hasOctopartCredentials ? (
@@ -919,9 +951,10 @@ export default function PartDetailPage() {
                             ? 'Monthly OctoPart request limit reached'
                             : 'Look this part up on OctoPart'
                         }
-                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
                       >
-                        🔎 Search OctoPart
+                        {SearchIcon}
+                        Search OctoPart
                       </button>
                       {octoUsage != null && (
                         <span className="text-xs text-gray-400">
@@ -958,9 +991,10 @@ export default function PartDetailPage() {
                 <button
                   onClick={() => setPrintModalOpen(true)}
                   title="Print a label for this part"
-                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
                 >
-                  🏷️ Print label
+                  {TagIcon}
+                  Print label
                 </button>
                 <button
                   onClick={() => navigate(-1)}
@@ -1247,8 +1281,10 @@ export default function PartDetailPage() {
 
       {/* Stock section — tabbed: locations / thresholds / movements */}
       <div className="rounded-xl border border-gray-200 bg-surface shadow-sm">
-        <div className="flex items-center justify-between border-b border-gray-100 px-6 pt-4">
-          <div className="flex gap-1">
+        {/* Wraps below sm: the three tabs plus the action button need more than a phone's width,
+            which pushed the button past the card edge. sm: restores the original single row. */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 pt-4 sm:flex-nowrap sm:px-6">
+          <div className="flex flex-wrap gap-1">
             {(
               [
                 { key: 'locations', label: 'Locations' },
