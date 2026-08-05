@@ -1005,7 +1005,9 @@ export default function PartDetailPage() {
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+            {/* Single column at every width — these are label/value lines of very uneven length
+                (a category breadcrumb next to a one-word manufacturer), which read better stacked. */}
+            <div className="mt-4 grid grid-cols-1 gap-4 text-sm">
               {part.manufacturer && (
                 <div>
                   <span className="font-medium text-gray-500">Manufacturer:</span>{' '}
@@ -1041,7 +1043,7 @@ export default function PartDetailPage() {
                 </div>
               )}
               {part.details && (
-                <div className="sm:col-span-2">
+                <div>
                   <span className="font-medium text-gray-500">Details:</span>{' '}
                   <span className="text-gray-800 whitespace-pre-wrap">{part.details}</span>
                 </div>
