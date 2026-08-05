@@ -64,7 +64,7 @@ export default function ProjectsPage() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
@@ -91,7 +91,7 @@ export default function ProjectsPage() {
           <p className="text-sm">No projects yet. Create one to start tracking a build.</p>
         </div>
       ) : (
-        <div className="rounded-lg border border-gray-200 bg-surface shadow-sm overflow-hidden">
+        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-surface shadow-sm">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>

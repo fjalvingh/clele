@@ -94,7 +94,7 @@ export default function OrganisationsPage() {
   ];
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="mb-2 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Organisations</h1>
         <button

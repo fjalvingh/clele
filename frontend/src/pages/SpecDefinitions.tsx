@@ -112,7 +112,7 @@ export default function SpecDefinitionsPage() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Spec Fields</h1>
@@ -148,55 +148,57 @@ export default function SpecDefinitionsPage() {
               No spec groups yet. Create one to get started.
             </p>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Group</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Description</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Fields</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Order</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {groups.map((group) => (
-                  <tr
-                    key={group.id}
-                    onClick={() => navigate(`/specs/${group.id}`)}
-                    className="cursor-pointer hover:bg-gray-50"
-                  >
-                    <td className="px-4 py-3 font-medium text-gray-900">
-                      <Link
-                        to={`/specs/${group.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="hover:underline"
-                      >
-                        {group.name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{group.description || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{group.specCount}</td>
-                    <td className="px-4 py-3 text-gray-500">{group.displayOrder}</td>
-                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => openEdit(group)}
-                          className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(group)}
-                          className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-gray-500">Group</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-500">Description</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-500">Fields</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-500">Order</th>
+                    <th className="px-4 py-3" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {groups.map((group) => (
+                    <tr
+                      key={group.id}
+                      onClick={() => navigate(`/specs/${group.id}`)}
+                      className="cursor-pointer hover:bg-gray-50"
+                    >
+                      <td className="px-4 py-3 font-medium text-gray-900">
+                        <Link
+                          to={`/specs/${group.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:underline"
+                        >
+                          {group.name}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{group.description || '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{group.specCount}</td>
+                      <td className="px-4 py-3 text-gray-500">{group.displayOrder}</td>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => openEdit(group)}
+                            className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(group)}
+                            className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

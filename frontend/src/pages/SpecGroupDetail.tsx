@@ -230,7 +230,7 @@ export default function SpecGroupDetailPage() {
   const selectedSpecs = specs.filter((s) => selected.includes(s.id));
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <nav className="mb-4 text-sm text-gray-500">
         <Link to="/specs" className="hover:underline">
           Spec Fields
@@ -279,83 +279,85 @@ export default function SpecGroupDetailPage() {
               No spec fields in this group yet. Create one, or move fields here from another group.
             </p>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="w-10 px-4 py-3">
-                    <input
-                      type="checkbox"
-                      checked={selected.length === specs.length}
-                      onChange={toggleAll}
-                      className="rounded border-gray-300 text-blue-600"
-                      aria-label="Select all spec fields"
-                    />
-                  </th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">JSON Name</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Title</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Also known as</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Type</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Unit / Options</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500">Order</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {specs.map((spec) => (
-                  <tr
-                    key={spec.id}
-                    className={selected.includes(spec.id) ? 'bg-blue-50/60' : 'hover:bg-gray-50'}
-                  >
-                    <td className="px-4 py-3">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="w-10 px-4 py-3">
                       <input
                         type="checkbox"
-                        checked={selected.includes(spec.id)}
-                        onChange={() => toggle(spec.id)}
+                        checked={selected.length === specs.length}
+                        onChange={toggleAll}
                         className="rounded border-gray-300 text-blue-600"
-                        aria-label={`Select ${spec.name}`}
+                        aria-label="Select all spec fields"
                       />
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">{spec.jsonName}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{spec.name}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                      {spec.aliases && spec.aliases.length > 0 ? spec.aliases.join(', ') : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
-                        {typeLabel(spec.dataType)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{unitOrOptions(spec)}</td>
-                    <td className="px-4 py-3 text-gray-500">{spec.displayOrder}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex justify-end gap-2">
-                        {spec.dataType === 'TEXT' && (
-                          <button
-                            onClick={() => setConverting(spec)}
-                            className="rounded px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50"
-                            title="Convert this text field to a numeric field"
-                          >
-                            → Number
-                          </button>
-                        )}
-                        <button
-                          onClick={() => openEdit(spec)}
-                          className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(spec)}
-                          className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
+                    </th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-500">JSON Name</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-500">Title</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-500">Also known as</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-500">Type</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-500">Unit / Options</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-500">Order</th>
+                    <th className="px-4 py-3" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {specs.map((spec) => (
+                    <tr
+                      key={spec.id}
+                      className={selected.includes(spec.id) ? 'bg-blue-50/60' : 'hover:bg-gray-50'}
+                    >
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(spec.id)}
+                          onChange={() => toggle(spec.id)}
+                          className="rounded border-gray-300 text-blue-600"
+                          aria-label={`Select ${spec.name}`}
+                        />
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500">{spec.jsonName}</td>
+                      <td className="px-4 py-3 font-medium text-gray-900">{spec.name}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                        {spec.aliases && spec.aliases.length > 0 ? spec.aliases.join(', ') : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                          {typeLabel(spec.dataType)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">{unitOrOptions(spec)}</td>
+                      <td className="px-4 py-3 text-gray-500">{spec.displayOrder}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-2">
+                          {spec.dataType === 'TEXT' && (
+                            <button
+                              onClick={() => setConverting(spec)}
+                              className="rounded px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50"
+                              title="Convert this text field to a numeric field"
+                            >
+                              → Number
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openEdit(spec)}
+                            className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(spec)}
+                            className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

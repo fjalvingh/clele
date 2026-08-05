@@ -54,7 +54,7 @@ export default function LowStockPage() {
   ];
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <h1 className="mb-2 text-2xl font-bold text-gray-900">Low Stock Alerts</h1>
       <p className="mb-6 text-sm text-gray-500">
         Parts where on-hand quantity (across all sub-locations) is below the minimum threshold.

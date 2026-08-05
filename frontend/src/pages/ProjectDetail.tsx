@@ -191,7 +191,7 @@ export default function ProjectDetailPage() {
   const isActive = project.status === 'PLANNING' || project.status === 'BUILDING';
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
       {/* Breadcrumb */}
       <div className="text-sm text-gray-500">
         <Link to="/projects" className="hover:underline">Projects</Link>
@@ -285,71 +285,73 @@ export default function ProjectDetailPage() {
             No parts in BOM yet.{canEdit && ' Use "Add Part" to define what this project needs.'}
           </div>
         ) : (
-          <table className="min-w-full divide-y divide-gray-100">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty/Instance</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Needed</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pulled</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                {canEdit && <th className="px-6 py-3" />}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {bom.map((entry) => {
-                const remaining = entry.totalNeeded - entry.pulledTotal;
-                const done = entry.pulledTotal >= entry.totalNeeded;
-                return (
-                  <tr key={entry.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-3">
-                      <Link to={`/parts/${entry.partId}`} className="font-medium text-blue-600 hover:underline text-sm">
-                        {entry.partNumber}
-                      </Link>
-                      <div className="text-xs text-gray-400">{entry.partName}</div>
-                      {entry.notes && <div className="text-xs text-gray-400 italic">{entry.notes}</div>}
-                    </td>
-                    <td className="px-6 py-3 text-sm text-gray-700">{entry.qtyPerInstance}</td>
-                    <td className="px-6 py-3 text-sm text-gray-700">{entry.totalNeeded}</td>
-                    <td className="px-6 py-3 text-sm text-gray-700">{entry.pulledTotal}</td>
-                    <td className="px-6 py-3">
-                      {done ? (
-                        <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Done</span>
-                      ) : entry.pulledTotal > 0 ? (
-                        <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">
-                          Need {remaining} more
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">Not pulled</span>
-                      )}
-                    </td>
-                    {canEdit && (
-                      <td className="px-6 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => {
-                              setEditingBomId(entry.id);
-                              setBomForm({ partId: entry.partId, qtyPerInstance: entry.qtyPerInstance, notes: entry.notes });
-                              setShowBom(true);
-                            }}
-                            className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleRemoveBom(entry.id)}
-                            className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50"
-                          >
-                            Remove
-                          </button>
-                        </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-100">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty/Instance</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Needed</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pulled</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  {canEdit && <th className="px-6 py-3" />}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {bom.map((entry) => {
+                  const remaining = entry.totalNeeded - entry.pulledTotal;
+                  const done = entry.pulledTotal >= entry.totalNeeded;
+                  return (
+                    <tr key={entry.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-3">
+                        <Link to={`/parts/${entry.partId}`} className="font-medium text-blue-600 hover:underline text-sm">
+                          {entry.partNumber}
+                        </Link>
+                        <div className="text-xs text-gray-400">{entry.partName}</div>
+                        {entry.notes && <div className="text-xs text-gray-400 italic">{entry.notes}</div>}
                       </td>
-                    )}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <td className="px-6 py-3 text-sm text-gray-700">{entry.qtyPerInstance}</td>
+                      <td className="px-6 py-3 text-sm text-gray-700">{entry.totalNeeded}</td>
+                      <td className="px-6 py-3 text-sm text-gray-700">{entry.pulledTotal}</td>
+                      <td className="px-6 py-3">
+                        {done ? (
+                          <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Done</span>
+                        ) : entry.pulledTotal > 0 ? (
+                          <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">
+                            Need {remaining} more
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">Not pulled</span>
+                        )}
+                      </td>
+                      {canEdit && (
+                        <td className="px-6 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => {
+                                setEditingBomId(entry.id);
+                                setBomForm({ partId: entry.partId, qtyPerInstance: entry.qtyPerInstance, notes: entry.notes });
+                                setShowBom(true);
+                              }}
+                              className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleRemoveBom(entry.id)}
+                              className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
@@ -372,40 +374,42 @@ export default function ProjectDetailPage() {
               No stock pulled yet. Use "Pull Stock" to move parts from a location into the project.
             </div>
           ) : (
-            <table className="min-w-full divide-y divide-gray-100">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">From</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Price</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Added</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {stock.map((s) => (
-                  <tr key={s.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-3">
-                      <Link to={`/parts/${s.partId}`} className="font-medium text-blue-600 hover:underline text-sm">
-                        {s.partNumber}
-                      </Link>
-                      <div className="text-xs text-gray-400">{s.partName}</div>
-                    </td>
-                    <td className="px-6 py-3 text-sm text-gray-600" title={s.locationBreadcrumb}>
-                      {s.locationBreadcrumb || s.locationName}
-                    </td>
-                    <td className="px-6 py-3 text-sm font-medium text-gray-900">{s.quantity}</td>
-                    <td className="px-6 py-3 text-sm text-gray-600">
-                      {s.unitPrice != null ? formatMoney(s.unitPrice) : '—'}
-                    </td>
-                    <td className="px-6 py-3 text-xs text-gray-400">
-                      {new Date(s.addedAt).toLocaleDateString()}
-                      {s.addedByName && <span className="ml-1">by {s.addedByName}</span>}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-100">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">From</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Price</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Added</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {stock.map((s) => (
+                    <tr key={s.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-3">
+                        <Link to={`/parts/${s.partId}`} className="font-medium text-blue-600 hover:underline text-sm">
+                          {s.partNumber}
+                        </Link>
+                        <div className="text-xs text-gray-400">{s.partName}</div>
+                      </td>
+                      <td className="px-6 py-3 text-sm text-gray-600" title={s.locationBreadcrumb}>
+                        {s.locationBreadcrumb || s.locationName}
+                      </td>
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{s.quantity}</td>
+                      <td className="px-6 py-3 text-sm text-gray-600">
+                        {s.unitPrice != null ? formatMoney(s.unitPrice) : '—'}
+                      </td>
+                      <td className="px-6 py-3 text-xs text-gray-400">
+                        {new Date(s.addedAt).toLocaleDateString()}
+                        {s.addedByName && <span className="ml-1">by {s.addedByName}</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}

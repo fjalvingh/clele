@@ -62,7 +62,7 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl p-6">
+    <div className="mx-auto max-w-2xl p-4 md:p-6">
       <h1 className="text-2xl font-bold text-gray-900">My Account</h1>
       <p className="mt-1 text-sm text-gray-500">Your personal settings.</p>
 

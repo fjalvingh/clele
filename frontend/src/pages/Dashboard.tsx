@@ -68,7 +68,7 @@ export default function DashboardPage() {
   }, []);
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <h1 className="mb-8 text-2xl font-bold text-gray-900">Dashboard</h1>
 
       {loading && <p className="text-gray-500">Loading...</p>}

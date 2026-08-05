@@ -10,8 +10,21 @@ import {
 } from '../api';
 import type { Location, Part, PartSearchResult } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import CameraScanner, {
+  cameraScanUnavailableReason,
+  isCameraScanSupported,
+} from '../components/CameraScanner';
 import PrintLabelModal from '../components/PrintLabelModal';
 import { parsePartBarcode } from '../utils/code128';
+
+/**
+ * A keyboard-wedge scanner types into whatever input has focus, so on desktop this page keeps the
+ * barcode field focused at all times. On a touch device that same focus opens the on-screen
+ * keyboard across half the screen every time the phase changes, so the autofocus is skipped there
+ * and the camera button becomes the primary way in.
+ */
+const isTouchPrimary = () =>
+  typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
 type Phase =
   | { kind: 'scan' }
@@ -157,6 +170,9 @@ export default function BarcodeScannerPage() {
   const [labelPart, setLabelPart] = useState<Part | null>(null);
   // Codes that were searched but not yet acted upon (last 10 unique)
   const [triedCodes, setTriedCodes] = useState<string[]>([]);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [touchPrimary] = useState(isTouchPrimary);
+  const [cameraSupported] = useState(isCameraScanSupported);
 
   useEffect(() => {
     getMyLocations().then(setLocations).catch(() => {});
@@ -168,10 +184,12 @@ export default function BarcodeScannerPage() {
     }
   }, [user?.lastLocationId]);
 
-  // Keep scanner input focused at all times
+  // Keep scanner input focused at all times — see isTouchPrimary above for why not on phones, and
+  // never while the camera is up, where stealing focus would raise the keyboard over the viewfinder.
   useEffect(() => {
+    if (touchPrimary || cameraOpen) return;
     inputRef.current?.focus();
-  }, [phase.kind]);
+  }, [phase.kind, touchPrimary, cameraOpen]);
 
   const addToTried = (code: string) =>
     setTriedCodes((prev) => [code, ...prev.filter((c) => c !== code)].slice(0, 10));
@@ -305,6 +323,16 @@ export default function BarcodeScannerPage() {
     }
   };
 
+  // A camera read is the same event as a wedge scan — close the viewfinder so the result is
+  // visible, then take the identical path.
+  const handleCameraDetected = useCallback(
+    (code: string) => {
+      setCameraOpen(false);
+      handleScan(code);
+    },
+    [handleScan]
+  );
+
   const handleAddToExisting = async (part: Part, printAfter = false) => {
     if (!locationId) { setError('Select a location first'); return; }
     const q = lastQueryRef.current;
@@ -380,7 +408,7 @@ export default function BarcodeScannerPage() {
   };
 
   return (
-    <div className="min-h-full bg-gray-50 p-6">
+    <div className="min-h-full bg-gray-50 p-4 md:p-6">
       <div className="mx-auto max-w-xl space-y-5">
 
         {/* Header */}
@@ -392,7 +420,7 @@ export default function BarcodeScannerPage() {
         </div>
 
         {/* Scan input — always visible and always focusable */}
-        <div className="rounded-xl border border-gray-200 bg-surface p-5 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-surface p-4 shadow-sm md:p-5">
           <label className="mb-2 block text-sm font-medium text-gray-700">
             Barcode / Part number
           </label>
@@ -404,7 +432,7 @@ export default function BarcodeScannerPage() {
               onChange={(e) => setBarcode(e.target.value)}
               onKeyDown={handleBarcodeKeyDown}
               placeholder="Scan or type, then press Enter…"
-              autoFocus
+              autoFocus={!touchPrimary}
               autoComplete="off"
               data-1p-ignore
               data-lpignore="true"
@@ -412,14 +440,40 @@ export default function BarcodeScannerPage() {
               spellCheck={false}
               className="flex-1 rounded-md border border-gray-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
+            {cameraSupported && (
+              <button
+                onClick={() => setCameraOpen(true)}
+                aria-label="Scan with camera"
+                title="Scan with camera"
+                className="shrink-0 rounded-md border border-gray-300 px-3 py-2.5 text-gray-700 transition-colors hover:bg-gray-50"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.7}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-5 w-5"
+                >
+                  <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.1-1.8A1 1 0 0 1 8.6 4.7h6.8a1 1 0 0 1 .8.5L17.3 7h2.2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5Z" />
+                  <circle cx="12" cy="12.7" r="3.3" />
+                </svg>
+              </button>
+            )}
             <button
               onClick={() => barcode.trim() && handleScan(barcode)}
               disabled={!barcode.trim()}
-              className="rounded-md bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="shrink-0 rounded-md bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Search
             </button>
           </div>
+          {/* Explain the missing camera button only to someone likely to want it — a desktop user
+              with a wedge scanner does not need to hear about it. */}
+          {!cameraSupported && touchPrimary && (
+            <p className="mt-2 text-xs text-gray-500">{cameraScanUnavailableReason()}</p>
+          )}
           {success && (
             <p className="mt-2 text-sm font-medium text-green-600">{success}</p>
           )}
@@ -427,6 +481,12 @@ export default function BarcodeScannerPage() {
             <p className="mt-2 text-sm font-medium text-red-600">{error}</p>
           )}
         </div>
+
+        <CameraScanner
+          open={cameraOpen}
+          onClose={() => setCameraOpen(false)}
+          onDetected={handleCameraDetected}
+        />
 
         {/* Phase-specific content */}
 

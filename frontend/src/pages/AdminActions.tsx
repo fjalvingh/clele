@@ -46,7 +46,7 @@ export default function AdminActionsPage() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <h1 className="mb-6 text-2xl font-bold text-gray-900">Admin Actions</h1>
 
       <div className="rounded-lg border border-gray-200 bg-white p-6">

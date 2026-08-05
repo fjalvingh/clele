@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { getUnreadChanges, markChangesRead, switchOrganisation } from '../api';
 import { useAuth } from '../auth/AuthContext';
 import ChangesPanel from './ChangesPanel';
@@ -151,9 +151,13 @@ const BrandMark = (
 export default function Layout() {
   const { user, hasPermission, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [changesPanel, setChangesPanel] = useState<{ html: string; latestDate: string } | null>(null);
   const [orgMenuOpen, setOrgMenuOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+  // Drawer state for the small-screen sidebar. Desktop (md+) ignores it entirely — the sidebar is
+  // statically laid out there and never translated away.
+  const [navOpen, setNavOpen] = useState(false);
 
   const organisations = user?.selectableOrganisations ?? [];
 
@@ -186,6 +190,21 @@ export default function Layout() {
       .catch(() => {});
   }, []);
 
+  // Navigating closes the drawer — on a phone the destination is behind it.
+  useEffect(() => {
+    setNavOpen(false);
+    setOrgMenuOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setNavOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [navOpen]);
+
   const handleMarkRead = async () => {
     if (!changesPanel) return;
     await markChangesRead(changesPanel.latestDate).catch(() => {});
@@ -202,10 +221,28 @@ export default function Layout() {
   );
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-dvh bg-gray-100">
+      {/* Backdrop for the mobile drawer. Never rendered at md+, where the sidebar is part of the
+          normal flow and there is nothing to dismiss. */}
+      {navOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={() => setNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* Sidebar — intentionally always-dark chrome, independent of the light/dark app theme, so
-          it uses the untouched `neutral-*` palette rather than the theme-remapped `gray-*` ramp. */}
-      <aside className="flex w-60 flex-col bg-neutral-900 text-neutral-300">
+          it uses the untouched `neutral-*` palette rather than the theme-remapped `gray-*` ramp.
+
+          Below md it is an overlay drawer translated off-canvas; from md up every mobile-only class
+          is overridden (`md:static`, `md:translate-x-0`, `md:transition-none`) so the desktop
+          sidebar is laid out exactly as it always was. */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-60 shrink-0 flex-col bg-neutral-900 text-neutral-300 transition-transform duration-200 ease-out md:static md:z-auto md:translate-x-0 md:transition-none ${
+          navOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
         <div className="flex h-16 items-center gap-2.5 px-5 text-white">
           <span className="text-blue-400">{BrandMark}</span>
           <div className="leading-none">
@@ -214,6 +251,18 @@ export default function Layout() {
               Parts Inventory
             </div>
           </div>
+          {/* Dismiss control for the drawer — the backdrop works too, but a visible affordance
+              matters when the drawer covers most of a phone screen. */}
+          <button
+            type="button"
+            onClick={() => setNavOpen(false)}
+            aria-label="Close navigation"
+            className="ml-auto -mr-2 rounded-lg p-2 text-neutral-400 transition-colors hover:bg-white/5 hover:text-white md:hidden"
+          >
+            <svg {...icon} className="h-5 w-5">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
         </div>
 
         <nav className="flex-1 space-y-0.5 px-3 py-3">
@@ -335,10 +384,31 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+      {/* Main content. `min-w-0` lets wide tables scroll inside their own container instead of
+          stretching this column — which on desktop used to squeeze the sidebar narrower than w-60. */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Mobile-only top bar: the drawer trigger plus enough branding to know where you are.
+            `md:hidden` keeps it off the desktop layout entirely. */}
+        <header className="flex h-14 shrink-0 items-center gap-2 bg-neutral-900 px-2 text-white md:hidden">
+          <button
+            type="button"
+            onClick={() => setNavOpen(true)}
+            aria-label="Open navigation"
+            aria-expanded={navOpen}
+            className="rounded-lg p-2.5 text-neutral-300 transition-colors hover:bg-white/5 hover:text-white"
+          >
+            <svg {...icon} className="h-6 w-6">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
+          <span className="text-blue-400">{BrandMark}</span>
+          <span className="text-base font-semibold tracking-tight">Sortiment</span>
+        </header>
+
+        <main className="min-w-0 flex-1 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
 
       {changesPanel && (
         <ChangesPanel

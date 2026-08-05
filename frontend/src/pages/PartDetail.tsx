@@ -771,7 +771,7 @@ export default function PartDetailPage() {
   const hasSpecs = specRows.length > 0;
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* Constrain content width — full-bleed cards look lost on wide monitors. */}
       <div className="mx-auto max-w-6xl">
       {/* Breadcrumb */}
@@ -1227,16 +1227,18 @@ export default function PartDetailPage() {
                   <h3 className="mb-2 border-b border-gray-200 pb-1.5 text-xs font-semibold uppercase tracking-wider text-blue-700/80">
                     {group.label}
                   </h3>
-                  <table className="w-full text-sm">
-                    <tbody>
-                      {group.rows.map((row) => (
-                        <tr key={row.label} className="align-top odd:bg-gray-50">
-                          <td className="whitespace-nowrap rounded-l-md px-2 py-1.5 pr-3 text-gray-500">{row.label}</td>
-                          <td className="max-w-sm break-words rounded-r-md px-2 py-1.5 font-medium text-gray-900">{row.value}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <tbody>
+                        {group.rows.map((row) => (
+                          <tr key={row.label} className="align-top odd:bg-gray-50">
+                            <td className="whitespace-nowrap rounded-l-md px-2 py-1.5 pr-3 text-gray-500">{row.label}</td>
+                            <td className="max-w-sm break-words rounded-r-md px-2 py-1.5 font-medium text-gray-900">{row.value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               ))}
           </div>
@@ -1370,51 +1372,53 @@ export default function PartDetailPage() {
             {thresholds.length === 0 ? (
               <p className="text-sm text-gray-400">No minimum stock thresholds set for this part.</p>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    <th className="pb-2 pr-4">Location</th>
-                    <th className="pb-2 pr-4">On Hand</th>
-                    <th className="pb-2 pr-4">Minimum</th>
-                    <th className="pb-2 pr-4">Status</th>
-                    {canEdit && <th className="pb-2" />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {thresholds.map((t) => (
-                    <tr key={t.id} className="border-b border-gray-50 last:border-0">
-                      <td className="py-2 pr-4 font-medium text-gray-800">{t.locationName}</td>
-                      <td className="py-2 pr-4 font-mono">{t.totalQuantity}</td>
-                      <td className="py-2 pr-4 font-mono">{t.minimumQuantity}</td>
-                      <td className="py-2 pr-4">
-                        {t.lowStock ? (
-                          <Badge variant="red">Low — {t.minimumQuantity - t.totalQuantity} short</Badge>
-                        ) : (
-                          <Badge variant="green">OK</Badge>
-                        )}
-                      </td>
-                      {canEdit && (
-                        <td className="py-2">
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => openEditThreshold(t)}
-                              className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDeleteThreshold(t)}
-                              className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </td>
-                      )}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      <th className="pb-2 pr-4">Location</th>
+                      <th className="pb-2 pr-4">On Hand</th>
+                      <th className="pb-2 pr-4">Minimum</th>
+                      <th className="pb-2 pr-4">Status</th>
+                      {canEdit && <th className="pb-2" />}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {thresholds.map((t) => (
+                      <tr key={t.id} className="border-b border-gray-50 last:border-0">
+                        <td className="py-2 pr-4 font-medium text-gray-800">{t.locationName}</td>
+                        <td className="py-2 pr-4 font-mono">{t.totalQuantity}</td>
+                        <td className="py-2 pr-4 font-mono">{t.minimumQuantity}</td>
+                        <td className="py-2 pr-4">
+                          {t.lowStock ? (
+                            <Badge variant="red">Low — {t.minimumQuantity - t.totalQuantity} short</Badge>
+                          ) : (
+                            <Badge variant="green">OK</Badge>
+                          )}
+                        </td>
+                        {canEdit && (
+                          <td className="py-2">
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => openEditThreshold(t)}
+                                className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDeleteThreshold(t)}
+                                className="rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         )}
