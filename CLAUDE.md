@@ -343,8 +343,43 @@ datasheets (the licensing-clean path; see *Part metadata sources* below).
 - **The URL corpus is the real constraint, not the PDFs.** ~98% of `datasheet_url` values came from
   the Partsbox import and point at Octopart, in two populations that behave completely differently:
   `http://datasheet.octopart.com/*.pdf` serves real PDFs, while `https://octopart.com/…/c1?t=<token>`
-  are signed tracking links with expiring tokens that now 403 behind Cloudflare and are unrecoverable.
-  Re-sourcing those URLs from manufacturer sites is a prerequisite for full spec coverage.
+  are signed tracking links with expiring tokens that now 403 behind Cloudflare. The tracking links
+  can only be replaced — see Re-sourcing below.
+- **Measured over all 824 candidates** (2026-08-07): 464 usable (56%) — 296 `TEXT`, 60 `IMAGE_TABLES`,
+  108 `NO_TEXT_LAYER` — and 360 failures, essentially all Octopart. 12,228 pages, 364 MB if stored.
+
+### Re-sourcing dead URLs
+
+`--datasheets.resource=true` replaces the datasheet URL of parts holding an Octopart tracking link
+(`PartRepository.findWithDeadOctopartDatasheetUrl`). Result: **211 of 281 repaired**; the remaining
+70 are 60 TI parts TI no longer hosts and 10 Analog Devices/Maxim parts with no resolver.
+
+- **Search is not available in bulk.** DuckDuckGo answers automated searches with a CAPTCHA
+  ("select all squares containing a duck") served as HTTP **202** — a 2xx, so `DuckDuckGoDatasheetService`
+  parses it, finds nothing, and reports no results. A blocked search and an empty one are
+  indistinguishable, which also means the Part Detail datasheet search reports "none found" when it
+  is really being blocked. Fixing that reporting is a one-line check on the challenge body.
+- **`VendorDatasheetUrls` asks the manufacturer directly instead**, which needs no search engine and
+  returns the vendor's own document. It covers **Texas Instruments only** — right for this list
+  (271/281) but *not general*: any other vendor falls through to the blocked search path. Rather than
+  model TI's package codes it walks the part number back a character at a time and lets verification
+  reject the misses, resolving `TLC274CN`→`tlc274`, `LM324PWR`→`lm324`, `LM1117DT-2.5/NOPB`→`lm1117`.
+- **Verification is not optional and its rules are load-bearing.** TI answers an unknown part with
+  HTTP 200 and an HTML landing page rather than a 404 (`sn74ls76a` does exactly that), and a
+  datasheet for the wrong part would silently poison spec extraction. `DatasheetResourcingService.mentionOf`
+  therefore requires the PDF's text to name the part, and two rules in it exist because their absence
+  caused real corruption:
+  - **Never trim a trailing digit.** Shortening `SN74163N` to `SN7416` matched TI's hex-inverter
+    datasheet (which prints `SN7416` 35 times) and attached it to four unrelated counters and shift
+    registers. A trailing letter is a package/revision code; a trailing digit is the identity.
+  - **Match per word, never across whitespace.** Flattening the document into one punctuation-free
+    string fused line-wrapped words and *invented* part numbers: `sn7417.pdf` ends a line with
+    `SN7417` and starts the next with `4`, yielding a phantom `SN74174`. Punctuation is still dropped
+    *inside* a word so `MC14-89P` matches `MC1489P`.
+
+  Both cost recall (a digit-final suffix like `SN7402NE4`, and part numbers spaced out in a heading),
+  which surfaces as an honest `NO_MATCH` rather than as bad data. `DatasheetResourcingServiceTest`
+  pins both regressions using the actual text that fooled the first version.
 
 ## Partsbox Import
 
