@@ -3,11 +3,18 @@ package com.clele.parts.service;
 import com.clele.parts.dto.DatasheetSuggestionDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.hc.client5.http.config.ConnectionConfig;
+import org.apache.hc.client5.http.config.RequestConfig;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
+import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
+import org.apache.hc.core5.util.Timeout;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
@@ -245,10 +252,27 @@ public class DuckDuckGoDatasheetService {
         return URLEncoder.encode(s, StandardCharsets.UTF_8);
     }
 
+    /**
+     * Backed by Apache HttpClient rather than {@code SimpleClientHttpRequestFactory}: the JDK's
+     * {@code HttpURLConnection} silently refuses to follow a redirect that changes protocol, so an
+     * {@code http://} candidate that redirects to {@code https://} verified as "not a PDF" and was
+     * dropped — losing good results rather than returning bad ones, which is why it went unnoticed.
+     */
     private static RestTemplate buildVerifyRestTemplate() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(3_000);
-        factory.setReadTimeout(4_000);
-        return new RestTemplate(factory);
+        PoolingHttpClientConnectionManager connectionManager = PoolingHttpClientConnectionManagerBuilder.create()
+                .setDefaultConnectionConfig(ConnectionConfig.custom()
+                        .setConnectTimeout(Timeout.ofSeconds(3))
+                        .build())
+                .build();
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setResponseTimeout(Timeout.ofSeconds(4))
+                .setRedirectsEnabled(true)
+                .setMaxRedirects(10)
+                .build();
+        CloseableHttpClient httpClient = HttpClients.custom()
+                .setConnectionManager(connectionManager)
+                .setDefaultRequestConfig(requestConfig)
+                .build();
+        return new RestTemplate(new HttpComponentsClientHttpRequestFactory(httpClient));
     }
 }

@@ -129,4 +129,19 @@ public interface PartRepository extends JpaRepository<Part, Long> {
             ORDER BY p.id
             """)
     List<Part> findWithUndownloadedDatasheet();
+
+    /**
+     * Parts whose datasheet URL is an Octopart <em>tracking</em> link — {@code
+     * https://octopart.com/<id>/c1?t=<token>} — rather than a link to a file. These arrived with the
+     * Partsbox import; the tokens have expired and the host now sits behind a bot wall, so they 403
+     * for everyone and can only be replaced, not repaired (see {@code DatasheetResourcingService}).
+     * Note this deliberately does <em>not</em> match {@code datasheet.octopart.com/*.pdf}, which
+     * still serves real files.
+     */
+    @Query(value = """
+            SELECT * FROM part
+            WHERE datasheet_url ~ 'octopart\\.com/[^/]+/c1\\?'
+            ORDER BY id
+            """, nativeQuery = true)
+    List<Part> findWithDeadOctopartDatasheetUrl();
 }

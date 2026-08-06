@@ -1,5 +1,13 @@
-# Activated by the 'datasheets' profile: run the datasheet preflight/backfill as a CLI tool and
-# exit instead of starting the web server. See DatasheetBackfillRunner for the options.
+# Activated by the 'datasheets' profile: run the datasheet preflight/backfill/re-sourcing as a CLI
+# tool and exit instead of starting the web server. See DatasheetBackfillRunner for the options.
 spring:
   main:
     web-application-type: none
+
+logging:
+  level:
+    # Old vendor datasheets embed subset fonts with no ToUnicode map, so PDFBox logs a WARN per
+    # glyph — thousands of lines that bury the per-part progress and say nothing actionable. Text
+    # extraction still works; these are cosmetic.
+    org.apache.pdfbox.pdmodel.font: ERROR
+    org.apache.pdfbox.cos.COSDocument: ERROR
