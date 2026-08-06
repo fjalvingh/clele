@@ -111,6 +111,30 @@ toolchain (for the print daemon), and an Anthropic API key. For a self-hosting a
 Quick Add depends on an Anthropic API key (`application.yml:87`). OctoPart enrichment requires each
 user to hold a personal Nexar contract capped at roughly 100 requests per month.
 
+### The per-search cost is mostly self-inflicted
+
+Measured 2026-08-06 by replaying `AiPartSearchService.search()` verbatim against
+`claude-haiku-4-5-20251001` for a single part (`L7809CD2T`): **43,206 input tokens** for 395 output
+tokens, plus 2 web-search requests. Roughly 4 cents a lookup — on *every* Quick Add and every
+scanner miss, not just the ones that find something.
+
+Almost all of it is the system prompt. `buildSystemPrompt()` injects **every** spec definition in
+the organisation — 331 of them, with their SELECT option lists — on each request. The part number
+being looked up is a rounding error beside it.
+
+Two levers, neither requiring a model change:
+
+- **Prompt caching.** The system prompt is byte-identical across every search in an organisation and
+  far exceeds Haiku's 4096-token cache minimum, so a `cache_control` breakpoint on it makes repeat
+  searches ~90% cheaper on the cached span. Entering a bag of parts in one sitting — the actual
+  usage pattern — hits the cache on every part after the first.
+- **Send a narrower catalogue.** 331 fields are offered when a voltage regulator can use perhaps
+  fifteen. Filtering by the likely category would cut the prompt by an order of magnitude, though it
+  needs the category before the lookup, which is a chicken-and-egg problem worth thinking about.
+
+Worth fixing before the "no API key" work below, because it reduces the cost of the path that
+already exists rather than replacing it.
+
 Two keyless answers, in order of value:
 
 - **A "standard part" builder.** Pick Resistor → value → tolerance → package → quantity. E12 series,
