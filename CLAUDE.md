@@ -91,7 +91,7 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     category) and inserts the tree with explicit ids, then realigns `category_id_seq`. The manual
     `db/seed_74xx.sql` is now superseded for categories (its 74xx tree lives under ICs→Logic ICs)
   - V9 adds a GIN full-text index on `part.description` (`to_tsvector('english', …)`) backing the
-    Parts description search
+    Parts description search (superseded by V43, which drops it)
   - V10 adds the `app_user` table (note: `user` is reserved in PostgreSQL) + `app_user_permission`
     child table, and seeds a bootstrap admin (see Authentication below)
   - V11 added `spec_definition.major_type` (display grouping — replaced by spec groups in V40);
@@ -183,8 +183,12 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     convert-to-number. Re-runnable
   - V39 adds `organisation_invitation` (+ `organisation_invitation_permission`): an Organisation
     Admin no longer adds members directly, they **invite** an email address (see Invitations below)
+  - V43 brings `part.details` and `part.specs` into the Parts free-text search: it drops V9's
+    description-only index and creates `idx_part_search_fts`, a GIN index over the **concatenation**
+    `to_tsvector(description) || to_tsvector(details) || jsonb_to_tsvector(specs, '["string"]')`
+    (see Parts search below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V43** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V44** (always check `db/migration/` for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
@@ -831,7 +835,8 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
   Authentication & Authorization above). Accounts are created and edited only by a Global
   Administrator (All Users screen); an Organisation Admin brings people in by **invitation** — a
   mailed accept/refuse link that creates the account if there is none (see Invitations)
-- **Parts search screen**: searches on demand (name / part number / description full-text), filters
+- **Parts search screen**: searches on demand (name / part number / description + details +
+  spec-value full-text), filters
   by category subtree, sortable by part number or manufacturer. A **"More search options"** panel
   under the search bar (collapsed by default, auto-opened when the restored URL uses it) adds
   personal-product-code / location / tags / manufacturer filters. All criteria — basic and advanced
@@ -939,7 +944,10 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
 - `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`)
   - `GET /parts?search=&categoryId=&sort=&personalNumber=&manufacturer=&locationId=&tags=` — search
     runs in the DB: `search` matches name / part_number (case-insensitive substring) + description
-    (PostgreSQL full-text, `websearch_to_tsquery`); `categoryId` matches the category **and all
+    **plus `details` and the string values in `part.specs`** (PostgreSQL full-text,
+    `websearch_to_tsquery`, over the single concatenated vector indexed by V43 — so "sot-23" or
+    "0805" finds a part by its package, and a multi-term query may draw one term from the
+    description and another from the specs); `categoryId` matches the category **and all
     descendants** (recursive CTE over `parent_id`); `sort` is `partNumber` (default) or
     `manufacturer`. The Parts page only fetches results once a search/filter is applied (it does not
     list the whole catalogue on load).

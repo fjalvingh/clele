@@ -422,7 +422,7 @@ export default function PartsPage() {
             type="text"
             value={criteria.search}
             onChange={(e) => setCriteria({ ...criteria, search: e.target.value })}
-            placeholder="Search by part number or description…"
+            placeholder="Search by part number, description or spec…"
             className="basis-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:flex-1"
           />
           <CategoryPicker
