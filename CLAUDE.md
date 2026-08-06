@@ -14,6 +14,13 @@ mail templates read it from there rather than hardcoding a name. The frontend us
 "Sortiment" (sidebar, login, `index.html` title). When writing any new user-facing string, check
 which name you are using.
 
+## Git — commit straight to `master`
+
+This is a single-maintainer project and `master` is the working branch. **Commit directly to
+`master`; do not create a branch first.** The default "branch before committing" habit only leaves
+work stranded on branches nobody merges. Feature branches are fine when the user asks for one, or
+for something genuinely long-running — but they are the exception, not the default.
+
 ## Changelog
 
 User-visible change notes live in `backend/src/main/resources/changes/` as HTML fragments named
