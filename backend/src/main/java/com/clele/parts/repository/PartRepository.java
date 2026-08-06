@@ -113,4 +113,20 @@ public interface PartRepository extends JpaRepository<Part, Long> {
     boolean existsByOrganisationIdAndPartNumberAndIdNot(Long organisationId, String partNumber, Long id);
 
     long countByOrganisationId(Long organisationId);
+
+    /**
+     * Parts carrying a datasheet URL that has not been downloaded into {@code part_attachment} yet,
+     * across every organisation — this drives the datasheet preflight/backfill CLI, which is a
+     * maintenance tool rather than a per-tenant request. Ordered by id so a capped run
+     * ({@code --datasheets.limit}) samples deterministically and a resumed run picks up where the
+     * previous one stopped.
+     */
+    @Query("""
+            SELECT p FROM Part p
+            WHERE p.datasheetUrl IS NOT NULL AND TRIM(p.datasheetUrl) <> ''
+              AND NOT EXISTS (SELECT 1 FROM PartAttachment a
+                              WHERE a.part = p AND a.type = com.clele.parts.model.AttachmentType.DATASHEET)
+            ORDER BY p.id
+            """)
+    List<Part> findWithUndownloadedDatasheet();
 }

@@ -280,9 +280,71 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   public `/login`, and guards app routes with `RequireAuth` (redirect to `/login`, preserving `from`).
   The sidebar (`components/Layout`) hides permission-gated nav (Users) and shows the current user +
   logout. The Parts page hides New/Edit/Delete/categorize controls without `PARTS_EDIT`.
+- **`SecurityConfig` is `@ConditionalOnWebApplication(SERVLET)`; the beans live in
+  `SecurityBeansConfig`.** `@EnableWebSecurity` and the `MvcRequestMatcher`-based filter chains need
+  Spring MVC, which is absent under the CLI profiles that set `web-application-type: none` (`import`,
+  `datasheets`) — without the guard those runners die at startup on a missing
+  `mvcHandlerMappingIntrospector`, which is what silently broke the documented Partsbox import
+  command. `PasswordEncoder`, `SecurityContextRepository` and `AuthenticationManager` are therefore
+  held in a separate always-on `SecurityBeansConfig`: none of them touch MVC, and all are needed in a
+  non-web context (the first three by `InvitationService`/`PrintDaemonService`/`AdminUserService` and
+  `PermissionService`; `AuthenticationManager` by `AuthController`, which is still component-scanned
+  with no web server since `@RestController` is a `@Component` and only the MVC *infrastructure*
+  disappears). Adding a bean to `SecurityConfig` that a plain `@Service` depends on will break the
+  CLI profiles again.
 - **Bootstrap admin** (seeded by migration V10): `admin@clele.local` / `admin` with both permissions.
   **Change this password after first login** (via the Users screen). To regenerate the seed hash use a
   BCrypt hash of the new password (Spring's `BCryptPasswordEncoder`, or `htpasswd -bnBC 10 "" <pw>`).
+
+## Datasheet Preflight & Backfill
+
+CLI tool that downloads the PDFs `part.datasheet_url` points at into `part_attachment`, and reports
+whether their specs are actually machine-readable — the groundwork for extracting spec values from
+datasheets (the licensing-clean path; see *Part metadata sources* below).
+
+- Package `com.clele.parts`: `imports/DatasheetBackfillRunner` (`ApplicationRunner`, active only
+  under the **`datasheets`** profile) + `service/DatasheetBackfillService` +
+  `service/DatasheetAnalyzer`. `application-datasheets.yml` sets `web-application-type: none`, so
+  the process runs and exits.
+- **One pass with a `dryRun` switch, not a separate probe and fetch.** Telling a usable datasheet
+  from a scan means parsing it, so a preflight that did not download would have nothing to classify.
+  Dry run analyses and discards; a real run stores the same bytes as a `DATASHEET` attachment.
+  ```
+  cd backend
+  # preflight (default — writes nothing):
+  mvn21 spring-boot:run -Dspring-boot.run.profiles=datasheets \
+    -Dspring-boot.run.arguments=--datasheets.limit=50
+  # backfill:
+  mvn21 spring-boot:run -Dspring-boot.run.profiles=datasheets \
+    -Dspring-boot.run.arguments=--datasheets.dry-run=false
+  ```
+  Options: `--datasheets.dry-run` (default true), `--datasheets.limit` (0 = all),
+  `--datasheets.delay-ms` (default 250), `--datasheets.report` (CSV path).
+- **Resumable**: `PartRepository.findWithUndownloadedDatasheet` only returns parts with no
+  `DATASHEET` attachment yet, and each part commits on its own (`JpaRepository.save` is itself
+  transactional — the service is deliberately *not* `@Transactional`, since `store` is called via
+  self-invocation and the annotation would be inert).
+- **`DatasheetAnalyzer` routes each PDF to `TEXT`, `IMAGE_TABLES` or `NO_TEXT_LAYER`** by asking
+  whether the text layer contains a **parametric section heading** ("Absolute Maximum Ratings",
+  "Limiting Values", "DC Characteristics", …), *not* by measuring text volume. The failure mode in
+  this catalogue is the hybrid PDF — a modern text layer holding the title block and packaging
+  tables, with every parametric table pasted in as a scanned image. Measured: Atmel AT28C16 (specs
+  in text) 901 avg chars/page and 16% sparse pages; TI SN74LS174 (specs as images) 991 and 18% —
+  indistinguishable by volume, cleanly separated by heading presence (5 and 10 hits vs 0).
+  `SECTION_HEADINGS` is the calibration surface; phrases are whole ("maximum rating", never
+  "maximum") so prose like "exceeds the maximum" does not score. `DatasheetAnalyzerTest` pins this.
+- **`datasheetRestTemplate` is backed by Apache HttpClient, not the default
+  `SimpleClientHttpRequestFactory`** — the JDK's `HttpURLConnection` underneath it silently refuses
+  to follow a redirect that **changes protocol**, and most stored URLs are `http://` links that
+  redirect to `https://`. On the default factory those return HTTP 200 with the redirect
+  interstitial's HTML in the body, which looks exactly like a successful download of a non-PDF. This
+  cost a whole preflight run reporting 0% usable before it was spotted; the other `RestTemplate`
+  beans are untouched, so this is worth remembering if another bulk fetcher is added.
+- **The URL corpus is the real constraint, not the PDFs.** ~98% of `datasheet_url` values came from
+  the Partsbox import and point at Octopart, in two populations that behave completely differently:
+  `http://datasheet.octopart.com/*.pdf` serves real PDFs, while `https://octopart.com/…/c1?t=<token>`
+  are signed tracking links with expiring tokens that now 403 behind Cloudflare and are unrecoverable.
+  Re-sourcing those URLs from manufacturer sites is a prerequisite for full spec coverage.
 
 ## Partsbox Import
 

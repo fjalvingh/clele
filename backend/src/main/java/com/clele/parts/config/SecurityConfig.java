@@ -1,26 +1,21 @@
 package com.clele.parts.config;
 
 import com.clele.parts.repository.PrintDaemonRepository;
-import com.clele.parts.service.AppUserDetailsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.ProviderManager;
-import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.security.web.context.SecurityContextRepository;
 
@@ -33,33 +28,22 @@ import java.util.Map;
  * specific mutations are further gated with {@code @PreAuthorize} (method security). Static SPA
  * assets and the client-router fallback are public. CSRF is disabled (token-style JSON API with a
  * SameSite cookie); unauthenticated/forbidden API calls return JSON 401/403 so the client can react.
+ *
+ * <p><b>Servlet-only.</b> {@code @EnableWebSecurity} and the {@code MvcRequestMatcher}-based chains
+ * below require Spring MVC, so this class must not load under a CLI profile that sets
+ * {@code web-application-type: none} (the {@code import} and {@code datasheets} profiles) — without
+ * the guard those runners die at startup on a missing {@code mvcHandlerMappingIntrospector}. The
+ * two security beans that ordinary services depend on live in {@link SecurityBeansConfig} so they
+ * remain available in every context.
  */
 @Configuration
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @EnableWebSecurity
 @EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
     private final ObjectMapper objectMapper;
-
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    public AuthenticationManager authenticationManager(AppUserDetailsService userDetailsService,
-                                                       PasswordEncoder passwordEncoder) {
-        DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
-        provider.setUserDetailsService(userDetailsService);
-        provider.setPasswordEncoder(passwordEncoder);
-        return new ProviderManager(provider);
-    }
-
-    @Bean
-    public SecurityContextRepository securityContextRepository() {
-        return new HttpSessionSecurityContextRepository();
-    }
 
     /**
      * Daemon-facing endpoints: authenticated via the {@code X-Daemon-Id}/{@code X-Daemon-Key}

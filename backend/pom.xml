@@ -73,6 +73,21 @@
             <artifactId>transit-java</artifactId>
             <version>1.0.371</version>
         </dependency>
+        <!-- Reads datasheet PDFs (page count + text layer) for the datasheet preflight/backfill.
+             Not in the Spring BOM, so pin the version. PDFBox 3.x API: Loader.loadPDF(byte[]). -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.3</version>
+        </dependency>
+        <!-- Backs datasheetRestTemplate only. The JDK's HttpURLConnection (behind Spring's default
+             SimpleClientHttpRequestFactory) refuses to follow a redirect that changes protocol, and
+             most stored datasheet URLs are http:// links that redirect to https:// — it returns the
+             interstitial HTML instead of the PDF, with a 200. Version managed by the Spring Boot BOM. -->
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+        </dependency>
 <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
