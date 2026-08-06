@@ -16,6 +16,7 @@ import CameraScanner, {
 } from '../components/CameraScanner';
 import PrintLabelModal from '../components/PrintLabelModal';
 import { parsePartBarcode } from '../utils/code128';
+import { parseAiSpecs } from '../utils/specs';
 
 /**
  * A keyboard-wedge scanner types into whatever input has focus, so on desktop this page keeps the
@@ -367,11 +368,15 @@ export default function BarcodeScannerPage() {
     if (!locationId) { setError('Select a location first'); return; }
     setPhase({ kind: 'adding' });
     try {
+      // The lookup already found these (they are shown on the confirm card below) — carry them
+      // through, or the part is created bare and the specs are lost with the scan.
+      const specs = parseAiSpecs(result.specs);
       const res = await quickAddPart({
         partNumber: result.mpn || query,
         description: result.shortDescription,
         manufacturer: result.manufacturer,
         datasheetUrl: result.datasheetUrl,
+        specs: Object.keys(specs).length > 0 ? specs : undefined,
         locationId: locationId as number,
         quantity,
         unitPrice: unitPrice ? parseFloat(unitPrice) : null,

@@ -5,6 +5,7 @@ import type { ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest
 import { useAuth } from '../auth/AuthContext';
 import MetricNumberField from '../components/MetricNumberField';
 import TagInput from '../components/TagInput';
+import { parseAiSpecs } from '../utils/specs';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -200,14 +201,8 @@ export default function QuickAddPage() {
           setForm((prev) => ({ ...prev, locationId: fallback }));
         }
         setSpecDefs(defs);
-        // Pre-fill spec values from AI specsRaw (name: value format)
-        const aiSpecs: Record<string, string> = {};
-        for (const s of form.specsRaw) {
-          const idx = s.indexOf(': ');
-          if (idx !== -1) {
-            aiSpecs[s.slice(0, idx)] = s.slice(idx + 2);
-          }
-        }
+        // Pre-fill spec values from the AI result (keyed by jsonName — see parseAiSpecs)
+        const aiSpecs = parseAiSpecs(form.specsRaw);
         const prefilled: Record<string, string> = {};
         const filled = new Set<string>();
         for (const def of defs) {
