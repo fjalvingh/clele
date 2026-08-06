@@ -805,6 +805,37 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
   `GET /api/parts/auto-categorize/status` (progress: total/processed/assigned/skipped/lastError).
   The Parts page has an "Auto-categorize (AI)" button that starts the job and polls status.
 
+## Part metadata sources — distributor APIs are off the table
+
+**Do not propose or build an integration that pulls part specifications from a distributor API.**
+Checked 2026-08-06: **Mouser** and **Farnell** both prohibit *storing* results returned by their
+API — you may query and display, you may not retain. That rules them out for this app, whose whole
+purpose is to keep the data. Assume **Digi-Key**, **TME** and the rest carry the same restriction
+until someone reads their terms and finds otherwise; "query, display, don't retain" is the standard
+shape, because the catalogue is the asset being protected.
+
+The community **jlcparts** dataset (https://github.com/yaqwsx/jlcparts, MIT *code*) is not a way
+round it: LCSC has no public API, so the data is scraped, and the project states no licence for the
+data itself. Adopting someone else's unlicensed copy is a weaker position, not a stronger one.
+Independently of contract terms, the EU **sui generis database right** protects the investment in
+compiling a catalogue even where the individual facts are not copyrightable — which is exactly what
+a distributor's parametric catalogue is.
+
+Two sources do **not** have this problem, and the app already uses both:
+
+- **Manufacturer datasheets.** A published document about one part, not a compiled database.
+  `part.datasheet_url` is set on ~75% of the catalogue and `part_attachment` already stores the PDFs
+  (see Part Attachments). Extracting parameters from them — ideally via the local Ollama, which
+  costs nothing and works offline — is the intended growth path for spec coverage.
+- **The AI lookup** (`AiPartSearchService`). Under Anthropic's terms the customer owns model
+  outputs, so nothing restricts storing them. The constraint on that path is cost, not licensing —
+  see CONSIDERATIONS.md item 5.
+
+⚠️ **Open question on Nexar/OctoPart below**: `PartService.applyOctopart` writes Nexar's spec data
+into `part.specs`, i.e. it *stores* it. Nobody has checked whether the Nexar terms carry the same
+no-retention clause as Mouser and Farnell. If they do, that existing feature has the same problem
+and would need to become display-only.
+
 ## OctoPart Enrichment
 
 - Enrich an **existing** part from OctoPart — now the **Nexar Supply API** (OAuth2
