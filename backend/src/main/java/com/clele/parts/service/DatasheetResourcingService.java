@@ -70,6 +70,8 @@ public class DatasheetResourcingService {
     public record Row(
             Long partId,
             String partNumber,
+            /** The URL being replaced — without it the run is not reversible from its own report. */
+            String previousUrl,
             String query,
             String outcome,
             int candidatesFound,
@@ -124,7 +126,11 @@ public class DatasheetResourcingService {
 
     private Row resourceOne(Part part, boolean dryRun) {
         String query = buildQuery(part);
-        Row.RowBuilder row = Row.builder().partId(part.getId()).partNumber(part.getPartNumber()).query(query);
+        Row.RowBuilder row = Row.builder()
+                .partId(part.getId())
+                .partNumber(part.getPartNumber())
+                .previousUrl(part.getDatasheetUrl())
+                .query(query);
 
         // The manufacturer's own URL first: it is a direct guess needing no search engine, and it
         // yields the real datasheet rather than a broker's re-host. Search is the fallback, and in
@@ -220,27 +226,78 @@ public class DatasheetResourcingService {
 
     /**
      * Whether the datasheet text names this part, returning the form that matched. Tries the whole
-     * part number first, then trims trailing characters one at a time — real datasheets routinely
-     * cover a family and print "SN74LS30" where the stock record says "SN74LS30N", and imported part
-     * numbers carry stray suffixes ("MC1489P."). Comparison ignores case and punctuation, so
-     * "MC14-89P" in a table still matches.
+     * part number first, then drops trailing <em>letters</em> — real datasheets cover a family and
+     * print "SN74LS30" where the stock record says "SN74LS30N", and imported numbers carry stray
+     * package suffixes ("MC1489P."). Comparison ignores case and punctuation, so "MC14-89P" in a
+     * table still matches.
+     *
+     * <p><b>Digits are never trimmed, and that restriction is the whole point.</b> An earlier version
+     * shortened by one character regardless of kind, which silently attached TI's SN7416 hex-inverter
+     * datasheet to SN74163, SN74164, SN74165 and SN74161 — four unrelated counters and shift
+     * registers — because "SN7416" is a prefix of "SN74163" and appears 35 times in that document.
+     * A trailing letter is a package or revision code and drops harmlessly; a trailing digit is part
+     * of the part's identity, and removing it turns the check into a family-prefix match that
+     * confidently accepts the wrong document. The cost of the stricter rule is the occasional false
+     * negative (a suffix ending in a digit, like "SN7402NE4", no longer reduces to "SN7402"), which
+     * surfaces as an honest NO_MATCH rather than as corrupt data.
      */
     static String mentionOf(String partNumber, String text) {
         if (partNumber == null || text == null) {
             return null;
         }
         String needle = normalise(partNumber);
-        String haystack = normalise(text);
-        if (needle.length() < MIN_MENTION_PREFIX || haystack.isEmpty()) {
+        if (needle.length() < MIN_MENTION_PREFIX || text.isBlank()) {
             return null;
         }
+        List<String> tokens = tokenise(text);
         for (int len = needle.length(); len >= MIN_MENTION_PREFIX; len--) {
             String prefix = needle.substring(0, len);
-            if (haystack.contains(prefix)) {
-                return prefix;
+            for (String token : tokens) {
+                if (isMention(token, prefix)) {
+                    return prefix;
+                }
+            }
+            // Stop before removing a digit: everything shorter would be a different part.
+            if (Character.isDigit(needle.charAt(len - 1))) {
+                return null;
             }
         }
         return null;
+    }
+
+    /**
+     * Whether one word of the datasheet names the part. The token may carry a longer package suffix
+     * than the stock record ("SN74LS30N" where we asked for "SN74LS30"), but a digit immediately
+     * after the match means it is a <em>different</em> part in the same family — "SN74163" is not a
+     * mention of "SN7416".
+     */
+    private static boolean isMention(String token, String prefix) {
+        if (!token.startsWith(prefix)) {
+            return false;
+        }
+        return token.length() == prefix.length() || !Character.isDigit(token.charAt(prefix.length()));
+    }
+
+    /**
+     * The datasheet split into words, each stripped of punctuation.
+     *
+     * <p>Splitting on whitespace <em>first</em> is load-bearing. An earlier version normalised the
+     * whole document into one punctuation-free string and searched that, which let adjacent words
+     * fuse across line breaks and invent part numbers the document never contained: TI's SN7417
+     * datasheet ends a line with "SN7417" and starts the next with "4", so the flattened text
+     * contained "SN74174" and the hex-buffer datasheet was confidently attached to the SN74174 hex
+     * flip-flop. The same accident matched SN74161 in the SN7416 datasheet. Punctuation is still
+     * dropped inside a word, so a table printing "MC14-89P" matches "MC1489P".
+     */
+    private static List<String> tokenise(String text) {
+        List<String> tokens = new ArrayList<>();
+        for (String raw : text.split("\\s+")) {
+            String t = normalise(raw);
+            if (!t.isEmpty()) {
+                tokens.add(t);
+            }
+        }
+        return tokens;
     }
 
     private static String normalise(String s) {

@@ -117,12 +117,12 @@ public class DatasheetBackfillRunner implements ApplicationRunner {
     private void writeResourcingCsv(DatasheetResourcingService.Report report, Path path) throws IOException {
         try (PrintWriter out = new PrintWriter(Files.newBufferedWriter(path, StandardCharsets.UTF_8))) {
             out.println("part_id,part_number,outcome,query,candidates_found,candidates_tried,"
-                    + "route,matched_on,applied,chosen_url,rejections");
+                    + "route,matched_on,applied,chosen_url,previous_url,rejections");
             for (DatasheetResourcingService.Row r : report.rows()) {
-                out.printf("%d,%s,%s,%s,%d,%d,%s,%s,%s,%s,%s%n",
+                out.printf("%d,%s,%s,%s,%d,%d,%s,%s,%s,%s,%s,%s%n",
                         r.partId(), csv(r.partNumber()), r.outcome(), csv(r.query()),
                         r.candidatesFound(), r.candidatesTried(), csv(r.route()), csv(r.matchedOn()),
-                        r.applied(), csv(r.chosenUrl()), csv(r.rejections()));
+                        r.applied(), csv(r.chosenUrl()), csv(r.previousUrl()), csv(r.rejections()));
             }
         }
         log.info("Wrote {} row(s) to {}", report.rows().size(), path.toAbsolutePath());
