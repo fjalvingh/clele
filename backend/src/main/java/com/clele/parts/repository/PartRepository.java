@@ -17,8 +17,15 @@ public interface PartRepository extends JpaRepository<Part, Long> {
 
     /**
      * Search parts by an optional free-text term and/or category, within one organisation. The term
-     * matches the part number as a case-insensitive substring and the description via PostgreSQL
-     * full-text search (websearch syntax). The category filter matches the given category <em>and
+     * matches the part number as a case-insensitive substring, and the description, {@code details}
+     * and the string values in {@code specs} via PostgreSQL full-text search (websearch syntax) —
+     * so "sot-23" or "0805" finds a part by its package, which is how a part is usually
+     * remembered. The three are concatenated into a single tsvector, not matched separately and
+     * OR'd: a tsquery ANDs its terms, so "transistor sot-23" must find both terms in one vector.
+     * The expression is indexed verbatim by V43 ({@code idx_part_search_fts}) — editing one side
+     * without the other silently costs the index, not correctness.
+     *
+     * <p>The category filter matches the given category <em>and
      * all of its descendants at any depth</em> (resolved via a recursive walk of category.parent_id),
      * so picking a higher-level node returns parts in any of its sub-categories.
      *
@@ -34,7 +41,9 @@ public interface PartRepository extends JpaRepository<Part, Long> {
             WHERE p.organisation_id = :orgId
               AND (:term IS NULL
                    OR p.part_number ILIKE '%' || :term || '%'
-                   OR to_tsvector('english', coalesce(p.description, ''))
+                   OR (to_tsvector('english', coalesce(p.description, ''))
+                       || to_tsvector('english', coalesce(p.details, ''))
+                       || jsonb_to_tsvector('english', coalesce(p.specs, '{}'), '["string"]'))
                       @@ websearch_to_tsquery('english', :term))
               AND (:categoryId IS NULL OR p.category_id IN (
                    WITH RECURSIVE subtree AS (
