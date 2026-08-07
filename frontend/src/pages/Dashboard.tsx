@@ -48,16 +48,31 @@ interface StatCardProps {
   icon: ReactNode;
 }
 
+// A tile is only ~186px of content wide at xl:grid-cols-5, and ~180px at lg:grid-cols-3 on a
+// tablet. The icon used to sit on the same line as the value, leaving it ~149px — less than the
+// 161px "€ 6,064.90" needs even at text-3xl, so a money value broke after the currency symbol
+// and the digits ran past the edge of the tile. The icon now has its own line, giving the value
+// the tile's full width, and the size follows the value's length so a long one still fits on one
+// line. break-words is the guard that nothing can spill whatever the number turns out to be;
+// tabular-nums keeps the digits from jittering as the figures change.
+function valueSizeClass(value: number | string): string {
+  const len = String(value).length;
+  if (len > 12) return 'text-xl';
+  if (len > 10) return 'text-2xl';
+  if (len > 6) return 'text-3xl';
+  return 'text-4xl';
+}
+
 function StatCard({ label, value, to, color, icon }: StatCardProps) {
   return (
     <Link
       to={to}
       className={`flex flex-col gap-2 rounded-xl p-6 shadow-sm transition-transform hover:scale-105 ${color}`}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-3xl">{icon}</span>
-        <span className="text-4xl font-bold">{value}</span>
-      </div>
+      <span className="text-3xl">{icon}</span>
+      <span className={`break-words font-bold tabular-nums ${valueSizeClass(value)}`}>
+        {value}
+      </span>
       <span className="text-sm font-medium opacity-80">{label}</span>
     </Link>
   );
