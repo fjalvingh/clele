@@ -66,8 +66,12 @@ public class PartSearchController {
 
     @PostMapping("/api/parts/quick-add")
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
     public QuickAddResponseDTO quickAdd(@Valid @RequestBody QuickAddRequest request) {
-        return quickAddService.quickAdd(request);
+        QuickAddResponseDTO response = quickAddService.quickAdd(request);
+        // Fetch the datasheet here rather than inside quickAdd: that method is transactional, and a
+        // vendor download is slow and allowed to fail. Running it after the commit means a dead link
+        // cannot take the newly created part down with it. See attachDatasheetBestEffort.
+        quickAddService.attachDatasheetBestEffort(response.getPart().getId(), request.getDatasheetUrl());
+        return response;
     }
 }

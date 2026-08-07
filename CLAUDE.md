@@ -1009,6 +1009,34 @@ and resolving that to one of this organisation's categories is a separate, fuzzy
 additionally sets the OctoPart link and requires an id, and one method with a sometimes-required id
 is how the wrong field gets written.
 
+### Datasheets are fetched at creation
+
+Quick Add pulls the part's `datasheetUrl` into `part_attachment` as a `DATASHEET` right after
+creation — while the link is known good. That matters because a stored URL rots: ~98% of the
+imported ones pointed at Octopart and most are now dead (see *Datasheet Preflight & Backfill*).
+
+⚠️ **The fetch runs in the controller, after `quickAdd` has committed, not inside it.**
+`QuickAddService.quickAdd` is `@Transactional` and `uploadFromUrl` is transactional too, so calling
+it from inside would join that transaction: a failed download marks it rollback-only and the user
+loses the part they just created **even though the exception was caught**. It would also hold a DB
+connection open for the length of a vendor fetch. Same reasoning as the Partsbox importer, which
+downloads images outside its load transaction. Failures are swallowed at INFO — an unreachable or
+moved datasheet is an ordinary outcome, and the URL stays on the part so "Download from URL" can
+retry by hand.
+
+Two defects in `PartAttachmentService` had to be fixed first, both of which stored junk silently:
+
+- It downloaded with the **default `restTemplate`**, whose `HttpURLConnection` refuses cross-protocol
+  redirects — and most stored datasheet URLs are `http://` links redirecting to `https://`, which
+  came back as HTTP 200 carrying the interstitial's HTML. It now takes
+  `@Qualifier("datasheetRestTemplate")`, spelled as an explicit constructor because
+  `@RequiredArgsConstructor` drops the qualifier and would inject the wrong bean silently.
+- It stored the response **verbatim, with no PDF check**. A vendor answers a moved document with
+  HTTP 200 and a landing page, not a 404 — `ti.com/product/LM317` returns 358 kB of `text/html` for
+  a URL that reads like a document. `DATASHEET` uploads now go through `util/PdfBytes.looksLikePdf`
+  (promoted out of `DatasheetAnalyzer`, which still uses it) and a non-PDF is refused. `ATTACHMENT`
+  is unchecked — that one is whatever the user says it is.
+
 **Expect nothing back for house-numbered and vintage parts.** Measured: `L7809CD2T` returned 8 specs
 (6.5¢); the DEC PDP-11 board `M7093` returned zero (5.2¢). That is a correct answer, not a failure,
 and the modal says so rather than telling the user to search again — "nothing searched yet" and

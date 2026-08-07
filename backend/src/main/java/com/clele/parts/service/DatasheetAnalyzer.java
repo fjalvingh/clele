@@ -45,9 +45,6 @@ import java.util.regex.Pattern;
 @Service
 public class DatasheetAnalyzer {
 
-    /** Bytes that every PDF starts with. Guards against HTML error pages served with a PDF name. */
-    private static final byte[] PDF_MAGIC = {'%', 'P', 'D', 'F'};
-
     /**
      * Section headings that indicate the text layer carries the parametric tables. Whole phrases
      * only — see the class comment. Matched case-insensitively.
@@ -156,22 +153,7 @@ public class DatasheetAnalyzer {
     }
 
     private static boolean looksLikePdf(byte[] data) {
-        if (data.length < PDF_MAGIC.length) {
-            return false;
-        }
-        // Some servers prepend whitespace/BOM; scan the first few bytes rather than requiring
-        // the header at offset 0.
-        int limit = Math.min(data.length - PDF_MAGIC.length, 1024);
-        outer:
-        for (int i = 0; i <= limit; i++) {
-            for (int j = 0; j < PDF_MAGIC.length; j++) {
-                if (data[i + j] != PDF_MAGIC[j]) {
-                    continue outer;
-                }
-            }
-            return true;
-        }
-        return false;
+        return com.clele.parts.util.PdfBytes.looksLikePdf(data);
     }
 
     /** The distinct headings present, lower-cased, in the order the pattern lists them. */

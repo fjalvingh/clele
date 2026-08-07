@@ -6,9 +6,10 @@ import com.clele.parts.model.Part;
 import com.clele.parts.model.PartAttachment;
 import com.clele.parts.repository.PartAttachmentRepository;
 import com.clele.parts.repository.PartRepository;
+import com.clele.parts.util.PdfBytes;
 import jakarta.persistence.EntityNotFoundException;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -30,7 +31,6 @@ import java.util.List;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class PartAttachmentService {
 
@@ -39,7 +39,31 @@ public class PartAttachmentService {
 
     private final PartAttachmentRepository partAttachmentRepository;
     private final PartRepository partRepository;
+
+    /**
+     * The Apache HttpClient-backed template, <b>not</b> the default one.
+     *
+     * <p>The default {@code restTemplate} uses {@code SimpleClientHttpRequestFactory}, whose
+     * {@code HttpURLConnection} silently refuses to follow a redirect that changes protocol. Most
+     * stored datasheet URLs are {@code http://} links that redirect to {@code https://}, and on the
+     * default factory those come back as HTTP 200 carrying the redirect interstitial's HTML — which
+     * looks exactly like a successful download of a non-PDF. That cost a whole datasheet-preflight
+     * run before it was spotted; {@code DatasheetBackfillService} has the same qualifier for the
+     * same reason.
+     *
+     * <p>Written out as an explicit constructor field rather than relying on Lombok, because
+     * {@code @RequiredArgsConstructor} does not copy the qualifier onto the generated parameter and
+     * the wrong bean would be injected silently.
+     */
     private final RestTemplate restTemplate;
+
+    public PartAttachmentService(PartAttachmentRepository partAttachmentRepository,
+                                 PartRepository partRepository,
+                                 @Qualifier("datasheetRestTemplate") RestTemplate restTemplate) {
+        this.partAttachmentRepository = partAttachmentRepository;
+        this.partRepository = partRepository;
+        this.restTemplate = restTemplate;
+    }
 
     /** Raw bytes plus the headers needed to serve them. */
     public record AttachmentContent(byte[] data, String contentType, String filename) {}
@@ -103,6 +127,18 @@ public class PartAttachmentService {
             builder.data(downloadAndConvertToPng(url)).contentType(PNG.toString()).filename(null);
         } else {
             Downloaded d = download(url);
+            // A datasheet must actually be a PDF. Vendors answer a moved or retired document with
+            // HTTP 200 and an HTML landing page rather than a 404, and the URL ending in .pdf says
+            // nothing about what came back — stored unchecked, that page becomes a "datasheet" that
+            // only reveals itself when somebody opens it. Only DATASHEET is checked; a general
+            // ATTACHMENT is whatever the user says it is.
+            if (type == AttachmentType.DATASHEET && !PdfBytes.looksLikePdf(d.bytes())) {
+                log.warn("Refusing datasheet from {}: not a PDF (content-type {}, {} bytes)",
+                        url, d.contentType(), d.bytes().length);
+                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                        "That URL did not return a PDF — the vendor most likely served a web page "
+                                + "instead of the document. Open it in a browser to check.");
+            }
             builder.data(d.bytes()).contentType(d.contentType()).filename(filenameFromUrl(url));
         }
 
