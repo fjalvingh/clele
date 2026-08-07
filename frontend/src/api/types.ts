@@ -136,8 +136,18 @@ export interface PartFilters {
   personalNumber?: boolean;
   manufacturer?: string;
   locationId?: number;
+  /** Keep only parts carrying fewer than SPARSE_SPEC_THRESHOLD spec keys. */
+  sparseSpecs?: boolean;
   tags?: string[];
 }
+
+/**
+ * A part with fewer than this many spec keys counts as "missing specs" — what the dashboard tile
+ * reports and what the Parts screen's sparse filter keeps. Mirrors
+ * `PartRepository.SPARSE_SPEC_THRESHOLD`; the two must agree or the tile's count and the filtered
+ * list disagree.
+ */
+export const SPARSE_SPEC_THRESHOLD = 5;
 
 /** A saved tag name, as returned by the tag autocomplete endpoint. */
 export interface Tag {
@@ -664,6 +674,8 @@ export interface Dashboard {
   totalLocations: number;
   totalCategories: number;
   lowStockCount: number;
+  /** Parts carrying fewer than SPARSE_SPEC_THRESHOLD spec keys. */
+  sparseSpecCount: number;
   totalStockValue: number;
   perLocation: LocationDashboard[];
 }

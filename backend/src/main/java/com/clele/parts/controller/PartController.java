@@ -39,8 +39,10 @@ public class PartController {
             @RequestParam(required = false) Boolean personalNumber,
             @RequestParam(required = false) String manufacturer,
             @RequestParam(required = false) Long locationId,
+            @RequestParam(required = false) Boolean sparseSpecs,
             @RequestParam(required = false) List<String> tags) {
-        return partService.search(search, categoryId, sort, personalNumber, manufacturer, locationId, tags);
+        return partService.search(search, categoryId, sort, personalNumber, manufacturer, locationId,
+                sparseSpecs, tags);
     }
 
     @GetMapping("/local-match")

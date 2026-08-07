@@ -11,6 +11,17 @@ import java.util.Optional;
 
 public interface PartRepository extends JpaRepository<Part, Long> {
 
+    /**
+     * A part carrying fewer than this many spec keys counts as "missing specs" — the figure the
+     * dashboard tile and the Parts screen's sparse filter both report. Mirrored in
+     * {@code frontend/src/api/types.ts} as {@code SPARSE_SPEC_THRESHOLD}; the two must agree or the
+     * tile's count and the filtered list disagree.
+     *
+     * <p>Inlined as a literal in the native queries below because JPQL/native {@code @Query} text is
+     * a compile-time constant expression — keep the three in step.
+     */
+    int SPARSE_SPEC_THRESHOLD = 5;
+
     Optional<Part> findByOrganisationIdAndPartNumber(Long organisationId, String partNumber);
 
     Optional<Part> findByIdAndOrganisationId(Long id, Long organisationId);
@@ -33,8 +44,10 @@ public interface PartRepository extends JpaRepository<Part, Long> {
      * optional and ignored when null. {@code personalNumber} matches the flag exactly;
      * {@code manufacturer} is a case-insensitive substring; {@code locationId} keeps parts that
      * hold stock in that location <em>or any location below it</em> (same recursive walk as
-     * categories, so filtering on "Building A" finds stock on a shelf three levels down). Tag
-     * filtering is not done here — see {@code PartService.search}.
+     * categories, so filtering on "Building A" finds stock on a shelf three levels down);
+     * {@code sparseSpecs} keeps only parts carrying fewer than
+     * {@link #SPARSE_SPEC_THRESHOLD} spec keys. Tag filtering is not done here — see
+     * {@code PartService.search}.
      */
     @Query(value = """
             SELECT p.* FROM part p
@@ -65,6 +78,8 @@ public interface PartRepository extends JpaRepository<Part, Long> {
                              SELECT l.id FROM location l JOIN loctree lt ON l.parent_id = lt.id
                          )
                          SELECT id FROM loctree)))
+              AND (:sparseSpecs IS NULL OR :sparseSpecs = FALSE
+                   OR (SELECT count(*) FROM jsonb_object_keys(coalesce(p.specs, '{}'))) < 5)
             ORDER BY p.part_number
             """, nativeQuery = true)
     List<Part> search(@Param("orgId") Long organisationId,
@@ -72,7 +87,29 @@ public interface PartRepository extends JpaRepository<Part, Long> {
                       @Param("categoryId") Long categoryId,
                       @Param("personalNumber") Boolean personalNumber,
                       @Param("manufacturer") String manufacturer,
-                      @Param("locationId") Long locationId);
+                      @Param("locationId") Long locationId,
+                      @Param("sparseSpecs") Boolean sparseSpecs);
+
+    /**
+     * How many parts in the organisation carry fewer than {@link #SPARSE_SPEC_THRESHOLD} spec keys —
+     * the "parts missing specs" figure on the dashboard.
+     *
+     * <p>{@code coalesce} is load-bearing: {@code jsonb_object_keys} errors on a NULL input, and a
+     * part that has never been through a lookup has {@code specs IS NULL}, which is exactly the
+     * population being counted.
+     *
+     * <p>Note the missing cast on {@code '{}'}: writing PostgreSQL's {@code '{}'::jsonb} here fails
+     * at runtime, because Hibernate reads the {@code :} of {@code ::} as the start of a named
+     * parameter and mangles the SQL ("syntax error at or near \":\""). No cast is needed anyway —
+     * {@code p.specs} is jsonb, so coalesce coerces the literal. Use {@code cast(x as jsonb)} if an
+     * explicit cast is ever unavoidable.
+     */
+    @Query(value = """
+            SELECT count(*) FROM part p
+            WHERE p.organisation_id = :orgId
+              AND (SELECT count(*) FROM jsonb_object_keys(coalesce(p.specs, '{}'))) < 5
+            """, nativeQuery = true)
+    long countSparseSpecs(@Param("orgId") Long organisationId);
 
     /**
      * Fuzzy-match existing parts by part number within one organisation, for Quick Add's "do we

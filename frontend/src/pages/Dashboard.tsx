@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { getDashboard } from '../api';
-import type { Dashboard } from '../api/types';
+import { SPARSE_SPEC_THRESHOLD, type Dashboard } from '../api/types';
 import { useSettings } from '../settings/SettingsContext';
 
 const iconProps = {
@@ -28,6 +28,15 @@ const LocationIcon = (
   <svg {...iconProps}>
     <path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z" />
     <circle cx="12" cy="10" r="2.5" />
+  </svg>
+);
+
+// Document with an incomplete last line — represents parts whose specifications are thin
+const SparseSpecsIcon = (
+  <svg {...iconProps}>
+    <path d="M6 3h8l4 4v14H6z" />
+    <path d="M14 3v4h4" />
+    <path d="M9 12h6M9 16h2" />
   </svg>
 );
 
@@ -75,7 +84,7 @@ export default function DashboardPage() {
       {error && <p className="text-red-600">{error}</p>}
 
       {stats && (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           <StatCard
             label="Total Parts"
             value={stats.totalParts}
@@ -107,6 +116,19 @@ export default function DashboardPage() {
                 : 'bg-gray-50 text-gray-900'
             }
             icon="⚠️"
+          />
+          {/* Parts that arrived without specifications. Links to the Parts screen with the same
+              filter applied, so the number here and the list there always agree. */}
+          <StatCard
+            label={`Parts with under ${SPARSE_SPEC_THRESHOLD} specs`}
+            value={stats.sparseSpecCount}
+            to="/parts?sparse=1"
+            color={
+              stats.sparseSpecCount > 0
+                ? 'bg-amber-50 text-amber-900'
+                : 'bg-gray-50 text-gray-900'
+            }
+            icon={SparseSpecsIcon}
           />
         </div>
       )}

@@ -16,6 +16,7 @@ import type {
   PartRequest,
   SpecDefinition,
 } from '../api/types';
+import { SPARSE_SPEC_THRESHOLD } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import Badge from '../components/Badge';
 import CategoryPicker from '../components/CategoryPicker';
@@ -173,6 +174,7 @@ interface Criteria {
   personalNumber: TriState;
   manufacturer: string;
   locationId?: number;
+  sparseSpecs: boolean;
   tags: string[];
 }
 
@@ -183,6 +185,7 @@ const criteriaFromParams = (p: URLSearchParams): Criteria => ({
   personalNumber: p.get('pn') === 'yes' || p.get('pn') === 'no' ? (p.get('pn') as TriState) : '',
   manufacturer: p.get('mfr') ?? '',
   locationId: p.get('loc') ? Number(p.get('loc')) : undefined,
+  sparseSpecs: p.get('sparse') === '1',
   tags: p.get('tags') ? p.get('tags')!.split(',').filter(Boolean) : [],
 });
 
@@ -194,6 +197,7 @@ const paramsFromCriteria = (c: Criteria): Record<string, string> => {
   if (c.personalNumber) params.pn = c.personalNumber;
   if (c.manufacturer.trim()) params.mfr = c.manufacturer.trim();
   if (c.locationId !== undefined) params.loc = String(c.locationId);
+  if (c.sparseSpecs) params.sparse = '1';
   if (c.tags.length > 0) params.tags = c.tags.join(',');
   return params;
 };
@@ -202,10 +206,15 @@ const filtersFromCriteria = (c: Criteria): PartFilters => ({
   personalNumber: c.personalNumber ? c.personalNumber === 'yes' : undefined,
   manufacturer: c.manufacturer.trim() || undefined,
   locationId: c.locationId,
+  sparseSpecs: c.sparseSpecs || undefined,
   tags: c.tags,
 });
 
-/** True when the criteria narrow anything down — an empty search must not list the whole catalogue. */
+/**
+ * True when the criteria narrow anything down — an empty search must not list the whole catalogue.
+ * The sparse-specs flag counts on its own: the dashboard tile links straight to `/parts?sparse=1`
+ * with nothing else set, and leaving it out here would land the user on an empty page.
+ */
 const hasCriteria = (c: Criteria) =>
   Boolean(
     c.search.trim() ||
@@ -213,12 +222,19 @@ const hasCriteria = (c: Criteria) =>
       c.personalNumber ||
       c.manufacturer.trim() ||
       c.locationId !== undefined ||
+      c.sparseSpecs ||
       c.tags.length > 0,
   );
 
 /** True when any of the *advanced* (panel) filters are in use — used to auto-open the panel. */
 const hasAdvanced = (c: Criteria) =>
-  Boolean(c.personalNumber || c.manufacturer.trim() || c.locationId !== undefined || c.tags.length > 0);
+  Boolean(
+    c.personalNumber ||
+      c.manufacturer.trim() ||
+      c.locationId !== undefined ||
+      c.sparseSpecs ||
+      c.tags.length > 0,
+  );
 
 export default function PartsPage() {
   const { hasPermission } = useAuth();
@@ -455,7 +471,14 @@ export default function PartsPage() {
           <button
             type="button"
             onClick={() => {
-              setCriteria({ search: '', sort: criteria.sort, personalNumber: '', manufacturer: '', tags: [] });
+              setCriteria({
+                search: '',
+                sort: criteria.sort,
+                personalNumber: '',
+                manufacturer: '',
+                sparseSpecs: false,
+                tags: [],
+              });
               setParts([]);
               setSearched(false);
               setSearchParams({}, { replace: true });
@@ -549,6 +572,23 @@ export default function PartsPage() {
                 onChange={(tags) => setCriteria({ ...criteria, tags })}
                 allowCreate={false}
               />
+            </div>
+
+            <div className="flex items-end">
+              {/* The other end of the dashboard's "parts missing specs" tile, which links here
+                  with ?sparse=1. */}
+              <label
+                className="inline-flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
+                title={`Parts carrying fewer than ${SPARSE_SPEC_THRESHOLD} specification values`}
+              >
+                <input
+                  type="checkbox"
+                  checked={criteria.sparseSpecs}
+                  onChange={(e) => setCriteria({ ...criteria, sparseSpecs: e.target.checked })}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                Missing specs (under {SPARSE_SPEC_THRESHOLD})
+              </label>
             </div>
           </div>
         )}
