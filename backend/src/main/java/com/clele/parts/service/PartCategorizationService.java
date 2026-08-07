@@ -60,6 +60,15 @@ public class PartCategorizationService {
     @Value("${ollama.model:llama3.2}")
     private String model;
 
+    /**
+     * Context window to ask Ollama for. Must hold the whole system prompt (the leaf-category
+     * catalogue) plus the part description, or Ollama <em>silently</em> truncates the prompt to
+     * roughly half its default 4096 and classifies against a fragment of the taxonomy — see
+     * {@link #warnIfPromptExceedsContext}. Raise this if the taxonomy outgrows it.
+     */
+    @Value("${ollama.num-ctx:8192}")
+    private int numCtx;
+
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "part-categorizer");
         t.setDaemon(true);
@@ -143,6 +152,7 @@ public class PartCategorizationService {
                 catalogue.append('\n');
             }
             String systemPrompt = String.format(SYSTEM_PROMPT_TEMPLATE, catalogue);
+            warnIfPromptExceedsContext(systemPrompt, leafIds.size());
 
             List<Part> parts = onlyUncategorized
                     ? partRepository.findByOrganisationIdAndCategoryIsNull(organisationId)
@@ -187,6 +197,31 @@ public class PartCategorizationService {
         }
     }
 
+    /**
+     * Warns when the catalogue is close to outgrowing {@link #numCtx}.
+     *
+     * <p>Ollama does not report an over-long prompt as an error: it truncates to roughly half the
+     * context (reserving the rest for the reply), keeps the <em>tail</em>, and answers normally. The
+     * head it drops is the instruction block, so the model both loses most of the taxonomy and stops
+     * being told what to reply — yet every id it returns still passes the leaf-set check and gets
+     * saved. Nothing downstream can tell that apart from a good run, so the only place it can be
+     * caught is here, before the first call.
+     *
+     * <p>Four characters per token is a deliberate under-estimate for this text (breadcrumbs are
+     * punctuation-heavy and tokenize worse), so the warning fires early rather than late.
+     */
+    private void warnIfPromptExceedsContext(String systemPrompt, int leafCount) {
+        int estimatedTokens = systemPrompt.length() / 4;
+        // The reply is tiny, but leave room for the part description the user message carries.
+        int budget = numCtx - 512;
+        if (estimatedTokens >= budget) {
+            log.warn("Category prompt is ~{} tokens for {} leaf categories but ollama.num-ctx is {}"
+                            + " — Ollama will silently truncate it and classify against a fragment"
+                            + " of the taxonomy. Raise ollama.num-ctx.",
+                    estimatedTokens, leafCount, numCtx);
+        }
+    }
+
     /** Calls Ollama once for a part and returns the chosen category id (or null). */
     private Long classify(String systemPrompt, Part part) {
         HttpHeaders headers = new HttpHeaders();
@@ -196,7 +231,7 @@ public class PartCategorizationService {
                 "model", model,
                 "stream", false,
                 "format", "json",
-                "options", Map.of("temperature", 0),
+                "options", Map.of("temperature", 0, "num_ctx", numCtx),
                 "messages", List.of(
                         Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", describe(part))
