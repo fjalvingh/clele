@@ -67,6 +67,13 @@ import type {
   UnreadChanges,
   User,
   UserRequest,
+  BomApplyResult,
+  BomCandidate,
+  BomColumnMapping,
+  BomImportPreview,
+  BomLineMatchRequest,
+  ImportedBom,
+  ImportedBomLine,
 } from './types';
 
 // Categories
@@ -530,3 +537,51 @@ export const completeProject = (projectId: number) =>
 
 export const cancelProject = (projectId: number, data: CancelRequest) =>
   client.post<Project>(`/projects/${projectId}/cancel`, data).then((r) => r.data);
+
+// Imported BOM
+
+/** Null when the project has no BOM yet — the backend answers 204, not 404. */
+export const getImportedBom = (projectId: number) =>
+  client.get<ImportedBom | ''>(`/projects/${projectId}/bom`).then((r) => (r.data ? r.data : null));
+
+/**
+ * Uploads a BOM export. `commit: false` (the default) is a dry run: nothing is written and the
+ * response reports what a commit would add, update and remove.
+ *
+ * Content-Type is overridden because the axios instance defaults to application/json; letting the
+ * browser set it is what supplies the multipart boundary.
+ */
+export const importBomFile = (
+  projectId: number,
+  file: File,
+  options: { mapping?: BomColumnMapping; commit?: boolean } = {},
+) => {
+  const form = new FormData();
+  form.append('file', file);
+  if (options.mapping) form.append('mapping', JSON.stringify(options.mapping));
+  form.append('commit', String(options.commit ?? false));
+  return client
+    .post<BomImportPreview>(`/projects/${projectId}/bom/import`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    .then((r) => r.data);
+};
+
+export const bomFileUrl = (projectId: number) =>
+  `${import.meta.env.BASE_URL}api/projects/${projectId}/bom/file`;
+
+export const getBomLineCandidates = (projectId: number, lineId: number) =>
+  client
+    .get<BomCandidate[]>(`/projects/${projectId}/bom/lines/${lineId}/candidates`)
+    .then((r) => r.data);
+
+export const setBomLineMatch = (projectId: number, lineId: number, data: BomLineMatchRequest) =>
+  client
+    .put<ImportedBomLine>(`/projects/${projectId}/bom/lines/${lineId}`, data)
+    .then((r) => r.data);
+
+export const applyImportedBom = (projectId: number) =>
+  client.post<BomApplyResult>(`/projects/${projectId}/bom/apply`).then((r) => r.data);
+
+export const deleteImportedBom = (projectId: number) =>
+  client.delete(`/projects/${projectId}/bom`);

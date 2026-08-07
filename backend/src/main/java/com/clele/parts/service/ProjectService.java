@@ -234,7 +234,16 @@ public class ProjectService {
     // Helpers
     // ------------------------------------------------------------------
 
-    private Project requireOwnProject(Long id) {
+    /**
+     * Resolves a project the caller may act on — scoped to the organisation in force <em>and</em>
+     * to the caller, since projects are private to their owner. A project belonging to someone else
+     * or to another organisation is reported as 404, not 403: as far as this caller is concerned it
+     * does not exist.
+     *
+     * <p>Public because the BOM-import services enforce the same rule; one definition of it is the
+     * point.
+     */
+    public Project requireOwnProject(Long id) {
         AppUser me = currentUserService.current();
         return projectRepository.findByIdAndOrganisationIdAndOwnerId(
                         id, currentOrganisationService.currentId(), me.getId())

@@ -5,6 +5,7 @@ import {
   cancelProject,
   completeProject,
   getMyLocations,
+  getImportedBom,
   getParts,
   getProject,
   pullStock,
@@ -13,6 +14,7 @@ import {
   updateBomEntry,
 } from '../api';
 import {
+  type ImportedBom,
   type Location,
   type Part,
   type Project,
@@ -71,12 +73,17 @@ export default function ProjectDetailPage() {
   // Transition state
   const [transitioning, setTransitioning] = useState(false);
 
+  // The imported BOM, if one has been uploaded. Fetched separately from the project because it is
+  // its own resource and answers 204 when there is none — the common case for an older project.
+  const [importedBom, setImportedBom] = useState<ImportedBom | null>(null);
+
   const load = () => {
     setLoading(true);
     getProject(projectId)
       .then(setProject)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+    getImportedBom(projectId).then(setImportedBom).catch(() => setImportedBom(null));
   };
 
   useEffect(load, [projectId]);
@@ -265,6 +272,59 @@ export default function ProjectDetailPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Imported BOM card — the uploaded file and its matching progress, separate from the
+          project BOM below, which is what Pull Stock actually reads. */}
+      <div className="rounded-lg border border-gray-200 bg-surface shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-6 py-4">
+          <h2 className="font-semibold text-gray-900">Imported BOM</h2>
+          <Link
+            to={`/projects/${projectId}/bom`}
+            className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            {importedBom ? 'Open BOM matching' : 'Import a BOM file'}
+          </Link>
+        </div>
+        {importedBom ? (
+          <div className="px-6 py-4">
+            <p className="text-sm text-gray-700">
+              <span className="font-medium">{importedBom.filename ?? 'BOM'}</span>
+              {' · '}{importedBom.totalLines} lines
+              {' · imported '}{new Date(importedBom.importedAt).toLocaleDateString()}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-green-100 px-2.5 py-0.5 font-medium text-green-700">
+                {importedBom.matchedCount} matched
+              </span>
+              {importedBom.unmatchedCount > 0 && (
+                <span className="rounded-full bg-amber-100 px-2.5 py-0.5 font-medium text-amber-800">
+                  {importedBom.unmatchedCount} still to match
+                </span>
+              )}
+              {importedBom.providedCount > 0 && (
+                <span className="rounded-full bg-blue-100 px-2.5 py-0.5 font-medium text-blue-700">
+                  {importedBom.providedCount} provided
+                </span>
+              )}
+              {importedBom.excludedCount > 0 && (
+                <span className="rounded-full bg-gray-100 px-2.5 py-0.5 font-medium text-gray-500">
+                  {importedBom.excludedCount} excluded
+                </span>
+              )}
+              {importedBom.changedCount > 0 && (
+                <span className="rounded-full bg-purple-100 px-2.5 py-0.5 font-medium text-purple-700">
+                  {importedBom.changedCount} changed — review
+                </span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="px-6 py-8 text-center text-sm text-gray-400">
+            No BOM file imported. Upload your EDA tool's CSV export and match its lines to parts,
+            rather than adding them one at a time below.
+          </div>
+        )}
       </div>
 
       {/* BOM card */}

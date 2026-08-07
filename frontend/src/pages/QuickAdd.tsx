@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { findLocalParts, getMyLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline, uploadPartAttachment } from '../api';
 import type { ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
@@ -141,7 +141,10 @@ export default function QuickAddPage() {
   const [step, setStep] = useState(1);
 
   // Step 1
-  const [query, setQuery] = useState('');
+  // ?q= pre-fills the search. The BOM matching screen sends the user here for a line it found no
+  // part for, carrying the line's part number so they do not have to retype it.
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState(searchParams.get('q') ?? '');
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [results, setResults] = useState<PartSearchResult[]>([]);

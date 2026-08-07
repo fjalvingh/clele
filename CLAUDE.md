@@ -73,7 +73,8 @@ frontend/src/
   auth/           AuthContext (current-user provider + useAuth hook)
   components/     Reusable UI: Layout, DataTable, Modal, FormField, Badge
   pages/          Route pages: Dashboard, Parts, PartDetail, Categories, Locations,
-                  LowStock, QuickAdd, SpecDefinitions, Users, Profile, Login
+                  LowStock, QuickAdd, SpecDefinitions, Users, Profile, Login,
+                  Projects, ProjectDetail, ProjectBom (BOM import + matching)
   utils/          labelPrint.ts (label rendering + daemon print), units.ts (metric prefixes)
 
 daemon/           Go print daemon — single static binary, stdlib only, no external deps
@@ -194,8 +195,14 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     description-only index and creates `idx_part_search_fts`, a GIN index over the **concatenation**
     `to_tsvector(description) || to_tsvector(details) || jsonb_to_tsvector(specs, '["string"]')`
     (see Parts search below)
+  - V44 adds **BOM import**: `project_bom` (one per project — unique `project_id` — holding the
+    uploaded file, its column mapping and who imported it) + `project_bom_line` (one row per line
+    of the file, unique per `(bom_id, reference_key)`, carrying both what the file said and the
+    match decision made about it), plus a trigram index on `part.mpn` so a BOM keyed on the
+    manufacturer part number is fuzzy-matchable the way `part_number` has been since V15. Neither
+    new table carries `organisation_id` — they reach it through `project_id` (see BOM Import below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V44** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V45** (always check `db/migration/` for the real high-water mark before adding one)
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
@@ -455,6 +462,84 @@ Partsbox has no rich export, so the data is captured from the live web app's Web
   entries, on-hand sum 15116; ~925 images downloaded, ~368 image failures. Image failures are
   normal and non-fatal — Partsbox's CDN returns `403 AccessDenied` for some objects, and
   SnapMagic returns gzip'd HTML placeholders (HTTP 200, not an image) where it has no photo.
+
+## BOM Import & Matching
+
+Upload an EDA tool's BOM export into a project, keep it in the database, and match its lines to
+catalogue parts at leisure. Replaces adding sixty parts one search at a time on Project Detail.
+
+**Matching is work the user stops and resumes**, which is the constraint the whole design answers
+to: the file, every line and every decision are persisted, and an unmatched line is a normal state
+rather than an error. Package `com.clele.parts.service.bom`.
+
+- **CSV/TSV only, columns detected not hardcoded.** `BomFileParser` sniffs the delimiter (`,` `;`
+  tab `|`) from the header row counting *outside quotes* — every grouped designator list
+  (`"C1,C2,C3"`) is a quoted field full of the delimiter. `BomColumnMapper` maps normalised headers
+  (lowercased, alphanumerics only, so "Mfr. Part #" == "mfrpartno") onto `BomColumnRole` via
+  synonym sets. One generic parser covers KiCad, Eagle, Altium and distributor exports; a header
+  nobody anticipated costs the user one dropdown, not a code change. KiCad's intermediate `.xml`
+  netlist is deliberately **not** supported — same fields, second parser, no one exports it by
+  preference.
+  - The parser reads the header row **as an ordinary record**, not via `setHeader()`: Commons CSV
+    rejects a duplicate or blank header outright and real exports carry both, so `dedupeHeaders`
+    repairs them ("Description (2)", "Column 4") instead of refusing the file.
+  - The UTF-8 **BOM is stripped**. Left in place it becomes part of the first header's name, so
+    "Reference" silently stops matching its own synonym — one column fails to map and nothing says why.
+  - "vendor"/"supplier" are deliberately **not** manufacturer synonyms — those name the distributor.
+    Claiming them writes "JLCPCB" into the manufacturer of every line on the board.
+- **One BOM per project; re-upload merges.** `ProjectBomImportService` pairs incoming lines against
+  stored ones on `reference_key` (the designators normalised by `DesignatorKey`: uppercased, split,
+  naturally sorted, rejoined — so "C3, C1,C2" and "C1,C2,C3" are one line), then pairs the leftovers
+  on **value + footprint**, which is what carries a match across a re-numbered schematic (C7 → C12).
+  Unpaired incoming lines are added; unclaimed stored lines are deleted and reported.
+- **Auto-match accepts only an exact, unambiguous hit** on part number or MPN, case-insensitively,
+  MPN tried before value, and only when exactly **one** part comes back. Fuzzy hits are offered as
+  ranked suggestions and never auto-accepted — two part numbers differing by a package suffix are
+  similar enough to accept and different enough to be the wrong part, which is how the datasheet
+  re-sourcing work attached a hex inverter's datasheet to four counters. Auto-match runs on new
+  lines and on lines still `UNMATCHED` (the catalogue may have gained the part), never over a
+  `MANUAL` match or a user's PROVIDED/EXCLUDED decision.
+- **Four line states** (`BomLineStatus`): `UNMATCHED` (the work queue) / `MATCHED` / `PROVIDED` (an
+  uncatalogued commodity assumed on hand — a resistor from the drawer) / `EXCLUDED` (deliberately
+  not fitted; set automatically from the file's DNP column, and settable by hand). PROVIDED and
+  EXCLUDED are *decisions*, which is why a re-import leaves them alone.
+- **`changed`** flags a line whose value or footprint moved while it was already matched. The match
+  is kept — the user decides whether it is still right — and any edit to the line clears the flag.
+
+⚠️ **An import is a dry run unless `commit=true`, and `ProjectBomImportService.preview` must
+`detach` the stored lines before touching them.** The merge refreshes the loaded entities in place
+and those are managed: left attached, Hibernate's dirty checking flushes every "would update" and
+the preview silently *is* the import. This was measured against a running instance, not theorised —
+a dry run moved a matched line's value and set its review flag. **`@Transactional(readOnly = true)`
+did not stop it**: `spring.jpa.open-in-view` defaults to true, so the EntityManager is opened by the
+OSIV interceptor and outlives the transaction that set the flush mode, with the dirty entities still
+in its persistence context. Detaching does not depend on any of that. `preview` and `commit` are
+also separate public methods rather than one with a flag, since self-invocation would leave the
+annotation inert. `ProjectBomImportServiceTest` pins the detach — mocks cannot reproduce a flush, so
+what is pinned is the mechanism that prevents it.
+
+- **The imported BOM is separate from `project_part`.** `ProjectBomService.apply` (PLANNING only,
+  same guard as `addBomEntry`) pushes the matched lines into `project_part` — the table Pull Stock
+  and the build flow actually read. Several lines can resolve to the same part (two 100nF caps in
+  different footprints), so quantities are **summed**: `project_part` is unique per (project, part).
+  PROVIDED/EXCLUDED/UNMATCHED lines are skipped, and existing `project_part` rows no line accounts
+  for are **reported, never deleted** — the imported BOM is not the only way parts get into a project.
+  Keeping this an explicit step matters: matching is exploratory and half-finished for most of its
+  life, while `project_part` is what the build runs on.
+- **Suggestions are computed per line, on demand** (`PartRepository.fuzzyByPartNumberOrMpn`, a
+  sibling of Quick Add's `fuzzyByPartNumber` that also covers `mpn` and returns the similarity as a
+  score). Filling a column for a hundred-line BOM on load would be a hundred trigram queries for
+  rows the user reads a handful of.
+- **Frontend**: `pages/ProjectBom.tsx` at `/projects/:id/bom` — a full page, not a modal; sixty
+  lines need the width. Filter chips per state (plus "Changed"), a text filter, and per line the
+  designators/value/footprint, qty and whole-build need, matched part, on-hand and status. The
+  import modal shows the detected mapping as editable selects over the file's real headers, the
+  diff counts and a per-line preview before committing. The match modal shows the line, ranked
+  suggestions with similarity and on-hand, a debounced catalogue search, and **Assume provided** /
+  **Exclude** / **Add to catalogue** (which links to `/quick-add?q=` — QuickAdd reads `q` to
+  pre-fill its search). Project Detail gains an *Imported BOM* card above the existing BOM card.
+  Row tints use translucent colours (`bg-purple-500/10`), never `bg-purple-50` — a fixed light
+  colour sits on top of the row in dark mode and washes the text out.
 
 ## Stock Model
 
@@ -1226,6 +1311,10 @@ and would need to become display-only.
   entries with unit price; total on-hand quantity + total stock value summary; a collapsible
   "Stock Movements" history (ledger sorted newest-first, showing quantity, location, price, comments,
   timestamp, and who made the move) backed by `GET /parts/{id}/movements`
+- **BOM import**: upload an EDA tool's CSV export into a project, then match its lines to catalogue
+  parts a few at a time over as long as it takes — the file and every decision are stored, exact
+  hits match themselves, and re-uploading a revised export merges rather than starting over (see
+  BOM Import & Matching above)
 - **Label printing**: per-user choice of the browser print dialog or silent printing via an
   installed network daemon, configured on My Account (see Label Printing above)
 
@@ -1317,6 +1406,17 @@ and would need to become display-only.
   `GET /stock-thresholds/low` — thresholds where subtree total < minimum (drives Low Stock page);
   `POST /stock-thresholds` → upsert (create or update) a threshold, 201; location must be a root
   (400 otherwise); `DELETE /stock-thresholds/{id}` → 204
+- **Project BOM import** (`/projects/{projectId}/bom`, all `PARTS_EDIT` — see BOM Import above):
+  `GET` returns the imported BOM with every line and its match, or **204** when none has been
+  imported (the normal starting state, not an error); `POST /import` (multipart `file` + optional
+  `mapping` JSON + `commit`, **dry run by default**) merges a BOM export into the existing BOM and
+  returns `BomImportPreviewDTO` — the detected column mapping, the file's headers, warnings, and
+  the added/updated/unchanged/removed/changed/autoMatched counts with a per-line diff;
+  `GET /file` downloads the file as uploaded; `GET /lines/{lineId}/candidates` returns ranked part
+  suggestions with a pg_trgm similarity; `PUT /lines/{lineId}` `{partId?, status?, notes?}` records
+  one line's decision (MATCHED / PROVIDED / EXCLUDED / UNMATCHED) and clears its `changed` flag;
+  `POST /apply` pushes the matched lines into `project_part`, summing quantities per part
+  (PLANNING only); `DELETE` drops the imported BOM, leaving `project_part` alone
 - `GET /dashboard`
 - `GET /parts-search?q=` — AI part search (requires `PARTS_EDIT`)
 - `POST /parts/{id}/ai-apply` — apply a chosen AI-lookup result to an existing part; specs merge onto

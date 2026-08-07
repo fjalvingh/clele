@@ -51,3 +51,32 @@
   text will yield a description and little else, and a datasheet that is nothing but a scan is
   refused outright. In both cases it says which it is rather than reporting an empty result.
 </p>
+
+<h4>Import a bill of materials into a project</h4>
+<p>
+  A project can now take the BOM your EDA tool exports instead of you adding sixty parts one search
+  at a time. Open a project and use <strong>Import a BOM file</strong>: any CSV will do — KiCad,
+  Eagle, Altium, a distributor's — and the columns are worked out from the file's own headers. You
+  see what was detected, and what importing would add, change and remove, before anything is stored;
+  correct any column it read wrongly and import again.
+</p>
+<p>
+  Each line is then matched to a part in your catalogue on its own screen. Lines whose part number
+  matches exactly and unambiguously are matched for you; everything else offers ranked suggestions
+  with how much stock you have of each, alongside a search of the whole catalogue. There is no need
+  to finish in one sitting — every decision is saved as you make it, so you can close the screen and
+  carry on days later.
+</p>
+<p>
+  A line need not end up as a catalogue part at all. Mark a commodity you keep in a drawer as
+  <em>provided</em>, exclude one you are deliberately not fitting — parts your file marks DNP arrive
+  excluded already — or jump to Quick Add to catalogue something you do not have yet. When you are
+  ready, <strong>Apply to project BOM</strong> writes the matched lines into the project's own parts
+  list, adding up the quantities where several lines want the same part.
+</p>
+<p>
+  Re-exporting after a schematic change does not start you over. A second upload merges into what is
+  there: matches are kept, including on a part whose designator changed, lines that left the
+  schematic are removed, and a line whose value moved while it was already matched is flagged for you
+  to re-check rather than quietly left pointing at the old part.
+</p>

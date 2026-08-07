@@ -107,6 +107,23 @@ public class PartService {
         return result;
     }
 
+    /**
+     * Maps parts to DTOs carrying their organisation-wide on-hand total and thumbnail, batching the
+     * two lookups over the whole list. The BOM matching screen needs exactly this — a matched line
+     * is only useful next to the stock behind it — and doing it per part would be two queries per
+     * BOM line.
+     */
+    public List<PartDTO> toDTOsWithStock(List<Part> parts) {
+        if (parts.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Long> stockByPart = stockByOrganisation(parts);
+        Map<Long, Long> thumbnailByPart = thumbnailsFor(parts);
+        return parts.stream()
+                .map(p -> toDTOWithStock(p, stockByPart, thumbnailByPart))
+                .collect(Collectors.toList());
+    }
+
     private PartDTO toDTOWithStock(Part part, Map<Long, Long> stockByPart,
                                    Map<Long, Long> thumbnailByPart) {
         PartDTO dto = toDTO(part);

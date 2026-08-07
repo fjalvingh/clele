@@ -493,6 +493,136 @@ export interface CancelRequest {
   returnStockIds: number[];
 }
 
+// Imported BOM
+//
+// Distinct from ProjectBomEntry above, which is a `project_part` row — the project's own BOM, what
+// Pull Stock reads. An ImportedBom is the uploaded CSV and the matching work on it; applying it
+// writes ProjectBomEntry rows.
+
+export type BomLineStatus = 'UNMATCHED' | 'MATCHED' | 'PROVIDED' | 'EXCLUDED';
+export type BomMatchSource = 'AUTO' | 'MANUAL';
+
+/** The column roles the importer maps headers onto. */
+export const BOM_COLUMN_ROLES = [
+  'REFERENCES',
+  'VALUE',
+  'FOOTPRINT',
+  'QUANTITY',
+  'MPN',
+  'MANUFACTURER',
+  'DESCRIPTION',
+  'DATASHEET',
+  'DNP',
+] as const;
+
+export type BomColumnRole = (typeof BOM_COLUMN_ROLES)[number];
+
+/** Role → the header in the file it reads from. */
+export type BomColumnMapping = Partial<Record<BomColumnRole, string>>;
+
+export interface ImportedBomLine {
+  id: number;
+  lineNo: number;
+  designators?: string | null;
+  value?: string | null;
+  footprint?: string | null;
+  mpn?: string | null;
+  manufacturer?: string | null;
+  description?: string | null;
+  datasheetUrl?: string | null;
+  /** Per build instance. */
+  quantity: number;
+  dnp: boolean;
+  /** Columns the mapping did not claim, kept verbatim. */
+  extra?: Record<string, string> | null;
+  status: BomLineStatus;
+  matchSource?: BomMatchSource | null;
+  /** Value or footprint moved under an existing match — worth re-checking. */
+  changed: boolean;
+  notes?: string | null;
+  partId?: number | null;
+  partNumber?: string | null;
+  partDescription?: string | null;
+  onHand?: number | null;
+  totalNeeded: number;
+}
+
+export interface ImportedBom {
+  id: number;
+  projectId: number;
+  projectName: string;
+  instanceCount: number;
+  /** False outside PLANNING — the BOM can only be applied then. */
+  canApply: boolean;
+  filename?: string | null;
+  contentType?: string | null;
+  importedAt: string;
+  importedByName?: string | null;
+  columnMapping?: BomColumnMapping | null;
+  totalLines: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  providedCount: number;
+  excludedCount: number;
+  changedCount: number;
+  lines: ImportedBomLine[];
+}
+
+export interface BomImportLinePreview {
+  action: 'ADDED' | 'UPDATED' | 'UNCHANGED' | 'REMOVED';
+  designators?: string | null;
+  value?: string | null;
+  footprint?: string | null;
+  mpn?: string | null;
+  manufacturer?: string | null;
+  quantity: number;
+  dnp: boolean;
+  matchKept: boolean;
+  matchedPartNumber?: string | null;
+  changed: boolean;
+}
+
+export interface BomImportPreview {
+  /** False for a dry run: nothing was written. */
+  committed: boolean;
+  mapping: BomColumnMapping;
+  headers: string[];
+  delimiter: string;
+  warnings: string[];
+  totalLines: number;
+  added: number;
+  updated: number;
+  unchanged: number;
+  removed: number;
+  changed: number;
+  autoMatched: number;
+  lines: BomImportLinePreview[];
+}
+
+export interface BomCandidate {
+  part: Part;
+  /** pg_trgm similarity, 0–1. Advisory — nothing is auto-accepted on it. */
+  score: number;
+  exact: boolean;
+  matchedOn?: string | null;
+}
+
+export interface BomLineMatchRequest {
+  partId?: number | null;
+  status?: BomLineStatus;
+  notes?: string | null;
+}
+
+export interface BomApplyResult {
+  created: number;
+  updated: number;
+  unchanged: number;
+  skippedUnmatched: number;
+  skippedProvided: number;
+  skippedExcluded: number;
+  unaccountedProjectParts: number;
+}
+
 // Currency was removed from movements — the app uses a single app-wide currency (AppSettings).
 
 export interface AppSettings {

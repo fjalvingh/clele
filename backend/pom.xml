@@ -73,6 +73,14 @@
             <artifactId>transit-java</artifactId>
             <version>1.0.371</version>
         </dependency>
+        <!-- Parses uploaded BOM exports (KiCad, Eagle, Altium, distributor CSVs). Not in the Spring
+             BOM, so pin the version. Hand-rolling is not an option: every grouped designator list
+             ("C1,C2,C3") is a quoted field containing the delimiter. -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.11.0</version>
+        </dependency>
         <!-- Reads datasheet PDFs (page count + text layer) for the datasheet preflight/backfill.
              Not in the Spring BOM, so pin the version. PDFBox 3.x API: Loader.loadPDF(byte[]). -->
         <dependency>

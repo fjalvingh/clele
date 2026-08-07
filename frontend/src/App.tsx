@@ -15,6 +15,7 @@ import PartsPage from './pages/Parts';
 import ProfilePage from './pages/Profile';
 import BarcodeScannerPage from './pages/BarcodeScanner';
 import QuickAddPage from './pages/QuickAdd';
+import ProjectBomPage from './pages/ProjectBom';
 import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectsPage from './pages/Projects';
 import SpecDefinitionsPage from './pages/SpecDefinitions';
@@ -89,6 +90,7 @@ export default function App() {
             <Route path="low-stock" element={<LowStockPage />} />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:id" element={<ProjectDetailPage />} />
+            <Route path="projects/:id/bom" element={<ProjectBomPage />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route
               path="users"

@@ -127,6 +127,52 @@ public interface PartRepository extends JpaRepository<Part, Long> {
             """, nativeQuery = true)
     List<Part> fuzzyByPartNumber(@Param("orgId") Long organisationId, @Param("term") String term);
 
+    /**
+     * Exact but case-insensitive lookups used by the BOM importer's auto-match. Both return a list
+     * rather than an Optional so the caller can tell "one part" from "several": the unique
+     * constraint on {@code part_number} is case-<em>sensitive</em>, and {@code mpn} carries no
+     * uniqueness at all, so either can legitimately return more than one row. The importer accepts
+     * a match only when exactly one distinct part comes back — a BOM line silently attached to the
+     * wrong part is worse than one left for the user to decide.
+     */
+    List<Part> findByOrganisationIdAndPartNumberIgnoreCase(Long organisationId, String partNumber);
+
+    List<Part> findByOrganisationIdAndMpnIgnoreCase(Long organisationId, String mpn);
+
+    /**
+     * Fuzzy-match by part number <em>or</em> MPN, returning the similarity score — the ranked
+     * suggestions the BOM matching screen offers for a line that did not match exactly. The sibling
+     * of {@link #fuzzyByPartNumber}, which Quick Add uses; this one also covers {@code mpn} (given
+     * its own trigram index in V44), because a BOM keyed on the manufacturer part number matches
+     * nothing at all otherwise.
+     *
+     * <p>The score is the better of the two similarities, exposed so the screen can show how
+     * confident a suggestion is. Nothing auto-accepts on it.
+     */
+    @Query(value = """
+            SELECT p.id AS id,
+                   GREATEST(similarity(p.part_number, :term),
+                            COALESCE(similarity(p.mpn, :term), 0)) AS score
+            FROM part p
+            WHERE p.organisation_id = :orgId
+              AND (p.part_number % :term
+                   OR p.part_number ILIKE '%' || :term || '%'
+                   OR p.mpn % :term
+                   OR p.mpn ILIKE '%' || :term || '%')
+            ORDER BY score DESC, p.part_number
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<PartMatchView> fuzzyByPartNumberOrMpn(@Param("orgId") Long organisationId,
+                                               @Param("term") String term,
+                                               @Param("limit") int limit);
+
+    /** Projection for {@link #fuzzyByPartNumberOrMpn} — a part id and how well it matched. */
+    interface PartMatchView {
+        Long getId();
+
+        Double getScore();
+    }
+
     List<Part> findByOrganisationId(Long organisationId);
 
     List<Part> findByOrganisationIdAndCategoryIsNull(Long organisationId);
