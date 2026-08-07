@@ -665,6 +665,11 @@ export interface AiApplyRequest {
   manufacturer?: string;
   mpn?: string;
   datasheetUrl?: string;
+  /**
+   * The package/case. Only the component cache fills it — the web lookup returns no footprint and
+   * a datasheet is not parsed for one.
+   */
+  footprint?: string;
   specs?: Record<string, string>;
 }
 
@@ -695,12 +700,97 @@ export interface DatasheetExtraction {
   specs: ExtractedSpec[];
 }
 
+// Component cache — the local jlcparts snapshot (cc_* tables), consulted before the web/AI lookups.
+
+/**
+ * Whether the snapshot is installed, and how old it is.
+ *
+ * The cache is an optional local dataset, not part of the schema, so every screen that uses it must
+ * cope with it being absent. `snapshotDate` is the honest label for `stock` and `priceQty1`: they
+ * were the vendor's figures at that moment and nothing refreshes them.
+ */
+export interface ComponentCacheStatus {
+  available: boolean;
+  componentCount: number;
+  snapshotDate?: string | null;
+  source?: string | null;
+}
+
+/** One cache hit — enough to recognise the part, not the whole record. */
+export interface ComponentCacheMatch {
+  /** The cache's key, and what `loadComponentCachePart` takes. */
+  lcsc: string;
+  mpn?: string;
+  manufacturer?: string;
+  description?: string;
+  packageName?: string;
+  category?: string;
+  subcategory?: string;
+  basicExtended?: string;
+  status?: string;
+  stock?: number | null;
+  priceQty1?: number | null;
+  datasheetUrl?: string;
+  imageUrl?: string;
+  productUrl?: string;
+  /** How many attributes the cache holds for it — fetched with the detail, not here. */
+  specCount: number;
+  /** How well it matched, 0–1, so a weak hit reads as a weak hit. */
+  score: number;
+}
+
+/** One cached attribute, already translated into this app's spec key and value. */
+export interface ComponentCacheSpec {
+  /** Where it lands in `part.specs`: a spec definition's jsonName, or a new key derived from the source name. */
+  key: string;
+  /** What the cache calls it, e.g. "Gain Bandwidth Product". */
+  sourceName: string;
+  value: string;
+  /** Whether `key` matched an existing spec definition (directly or through an alias). */
+  known: boolean;
+}
+
+/**
+ * The whole cached record for a selected part, mapped onto this app's fields.
+ *
+ * It writes nothing. Quick Add pre-fills its confirm step from it and the ordinary create stores the
+ * result; Part Detail ticks values one at a time and applies them through `applyAiLookup`.
+ *
+ * `category` is the cache's category *name* and is context only — resolving it to one of this
+ * organisation's categories is a separate, fuzzy problem the AI lookup does not attempt either.
+ */
+export interface ComponentCacheDetail {
+  lcsc: string;
+  mpn?: string;
+  manufacturer?: string;
+  description?: string;
+  footprint?: string;
+  category?: string;
+  subcategory?: string;
+  basicExtended?: string;
+  status?: string;
+  stock?: number | null;
+  joints?: number | null;
+  priceQty1?: number | null;
+  priceMin?: number | null;
+  datasheetUrl?: string;
+  imageUrl?: string;
+  productUrl?: string;
+  /** Ready to merge into `part.specs` — keys are canonical jsonNames. */
+  specs: Record<string, string>;
+  attributes: ComponentCacheSpec[];
+  /** Attributes not taken: absent values, and the four the row already carries as columns. */
+  skipped: string[];
+}
+
 export interface QuickAddRequest {
   partNumber: string;
   description?: string;
   details?: string;
   manufacturer?: string;
   personalNumber?: boolean;
+  /** The package/case. Filled by the component-cache path; the AI lookup returns none. */
+  footprint?: string;
   datasheetUrl?: string;
   specs?: Record<string, string>;
   categoryId?: number | null;

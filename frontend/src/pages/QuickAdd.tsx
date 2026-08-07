@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { findLocalParts, getMyLocations, getSpecDefinitions, quickAddPart, searchPartImages, searchPartsOnline, uploadPartAttachment } from '../api';
-import type { ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
+import { findLocalParts, getComponentCacheStatus, getMyLocations, getSpecDefinitions, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsOnline, uploadPartAttachment } from '../api';
+import type { ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import MetricNumberField from '../components/MetricNumberField';
 import TagInput from '../components/TagInput';
@@ -109,6 +109,66 @@ function ResultCard({
   );
 }
 
+/**
+ * One component-cache hit.
+ *
+ * Shows more identifying detail than the AI card does, because the cache returns near-misses the AI
+ * does not: a dozen houses second-source the same part number, and package, manufacturer and stock
+ * are what tell them apart. `score` is rendered for anything short of an exact match so a
+ * suffix-tolerant hit does not read as a confirmed one.
+ */
+function CacheResultCard({
+  match,
+  onSelect,
+  busy,
+}: {
+  match: ComponentCacheMatch;
+  onSelect: () => void;
+  busy: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-surface p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 mb-1">
+            <span className="font-mono text-base font-semibold text-gray-900">{match.mpn}</span>
+            {match.manufacturer && (
+              <span className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                {match.manufacturer}
+              </span>
+            )}
+            {match.packageName && (
+              <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+                {match.packageName}
+              </span>
+            )}
+            {match.score < 0.999 && (
+              <span className="rounded bg-amber-500/15 px-2 py-0.5 text-xs text-amber-700">
+                {Math.round(match.score * 100)}% match
+              </span>
+            )}
+          </div>
+          {match.description && (
+            <p className="text-sm text-gray-600 mb-1 line-clamp-2">{match.description}</p>
+          )}
+          <p className="text-xs text-gray-400">
+            {match.specCount} specification{match.specCount === 1 ? '' : 's'}
+            {match.subcategory ? ` · ${match.subcategory}` : ''}
+            {` · ${match.lcsc}`}
+          </p>
+        </div>
+        <button
+          onClick={onSelect}
+          disabled={busy}
+          className="shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          {busy ? 'Loading…' : 'Select'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Form state type for step 3 ────────────────────────────────────────────────
 
 interface ConfirmForm {
@@ -116,13 +176,21 @@ interface ConfirmForm {
   description: string;
   details: string;
   manufacturer: string;
+  footprint: string;
   personalNumber: boolean;
   datasheetUrl: string;
   locationId: string;
   quantity: string;
   unitPrice: string;
-  // raw specs from search result (kept for pre-filling)
-  specsRaw: string[];
+  /**
+   * Specs the chosen source supplied, keyed by jsonName, waiting for step 3 to render them.
+   *
+   * Already a map rather than the AI's "key: value" strings, because two sources fill it now: the
+   * AI search (parsed through `parseAiSpecs`) and the component cache (which returns a map). Keeping
+   * the AI's wire format here would mean serialising the cache's values back into strings only to
+   * split them again.
+   */
+  specsPrefill: Record<string, string>;
   tags: string[];
 }
 
@@ -150,6 +218,10 @@ export default function QuickAddPage() {
   const [results, setResults] = useState<PartSearchResult[]>([]);
   // Existing parts whose part number fuzzy-matches the query — shown before searching the Internet.
   const [localMatches, setLocalMatches] = useState<Part[]>([]);
+  // Component-cache hits, the stage between the catalogue and the Internet.
+  const [cacheMatches, setCacheMatches] = useState<ComponentCacheMatch[]>([]);
+  const [cacheAvailable, setCacheAvailable] = useState(false);
+  const [loadingLcsc, setLoadingLcsc] = useState<string | null>(null);
 
   // Step 3
   const [form, setForm] = useState<ConfirmForm>({
@@ -157,12 +229,13 @@ export default function QuickAddPage() {
     description: '',
     details: '',
     manufacturer: '',
+    footprint: '',
     personalNumber: false,
     datasheetUrl: '',
     locationId: '',
     quantity: '1',
     unitPrice: '',
-    specsRaw: [],
+    specsPrefill: {},
     tags: [],
   });
   const [locations, setLocations] = useState<Location[]>([]);
@@ -185,6 +258,15 @@ export default function QuickAddPage() {
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
   const [imageQuery, setImageQuery] = useState('');
 
+  // Is the component cache installed? Asked once — an installation without the snapshot must behave
+  // exactly as before rather than showing a stage that always finds nothing. A failure here is not
+  // worth surfacing: the answer is simply "no cache".
+  useEffect(() => {
+    getComponentCacheStatus()
+      .then((s) => setCacheAvailable(s.available))
+      .catch(() => setCacheAvailable(false));
+  }, []);
+
   // Load locations + all spec definitions when entering step 3
   useEffect(() => {
     if (step !== 3) return;
@@ -204,16 +286,16 @@ export default function QuickAddPage() {
           setForm((prev) => ({ ...prev, locationId: fallback }));
         }
         setSpecDefs(defs);
-        // Pre-fill spec values from the AI result (keyed by jsonName — see parseAiSpecs).
-        // Seed from the definitions first, then carry over every remaining key the lookup
-        // returned. Iterating only the definitions would silently drop anything the model named
+        // Pre-fill spec values from whichever source was chosen, keyed by jsonName.
+        // Seed from the definitions first, then carry over every remaining key the source
+        // returned. Iterating only the definitions would silently drop anything it named
         // that this organisation has no field for yet — which is also how the catalogue learns a
         // new field, since "rescan from parts" promotes surviving unknown keys to definitions.
-        const aiSpecs = parseAiSpecs(form.specsRaw);
+        const sourceSpecs = form.specsPrefill;
         const known = new Set(defs.map((d) => d.jsonName));
         const prefilled: Record<string, string> = {};
-        for (const def of defs) prefilled[def.jsonName] = aiSpecs[def.jsonName] ?? '';
-        for (const [key, value] of Object.entries(aiSpecs)) {
+        for (const def of defs) prefilled[def.jsonName] = sourceSpecs[def.jsonName] ?? '';
+        for (const [key, value] of Object.entries(sourceSpecs)) {
           if (!known.has(key)) prefilled[key] = value;
         }
         setSpecValues(prefilled);
@@ -235,11 +317,34 @@ export default function QuickAddPage() {
     const data = await searchPartsOnline(query.trim());
     setResults(data);
     setLocalMatches([]);
+    setCacheMatches([]);
     setStep(2);
   }
 
-  // First check whether we already have a matching part in the local catalogue; only fall back to
-  // the (slower, AI) Internet search when there's nothing local to offer.
+  /**
+   * Try the component cache. Returns whether it had anything, so the caller can fall through.
+   *
+   * A cache failure is deliberately not fatal — it is an optional local dataset and the Internet
+   * search is still there. Reporting "the cache is broken" to someone who only wants to add a part
+   * would stop a flow that can perfectly well continue.
+   */
+  async function tryComponentCache(): Promise<boolean> {
+    if (!cacheAvailable) return false;
+    try {
+      const matches = await searchComponentCache(query.trim());
+      if (matches.length === 0) return false;
+      setCacheMatches(matches);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Three sources, cheapest first: the catalogue we already have, then the local component cache,
+   * then the AI web search. The order is the whole point — the last one costs real money and takes
+   * seconds, and for a mass-market part the first two usually answer.
+   */
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     if (!query.trim()) return;
@@ -249,7 +354,7 @@ export default function QuickAddPage() {
       const local = await findLocalParts(query.trim());
       if (local.length > 0) {
         setLocalMatches(local);
-      } else {
+      } else if (!(await tryComponentCache())) {
         await runOnlineSearch();
       }
     } catch (err: unknown) {
@@ -259,7 +364,24 @@ export default function QuickAddPage() {
     }
   }
 
-  // "None of these — search online" from the local-match panel.
+  // "None of these" from the local-match panel: fall to the next source rather than straight to the
+  // Internet, so the cache is not skipped just because the catalogue held a near-miss.
+  async function handleRejectLocalMatches() {
+    setSearching(true);
+    setSearchError(null);
+    try {
+      setLocalMatches([]);
+      if (!(await tryComponentCache())) {
+        await runOnlineSearch();
+      }
+    } catch (err: unknown) {
+      setSearchError((err as Error).message ?? 'Search failed. Please try again.');
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  // "None of these — search online", from either panel.
   async function handleSearchOnlineAnyway() {
     setSearching(true);
     setSearchError(null);
@@ -272,6 +394,53 @@ export default function QuickAddPage() {
     }
   }
 
+  /**
+   * Take a cache hit: fetch the whole record and pre-fill step 3 from it.
+   *
+   * The second of the two calls the cache exposes. Nothing is written here — the ordinary quick-add
+   * create stores it, exactly as it does for an AI result, and the post-commit hook pulls the
+   * datasheet PDF in behind it.
+   */
+  async function handleSelectCacheMatch(match: ComponentCacheMatch) {
+    setLoadingLcsc(match.lcsc);
+    setSearchError(null);
+    try {
+      const detail = await loadComponentCachePart(match.lcsc);
+      setForm({
+        partNumber: detail.mpn ?? match.mpn ?? query.trim(),
+        description: detail.description ?? '',
+        details: '',
+        manufacturer: detail.manufacturer ?? '',
+        footprint: detail.footprint ?? '',
+        personalNumber: false,
+        datasheetUrl: detail.datasheetUrl ?? '',
+        locationId: '', // resolved to the last-used location when step 3 loads the user's locations
+        quantity: '1',
+        unitPrice: '',
+        specsPrefill: detail.specs,
+        tags: [],
+      });
+      setSaveError(null);
+      setSelectedImageUrls(new Set());
+      setFailedImageUrls(new Set());
+      setSpecValues({});
+      setVisibleSpecs(new Set());
+      // The cache carries the vendor's own product photo, so offer it instead of running an image
+      // search: it is the right part by construction, which a search result only might be.
+      const cached: ImageSuggestion[] = detail.imageUrl
+        ? [{ url: detail.imageUrl, thumbnailUrl: detail.imageUrl, description: detail.mpn ?? match.lcsc }]
+        : [];
+      setImageSuggestions(cached);
+      setImageQuery(detail.mpn ?? match.mpn ?? '');
+      setImagesLoading(false);
+      setStep(3);
+    } catch (err: unknown) {
+      setSearchError((err as Error).message ?? 'Could not load that part from the cache.');
+    } finally {
+      setLoadingLcsc(null);
+    }
+  }
+
   // ── Step 2 handlers ──────────────────────────────────────────────────────
 
   function handleSelect(result: PartSearchResult) {
@@ -280,12 +449,13 @@ export default function QuickAddPage() {
       description: result.shortDescription ?? '',
       details: '',
       manufacturer: result.manufacturer ?? '',
+      footprint: '', // the AI lookup returns no package
       personalNumber: false,
       datasheetUrl: result.datasheetUrl ?? '',
       locationId: '', // resolved to the last-used location when step 3 loads the user's locations
       quantity: '1',
       unitPrice: '',
-      specsRaw: result.specs,
+      specsPrefill: parseAiSpecs(result.specs),
       tags: [],
     });
     setSaveError(null);
@@ -347,6 +517,7 @@ export default function QuickAddPage() {
       description: form.description || undefined,
       details: form.details || undefined,
       manufacturer: form.manufacturer || undefined,
+      footprint: form.footprint || undefined,
       personalNumber: form.personalNumber,
       datasheetUrl: form.datasheetUrl || undefined,
       specs: Object.keys(specs).length > 0 ? specs : undefined,
@@ -535,7 +706,7 @@ export default function QuickAddPage() {
       <StepIndicator step={step} />
 
       {/* ── Step 1: Search ── */}
-      {step === 1 && localMatches.length === 0 && (
+      {step === 1 && localMatches.length === 0 && cacheMatches.length === 0 && (
         <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Search for a part (AI-powered)</h2>
           <form onSubmit={handleSearch} className="flex gap-3">
@@ -555,7 +726,9 @@ export default function QuickAddPage() {
             </button>
           </form>
           <p className="mt-3 text-xs text-gray-400">
-            We'll check your existing catalogue first, then search the Internet if there's no match.
+            {cacheAvailable
+              ? "We'll check your existing catalogue first, then the local component cache, and only search the Internet if neither has it."
+              : "We'll check your existing catalogue first, then search the Internet if there's no match."}
           </p>
           {searchError && (
             <div className="mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
@@ -581,7 +754,7 @@ export default function QuickAddPage() {
           </div>
           <p className="text-sm text-gray-500 mb-4">
             Does one of these match "{query}"? Pick it to go to the part and add stock — otherwise
-            search the Internet for a new part.
+            {cacheAvailable ? ' look it up as a new part.' : ' search the Internet for a new part.'}
           </p>
           <div className="space-y-3">
             {localMatches.map((p) => (
@@ -614,6 +787,54 @@ export default function QuickAddPage() {
                   </button>
                 </div>
               </div>
+            ))}
+          </div>
+          <div className="mt-5 flex items-center justify-between">
+            <span className="text-sm text-gray-500">None of these is the part you want?</span>
+            <button
+              onClick={handleRejectLocalMatches}
+              disabled={searching}
+              className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {searching ? 'Searching…' : cacheAvailable ? 'Look up a new part' : 'Search the Internet instead'}
+            </button>
+          </div>
+          {searchError && (
+            <div className="mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+              {searchError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Step 1c: Component-cache matches ──
+          Between the catalogue and the Internet. Selecting one goes straight to the confirm step,
+          exactly as picking an AI result does — the cache is another source, not another ceremony. */}
+      {step === 1 && localMatches.length === 0 && cacheMatches.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-semibold text-gray-900">
+              {cacheMatches.length} match{cacheMatches.length !== 1 ? 'es' : ''} in the component cache
+            </h2>
+            <button
+              onClick={() => setCacheMatches([])}
+              className="text-sm text-blue-600 hover:underline"
+            >
+              ← New search
+            </button>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            Found locally for "{query}" — no Internet search needed. Picking one fills in the part
+            details, its specifications and its datasheet.
+          </p>
+          <div className="space-y-3">
+            {cacheMatches.map((m) => (
+              <CacheResultCard
+                key={m.lcsc}
+                match={m}
+                busy={loadingLcsc === m.lcsc}
+                onSelect={() => handleSelectCacheMatch(m)}
+              />
             ))}
           </div>
           <div className="mt-5 flex items-center justify-between">
@@ -695,6 +916,14 @@ export default function QuickAddPage() {
                   name="manufacturer"
                   value={form.manufacturer}
                   onChange={handleFormChange}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <label className="mt-3 block text-sm font-medium text-gray-700 mb-1">Package / footprint</label>
+                <input
+                  name="footprint"
+                  value={form.footprint}
+                  onChange={handleFormChange}
+                  placeholder="e.g. SOIC-8, 0402"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>

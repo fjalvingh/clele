@@ -256,6 +256,7 @@ public class PartService {
         if (request.getDetails() != null) part.setDetails(request.getDetails());
         if (request.getManufacturer() != null) part.setManufacturer(request.getManufacturer());
         if (request.getMpn() != null) part.setMpn(request.getMpn());
+        if (request.getFootprint() != null) part.setFootprint(request.getFootprint());
         if (request.getDatasheetUrl() != null) part.setDatasheetUrl(request.getDatasheetUrl());
 
         return toDTO(partRepository.save(part));

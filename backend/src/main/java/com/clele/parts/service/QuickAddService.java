@@ -125,6 +125,7 @@ public class QuickAddService {
         part.setDetails(request.getDetails());
         part.setManufacturer(request.getManufacturer());
         part.setPersonalNumber(request.isPersonalNumber());
+        part.setFootprint(request.getFootprint());
         part.setDatasheetUrl(request.getDatasheetUrl());
         part.setSpecs(specDefinitionService.canonicalizeKeys(request.getSpecs()));
         if (request.getCategoryId() != null) {

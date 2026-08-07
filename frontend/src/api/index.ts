@@ -10,6 +10,9 @@ import type {
   Category,
   CategoryRequest,
   CategoryTree,
+  ComponentCacheDetail,
+  ComponentCacheMatch,
+  ComponentCacheStatus,
   Dashboard,
   DatasheetExtraction,
   DatasheetSearchResponse,
@@ -421,6 +424,28 @@ export const searchPartsOnline = (q: string) =>
 /** Quick Add: fuzzy-match existing parts by part number before searching the Internet. */
 export const findLocalParts = (q: string) =>
   client.get<Part[]>('/parts/local-match', { params: { q } }).then((r) => r.data);
+
+// Component cache — the local snapshot, consulted after the catalogue and before the web/AI search.
+// Free, offline and instant, which is the whole argument for asking it first: the AI lookup costs
+// 5–13 cents and several seconds, and for a mass-market part it mostly rediscovers what this holds.
+
+/** Whether the snapshot is installed. Asked once so a screen can hide the stage entirely. */
+export const getComponentCacheStatus = () =>
+  client.get<ComponentCacheStatus>('/component-cache/status').then((r) => r.data);
+
+/**
+ * Matching parts, best first. Returns an empty list — never an error — when the cache is absent or
+ * the term is too short, so a caller can always try it and move on.
+ */
+export const searchComponentCache = (q: string) =>
+  client.get<ComponentCacheMatch[]>('/component-cache/search', { params: { q } }).then((r) => r.data);
+
+/**
+ * Everything the cache holds about one part, mapped onto this app's fields and spec keys. Writes
+ * nothing: apply it through `quickAddPart` or `applyAiLookup`.
+ */
+export const loadComponentCachePart = (lcsc: string) =>
+  client.get<ComponentCacheDetail>(`/component-cache/${encodeURIComponent(lcsc)}`).then((r) => r.data);
 
 export const quickAddPart = (data: QuickAddRequest) =>
   client.post<QuickAddResponse>('/parts/quick-add', data).then((r) => r.data);

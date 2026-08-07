@@ -21,6 +21,10 @@ import java.util.Map;
  * <p>Note there is no category: the lookup returns a category <em>name</em>, and resolving a name to
  * one of this organisation's categories is a separate, fuzzy problem. The name is shown in the modal
  * as context and not applied.
+ *
+ * <p>Despite the name this is the apply path for every "a source proposed this, the user ticked
+ * some of it" flow — the web lookup, the datasheet reader and the component cache — because all
+ * three answer the same question and must resolve it identically.
  */
 @Data
 @NoArgsConstructor
@@ -31,6 +35,13 @@ public class AiApplyRequest {
     private String manufacturer;
     private String mpn;
     private String datasheetUrl;
+
+    /**
+     * The package/case, e.g. {@code SOIC-8}. The web lookup does not return one, which is why this
+     * arrived late; the component cache does, as a first-class column on every row, and dropping it
+     * would mean the one source that reliably knows the footprint could not set it.
+     */
+    private String footprint;
 
     /**
      * The long free-text description. Only the datasheet reader fills this — the web lookup returns

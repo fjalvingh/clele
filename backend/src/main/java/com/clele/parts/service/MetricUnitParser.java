@@ -90,6 +90,20 @@ public final class MetricUnitParser {
     }
 
     /**
+     * How many {@code baseUnit} make up one {@code unit} — {@code ("mm", "m")} is {@code 0.001},
+     * {@code ("kΩ", "Ω")} is {@code 1000}, {@code ("V", "V")} is {@code 1}. Empty when the two do not
+     * reconcile ({@code ("°C", "V")}), which is the useful half: it is the caller's signal that a
+     * value in {@code baseUnit} must <em>not</em> be written into a field declaring {@code unit}.
+     *
+     * <p>The inverse of {@link #parseToBase}, and implemented through it so the prefix table and its
+     * matching rules have exactly one definition.
+     */
+    public static Optional<Double> factorToBase(String unit, String baseUnit) {
+        if (unit == null || unit.isBlank()) return Optional.empty();
+        return parseToBase("1" + unit.trim(), baseUnit).map(Double::parseDouble);
+    }
+
+    /**
      * Best-effort guess of the base unit for a set of values: strip the leading number and a single
      * leading prefix char, then return the most common remaining alphabetic token. Empty string if none.
      */

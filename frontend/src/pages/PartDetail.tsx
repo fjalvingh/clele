@@ -11,6 +11,7 @@ import {
   deleteStockEntry,
   deleteStockThreshold,
   extractDatasheetSpecs,
+  getComponentCacheStatus,
   getLocations,
   getMyLocations,
   getOctopartUsage,
@@ -20,7 +21,9 @@ import {
   getPartStock,
   getSpecDefinitions,
   getStockThresholds,
+  loadComponentCachePart,
   moveStock,
+  searchComponentCache,
   searchOctopart,
   searchPartDatasheets,
   searchPartsOnline,
@@ -33,6 +36,8 @@ import {
 import type {
   AiApplyRequest,
   AttachmentType,
+  ComponentCacheDetail,
+  ComponentCacheMatch,
   DatasheetExtraction,
   DatasheetSearchResponse,
   DatasheetSuggestion,
@@ -160,6 +165,24 @@ const AI_FIELDS = [
 type AiFieldKey = (typeof AI_FIELDS)[number]['key'];
 
 /**
+ * Real part columns a component-cache hit can change.
+ *
+ * It carries a footprint where the AI lookup does not — `package` is a first-class column on every
+ * cached row — which is the one reason this is not simply `AI_FIELDS`. No category, for the same
+ * reason as there: the cache names a category of its own taxonomy, and resolving that to one of this
+ * organisation's is a separate, fuzzy problem.
+ */
+const CACHE_FIELDS = [
+  { key: 'mpn', from: 'mpn', label: 'MPN' },
+  { key: 'manufacturer', from: 'manufacturer', label: 'Manufacturer' },
+  { key: 'description', from: 'description', label: 'Description' },
+  { key: 'footprint', from: 'footprint', label: 'Footprint' },
+  { key: 'datasheetUrl', from: 'datasheetUrl', label: 'Datasheet URL' },
+] as const;
+
+type CacheFieldKey = (typeof CACHE_FIELDS)[number]['key'];
+
+/**
  * How one spec the lookup returned relates to what the part already holds.
  *
  * `new` is ticked by default and `conflict` is not: filling a gap is what the action is for, while
@@ -276,6 +299,24 @@ export default function PartDetailPage() {
   const [aiAcceptSpecs, setAiAcceptSpecs] = useState<Record<string, boolean>>({});
   const [aiApplying, setAiApplying] = useState(false);
 
+  // Component cache — "Look up in cache". Same search/pick/confirm shape as the AI lookup, and it
+  // applies through the same endpoint, but it is free and local: no cost warning, and it runs the
+  // search as soon as the modal opens rather than waiting for a button.
+  const [ccAvailable, setCcAvailable] = useState(false);
+  const [ccModalOpen, setCcModalOpen] = useState(false);
+  const [ccQuery, setCcQuery] = useState('');
+  const [ccResults, setCcResults] = useState<ComponentCacheMatch[]>([]);
+  const [ccLoading, setCcLoading] = useState(false);
+  const [ccError, setCcError] = useState<string | null>(null);
+  const [ccSearched, setCcSearched] = useState(false);
+  // The picked *detail*, not the match: the second call is what carries the specifications.
+  const [ccPicked, setCcPicked] = useState<ComponentCacheDetail | null>(null);
+  const [ccAcceptFields, setCcAcceptFields] = useState<Record<CacheFieldKey, boolean>>(
+    {} as Record<CacheFieldKey, boolean>,
+  );
+  const [ccAcceptSpecs, setCcAcceptSpecs] = useState<Record<string, boolean>>({});
+  const [ccApplying, setCcApplying] = useState(false);
+
   // Datasheet extraction — "Get specs from document". Reads a PDF already stored on the part, so
   // there is nothing to search and nothing to pick: it is one run, then the same per-field
   // confirmation the AI lookup uses.
@@ -340,6 +381,15 @@ export default function PartDetailPage() {
   };
 
   useEffect(loadData, [partId]);
+
+  // Is the component cache installed? An installation without the snapshot must not show a button
+  // that can only ever find nothing, and a failure here simply means "no cache".
+  useEffect(() => {
+    if (!canEdit) return;
+    getComponentCacheStatus()
+      .then((s) => setCcAvailable(s.available))
+      .catch(() => setCcAvailable(false));
+  }, [canEdit]);
 
   // Load the user's OctoPart quota once we know the part has no link yet and the user can edit.
   useEffect(() => {
@@ -510,6 +560,83 @@ export default function PartDetailPage() {
       setAiError((err as Error).message);
     } finally {
       setAiApplying(false);
+    }
+  };
+
+  // ── Component cache ──────────────────────────────────────────────────────
+
+  const runCcSearch = (q: string) => {
+    if (!q.trim()) return;
+    setCcLoading(true);
+    setCcError(null);
+    setCcResults([]);
+    setCcPicked(null);
+    searchComponentCache(q.trim())
+      .then((results) => {
+        setCcResults(results);
+        setCcSearched(true);
+      })
+      .catch((err) => setCcError((err as Error).message))
+      .finally(() => setCcLoading(false));
+  };
+
+  const openComponentCache = () => {
+    const q = part?.mpn || part?.partNumber || '';
+    setCcQuery(q);
+    setCcResults([]);
+    setCcPicked(null);
+    setCcError(null);
+    setCcSearched(false);
+    setCcModalOpen(true);
+    // Search immediately. The AI modal waits for a button because each press costs money; this one
+    // is a local index query, and making the user press Search on a term already on the screen
+    // would be ceremony for nothing.
+    runCcSearch(q);
+  };
+
+  const ccSpecRows = (detail: ComponentCacheDetail): AiSpecRow[] => classifySpecs(detail.specs);
+
+  /** Picking a result runs the second call — the match alone carries no specifications. */
+  const pickCcResult = (match: ComponentCacheMatch) => {
+    setCcLoading(true);
+    setCcError(null);
+    loadComponentCachePart(match.lcsc)
+      .then((detail) => {
+        setCcPicked(detail);
+        const fields = {} as Record<CacheFieldKey, boolean>;
+        for (const f of CACHE_FIELDS) fields[f.key] = true;
+        setCcAcceptFields(fields);
+        // Same default as every other source: fill the gaps, leave curated values alone.
+        const specs: Record<string, boolean> = {};
+        for (const row of ccSpecRows(detail)) specs[row.key] = row.verdict === 'new';
+        setCcAcceptSpecs(specs);
+      })
+      .catch((err) => setCcError((err as Error).message))
+      .finally(() => setCcLoading(false));
+  };
+
+  const handleApplyComponentCache = async () => {
+    if (!ccPicked || !part) return;
+    setCcApplying(true);
+    setCcError(null);
+    try {
+      const body: AiApplyRequest = {};
+      for (const f of CACHE_FIELDS) {
+        const newVal = ccPicked[f.from];
+        if (ccAcceptFields[f.key] && newVal) body[f.key] = newVal;
+      }
+      const specs: Record<string, string> = {};
+      for (const row of ccSpecRows(ccPicked)) {
+        if (ccAcceptSpecs[row.key]) specs[row.key] = row.newValue;
+      }
+      if (Object.keys(specs).length > 0) body.specs = specs;
+      await applyAiLookup(part.id, body);
+      setCcModalOpen(false);
+      loadData();
+    } catch (err) {
+      setCcError((err as Error).message);
+    } finally {
+      setCcApplying(false);
     }
   };
 
@@ -1195,6 +1322,18 @@ export default function PartDetailPage() {
                 {/* AI lookup. Unconditional for an editor — no credentials to hold and no
                     "already linked" state to exclude it, which is the point: a part typed in by
                     hand is exactly the one that needs it, and it must be available on every part. */}
+                {/* The cache first — it is free and instant, so it belongs to the left of the
+                    lookup that costs money and takes seconds. */}
+                {canEdit && ccAvailable && (
+                  <button
+                    onClick={openComponentCache}
+                    title="Fill in details and specifications from the local component cache — free, no Internet search"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+                  >
+                    {SearchIcon}
+                    Look up in cache
+                  </button>
+                )}
                 {canEdit && (
                   <button
                     onClick={openAiLookup}
@@ -2418,6 +2557,243 @@ export default function PartDetailPage() {
                     className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                   >
                     {aiApplying ? 'Applying…' : 'Apply to part'}
+                  </button>
+                </div>
+              </>
+            );
+          })()
+        )}
+      </Modal>
+
+      {/* Component cache — search / pick / confirm, the same three steps as the AI lookup and the
+          same per-spec confirmation, because both answer "this source says X, the part says Y". */}
+      <Modal
+        open={ccModalOpen}
+        onClose={() => setCcModalOpen(false)}
+        title="Look up in component cache"
+        wide
+      >
+        {!ccPicked ? (
+          <>
+            <div className="mb-2 flex gap-2">
+              <input
+                type="text"
+                value={ccQuery}
+                onChange={(e) => setCcQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && runCcSearch(ccQuery)}
+                placeholder="Part number, or a description of the part"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                onClick={() => runCcSearch(ccQuery)}
+                disabled={!ccQuery.trim() || ccLoading}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Search
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-gray-400">
+              Searches a local snapshot of a distributor catalogue. Free, offline and instant — no
+              web search and nothing to pay.
+            </p>
+
+            {ccError && <p className="mb-3 text-sm text-red-600">{ccError}</p>}
+
+            <div className="min-h-[8rem]">
+              {ccLoading ? (
+                <p className="text-sm text-gray-400">Searching the cache…</p>
+              ) : ccResults.length === 0 ? (
+                ccSearched ? (
+                  <div className="text-sm text-gray-500">
+                    <p className="font-medium text-gray-700">Not in the cache.</p>
+                    <p className="mt-1">
+                      The snapshot covers a distributor's catalogue, so house-numbered, vintage and
+                      one-off parts are simply not in it. Try "Look up specs" for a web search, or
+                      read a stored datasheet.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">
+                    Nothing searched yet. Check the term above and press Search.
+                  </p>
+                )
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {ccResults.map((m) => (
+                    <li key={m.lcsc} className="flex items-start justify-between gap-3 py-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-baseline gap-2">
+                          <span className="font-mono text-sm font-medium text-gray-900">{m.mpn}</span>
+                          {m.score < 0.999 && (
+                            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">
+                              {Math.round(m.score * 100)}% match
+                            </span>
+                          )}
+                        </div>
+                        {m.manufacturer && <div className="text-xs text-gray-500">{m.manufacturer}</div>}
+                        {m.description && (
+                          <div className="mt-0.5 truncate text-xs text-gray-600">{m.description}</div>
+                        )}
+                        <div className="mt-0.5 text-xs text-gray-400">
+                          {m.specCount} specification{m.specCount === 1 ? '' : 's'}
+                          {m.packageName ? ` · ${m.packageName}` : ''}
+                          {m.subcategory ? ` · ${m.subcategory}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => pickCcResult(m)}
+                        disabled={ccLoading}
+                        className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        Use this
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </>
+        ) : (
+          (() => {
+            const rows = ccSpecRows(ccPicked);
+            const newCount = rows.filter((r) => r.verdict === 'new').length;
+            const conflictCount = rows.filter((r) => r.verdict === 'conflict').length;
+            const fieldChanges = CACHE_FIELDS.map((f) => ({
+              field: f,
+              oldVal: (part?.[f.key] as string | undefined) ?? '',
+              newVal: ccPicked[f.from] ?? '',
+            })).filter((c) => c.newVal && c.newVal !== c.oldVal);
+            const setAll = (only: SpecVerdict | null) => {
+              const next: Record<string, boolean> = {};
+              for (const r of rows) next[r.key] = only == null ? false : r.verdict === only;
+              setCcAcceptSpecs(next);
+            };
+            return (
+              <>
+                <p className="mb-3 text-sm text-gray-600">
+                  Found <span className="font-mono">{ccPicked.mpn}</span>
+                  {ccPicked.manufacturer ? ` — ${ccPicked.manufacturer}` : ''}
+                  {ccPicked.subcategory ? (
+                    <span className="text-gray-400"> · suggested category: {ccPicked.subcategory}</span>
+                  ) : null}
+                </p>
+
+                {fieldChanges.length > 0 && (
+                  <div className="mb-4">
+                    <h4 className="mb-2 text-sm font-semibold text-gray-900">Part details</h4>
+                    <div className="space-y-2">
+                      {fieldChanges.map((c) => (
+                        <label key={c.field.key} className="flex items-start gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={ccAcceptFields[c.field.key] ?? false}
+                            onChange={(e) =>
+                              setCcAcceptFields((prev) => ({
+                                ...prev,
+                                [c.field.key]: e.target.checked,
+                              }))
+                            }
+                            className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="min-w-0">
+                            <span className="font-medium text-gray-700">{c.field.label}</span>
+                            {c.oldVal && (
+                              <span className="ml-2 text-gray-400 line-through">{c.oldVal}</span>
+                            )}
+                            <span className="ml-2 break-words text-gray-900">{c.newVal}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                  <h4 className="text-sm font-semibold text-gray-900">Specifications</h4>
+                  {rows.length > 0 && (
+                    <span className="text-xs text-gray-500">
+                      {newCount} new, {conflictCount} differ from stored values. Unticked rows are
+                      left as they are.
+                    </span>
+                  )}
+                </div>
+                {rows.length > 0 && (
+                  <div className="mb-2 flex gap-3 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setAll('new')}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Select all new
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAll(null)}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Select none
+                    </button>
+                  </div>
+                )}
+
+                {rows.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    Nothing to add — every specification the cache holds already matches what the
+                    part has.
+                  </p>
+                ) : (
+                  <ul className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
+                    {rows.map((r) => (
+                      <li key={r.key} className="py-2">
+                        <label className="flex items-start gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={ccAcceptSpecs[r.key] ?? false}
+                            onChange={(e) =>
+                              setCcAcceptSpecs((prev) => ({ ...prev, [r.key]: e.target.checked }))
+                            }
+                            className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="font-medium text-gray-700">{r.label}</span>
+                            {!r.known && (
+                              <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700">
+                                new field
+                              </span>
+                            )}
+                            {r.verdict === 'conflict' && (
+                              <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+                                differs
+                              </span>
+                            )}
+                            <span className="mt-0.5 block break-words">
+                              {r.oldValue && (
+                                <span className="mr-2 text-gray-400 line-through">{r.oldValue}</span>
+                              )}
+                              <span className="text-gray-900">{r.newValue}</span>
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {ccError && <p className="mt-3 text-sm text-red-600">{ccError}</p>}
+
+                <div className="mt-4 flex justify-between gap-2">
+                  <button
+                    onClick={() => setCcPicked(null)}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+                  >
+                    ← Back to results
+                  </button>
+                  <button
+                    onClick={handleApplyComponentCache}
+                    disabled={ccApplying}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {ccApplying ? 'Applying…' : 'Apply to part'}
                   </button>
                 </div>
               </>
