@@ -1290,14 +1290,18 @@ export default function PartDetailPage() {
           </div>
 
           {/* Details column */}
-          <div className="min-w-0 flex-1">
-            {/* Wraps below sm: the action group is ~330px and used to be shrink-0 at every width,
-                which squeezed the title column to ~60px on a phone and pushed the buttons off the
-                page. From sm up the sm: overrides restore the original single row. */}
-            <div className="flex flex-wrap items-start justify-between gap-3 lg:flex-nowrap">
+          <div className="@container min-w-0 flex-1">
+            {/* Title above the actions, side by side only when the actions genuinely fit beside
+                them. The action group is ~800px wide and was shrink-0 from lg up, so it took its
+                whole single-line width and squeezed the title column to ~56px — the part number
+                then overflowed across the buttons and the description broke to one word per line.
+                The threshold is a *container* query, not lg:, because this column is much narrower
+                than the viewport (sidebar + the 208px image column), which is why the viewport
+                breakpoint mismeasured it on an iPad. */}
+            <div className="flex flex-col gap-3 @[70rem]:flex-row @[70rem]:items-start @[70rem]:justify-between">
               <div className="min-w-0">
                 <h1 className="flex flex-wrap items-center gap-2 text-2xl font-bold font-mono text-gray-900">
-                  {part.partNumber}
+                  <span className="min-w-0 break-words">{part.partNumber}</span>
                   {part.personalNumber && (
                     <span
                       className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium normal-case text-amber-700 ring-1 ring-inset ring-amber-600/20"
@@ -1318,7 +1322,7 @@ export default function PartDetailPage() {
                   )}
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
+              <div className="flex flex-wrap items-center gap-2 @[70rem]:shrink-0">
                 {/* AI lookup. Unconditional for an editor — no credentials to hold and no
                     "already linked" state to exclude it, which is the point: a part typed in by
                     hand is exactly the one that needs it, and it must be available on every part. */}
