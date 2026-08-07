@@ -201,18 +201,25 @@ export default function QuickAddPage() {
           setForm((prev) => ({ ...prev, locationId: fallback }));
         }
         setSpecDefs(defs);
-        // Pre-fill spec values from the AI result (keyed by jsonName — see parseAiSpecs)
+        // Pre-fill spec values from the AI result (keyed by jsonName — see parseAiSpecs).
+        // Seed from the definitions first, then carry over every remaining key the lookup
+        // returned. Iterating only the definitions would silently drop anything the model named
+        // that this organisation has no field for yet — which is also how the catalogue learns a
+        // new field, since "rescan from parts" promotes surviving unknown keys to definitions.
         const aiSpecs = parseAiSpecs(form.specsRaw);
+        const known = new Set(defs.map((d) => d.jsonName));
         const prefilled: Record<string, string> = {};
-        const filled = new Set<string>();
-        for (const def of defs) {
-          const v = aiSpecs[def.jsonName] ?? '';
-          prefilled[def.jsonName] = v;
-          if (v !== '') filled.add(def.jsonName);
+        for (const def of defs) prefilled[def.jsonName] = aiSpecs[def.jsonName] ?? '';
+        for (const [key, value] of Object.entries(aiSpecs)) {
+          if (!known.has(key)) prefilled[key] = value;
         }
         setSpecValues(prefilled);
-        // Initially only show specs the lookup actually filled in.
-        setVisibleSpecs(filled);
+        // Initially only show specs the lookup actually filled in. From here on visibleSpecs is
+        // the single source of truth for what is on the form, and legitimately holds keys with
+        // no definition.
+        setVisibleSpecs(
+          new Set(Object.entries(prefilled).filter(([, v]) => v !== '').map(([k]) => k)),
+        );
       })
       .finally(() => setLocLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -322,13 +329,13 @@ export default function QuickAddPage() {
     setSaving(true);
     setSaveError(null);
 
-    // Only include spec values that are shown on the form and are non-empty
+    // Every non-empty value shown on the form, including keys no definition covers — iterating
+    // specDefs instead would drop exactly the new fields the "Other" section exists to keep.
     const specs: Record<string, string> = {};
-    for (const def of specDefs) {
-      if (!visibleSpecs.has(def.jsonName)) continue;
-      const v = specValues[def.jsonName];
+    for (const key of visibleSpecs) {
+      const v = specValues[key];
       if (v !== undefined && v !== '') {
-        specs[def.jsonName] = v;
+        specs[key] = v;
       }
     }
 
@@ -892,6 +899,10 @@ export default function QuickAddPage() {
           {!locLoading && specDefs.length > 0 && (() => {
             const shownDefs = specDefs.filter((d) => visibleSpecs.has(d.jsonName));
             const availableDefs = specDefs.filter((d) => !visibleSpecs.has(d.jsonName));
+            const known = new Set(specDefs.map((d) => d.jsonName));
+            // Keys the lookup returned that this organisation has no field for yet. They are shown
+            // and submitted like any other spec; "Rescan from parts" turns them into definitions.
+            const unknownKeys = [...visibleSpecs].filter((k) => !known.has(k));
             return (
               <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
                 <h2 className="text-lg font-semibold text-gray-900 mb-1">Specifications</h2>
@@ -923,6 +934,51 @@ export default function QuickAddPage() {
                         </button>
                       </div>
                     ))}
+                  </div>
+                )}
+                {unknownKeys.length > 0 && (
+                  <div className="mb-4 border-t border-gray-200 pt-4 dark:border-gray-700">
+                    <h3 className="text-sm font-semibold text-gray-900">Other</h3>
+                    <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
+                      The lookup returned these under names your spec catalogue does not have yet.
+                      They are saved with the part; “Rescan from parts” on the Spec Fields screen
+                      turns them into proper fields.
+                    </p>
+                    <div className="grid grid-cols-2 gap-x-4">
+                      {unknownKeys.map((key) => (
+                        <div key={key} className="mb-4 flex items-start gap-2">
+                          <div className="min-w-0 flex-1">
+                            {renderSpecField({
+                              id: -1,
+                              jsonName: key,
+                              name: key,
+                              dataType: 'TEXT',
+                              displayOrder: 0,
+                              groupId: -1,
+                              groupName: 'Other',
+                            })}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setVisibleSpecs((prev) => {
+                                const next = new Set(prev);
+                                next.delete(key);
+                                return next;
+                              })
+                            }
+                            title="Remove this specification"
+                            aria-label={`Remove ${key}`}
+                            className="mt-7 shrink-0 text-gray-400 hover:text-red-600"
+                          >
+                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
                 {availableDefs.length > 0 && (

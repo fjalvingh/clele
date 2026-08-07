@@ -2,6 +2,7 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.PartDTO;
 import com.clele.parts.dto.PartRequest;
+import com.clele.parts.dto.SpecsMode;
 import com.clele.parts.model.AttachmentType;
 import com.clele.parts.model.Category;
 import com.clele.parts.model.Part;
@@ -20,6 +21,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -260,7 +262,7 @@ public class PartService {
         part.setManufacturer(request.getManufacturer());
         part.setPersonalNumber(request.isPersonalNumber());
         part.setDatasheetUrl(request.getDatasheetUrl());
-        part.setSpecs(specDefinitionService.canonicalizeKeys(request.getSpecs()));
+        part.setSpecs(resolveSpecs(part, request));
         if (request.getCategoryId() != null) {
             Category category = categoryRepository
                     .findByIdAndOrganisationId(request.getCategoryId(), part.getOrganisation().getId())
@@ -275,6 +277,36 @@ public class PartService {
             part.getTags().addAll(resolved);
         }
         return part;
+    }
+
+    /**
+     * The specs to store, combining the request's map with what the part already holds according to
+     * {@code request.specsMode}.
+     *
+     * <p>The default is MERGE because a part can carry spec keys that no {@code spec_definition}
+     * covers — the AI intake paths keep unrecognised keys deliberately, so that "rescan from parts"
+     * can promote them to definitions later. A form that renders its fields from the definitions
+     * therefore does not know about every key on the part, and saving it used to wipe the rest.
+     * Under MERGE an omitted key means "leave it alone", so the only client that may send REPLACE is
+     * one that rendered everything (today: the part edit modal, which shows undefined keys under
+     * "Other" and needs REPLACE for its per-row remove button to work).
+     *
+     * <p>Since omitting a key under MERGE means "leave alone", clearing one needs an explicit
+     * signal: a key present with a null or blank value is dropped.
+     */
+    private Map<String, Object> resolveSpecs(Part part, PartRequest request) {
+        Map<String, Object> incoming = specDefinitionService.canonicalizeKeys(request.getSpecs());
+        if (request.getSpecsMode() == SpecsMode.REPLACE) {
+            return incoming;
+        }
+        Map<String, Object> merged = part.getSpecs() != null
+                ? new LinkedHashMap<>(part.getSpecs())
+                : new LinkedHashMap<>();
+        if (incoming != null) {
+            merged.putAll(incoming);
+        }
+        merged.values().removeIf(v -> v == null || String.valueOf(v).isBlank());
+        return merged;
     }
 
     private String buildBreadcrumb(Category category) {

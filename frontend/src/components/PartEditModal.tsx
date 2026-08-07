@@ -380,7 +380,15 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
       if (value !== undefined && value !== '') filteredSpecs[key] = value;
     }
     try {
-      const updated = await updatePart(part.id, { ...form, specs: filteredSpecs });
+      // REPLACE is correct here and only here: this form renders every key the part carries,
+      // including the ones under "Other" that no definition covers. That is also what makes the
+      // per-row remove button work — under the default MERGE an omitted key means "leave alone",
+      // so a removed row would come back on reload.
+      const updated = await updatePart(part.id, {
+        ...form,
+        specs: filteredSpecs,
+        specsMode: 'REPLACE',
+      });
       onSaved(updated);
     } catch (e: unknown) {
       setError((e as Error).message);

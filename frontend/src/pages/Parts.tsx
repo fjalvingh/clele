@@ -299,9 +299,12 @@ export default function PartsPage() {
     getSpecsForCategory(form.categoryId ?? null)
       .then((defs) => {
         setSpecDefs(defs);
-        // Preserve existing values for matching keys; clear unmatched keys
+        // Keep everything already typed and just make sure the new category's fields exist.
+        // Rebuilding the map from `defs` alone would discard values the user entered before
+        // switching category — the field disappears from the form, so the value is gone with no
+        // way to get it back.
         setSpecValues((prev) => {
-          const next: Record<string, string> = {};
+          const next: Record<string, string> = { ...prev };
           for (const def of defs) {
             next[def.jsonName] = prev[def.jsonName] ?? '';
           }
@@ -336,12 +339,12 @@ export default function PartsPage() {
   const handleSave = async () => {
     setSaving(true);
     setFormError(null);
-    // Only include spec values for keys present in current spec definitions
+    // Every non-empty value, not just the ones the current category's definitions cover — a value
+    // typed before a category switch is still the user's data. This is the create path, so the
+    // part starts with no specs and MERGE (the default) and REPLACE come to the same thing.
     const filteredSpecs: Record<string, string> = {};
-    for (const def of specDefs) {
-      if (specValues[def.jsonName] !== undefined && specValues[def.jsonName] !== '') {
-        filteredSpecs[def.jsonName] = specValues[def.jsonName];
-      }
+    for (const [key, value] of Object.entries(specValues)) {
+      if (value !== undefined && value !== '') filteredSpecs[key] = value;
     }
     const payload: PartRequest = { ...form, specs: filteredSpecs };
     try {

@@ -124,6 +124,16 @@ export interface PartRequest {
   personalNumber?: boolean;
   datasheetUrl?: string;
   specs?: Record<string, string>;
+  /**
+   * How `specs` combines with what the part already holds. Defaults to `MERGE` server-side.
+   *
+   * **Send `REPLACE` only if you rendered every key the part carries.** A form that builds its
+   * fields from the spec definitions does not qualify — a part can hold keys no definition covers
+   * (the AI intake paths keep unrecognised keys so a later "rescan from parts" can promote them),
+   * and replacing wholesale from such a form deletes them. Under `MERGE` an omitted key is left
+   * alone and a key sent blank is removed.
+   */
+  specsMode?: 'MERGE' | 'REPLACE';
   categoryId?: number | null;
   tags?: string[];
 }
