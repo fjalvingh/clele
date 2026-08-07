@@ -23,9 +23,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       .catch(() => setSettings(DEFAULT_SETTINGS));
   }, []);
 
+  // The gap between the symbol and the amount is a NON-BREAKING space: with an ordinary one the
+  // browser treats "€ 6,064.90" as two words and wraps between them, which is what put a lone €
+  // on its own line above the figure in a dashboard tile. Every price in the app goes through
+  // here, so this keeps the symbol attached to its amount in tiles, tables and totals alike.
   const formatMoney = (amount: number | string | null | undefined) => {
     const n = Number(amount ?? 0);
-    return `${settings.currencySymbol} ${n.toLocaleString(undefined, {
+    return `${settings.currencySymbol}\u00A0${n.toLocaleString(undefined, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
