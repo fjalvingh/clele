@@ -1,5 +1,6 @@
 package com.clele.parts.service;
 
+import com.clele.parts.dto.DatasheetSearchResponseDTO;
 import com.clele.parts.dto.DatasheetSuggestionDTO;
 import com.clele.parts.dto.ImageSuggestionDTO;
 import com.clele.parts.dto.PartSearchResultDTO;
@@ -244,22 +245,36 @@ public class AiPartSearchService {
         }
     }
 
-    public List<DatasheetSuggestionDTO> searchDatasheets(String query) {
+    public DatasheetSearchResponseDTO searchDatasheets(String query) {
         return searchDatasheets(query, false);
     }
 
-    public List<DatasheetSuggestionDTO> searchDatasheets(String query, boolean forceAi) {
+    /**
+     * Web search first, AI as the fallback — and the web search's own outcome travels back with the
+     * results. "Blocked by a bot challenge" and "searched and found nothing" produce the same empty
+     * list, and only the first is a reason to try again in a minute.
+     */
+    public DatasheetSearchResponseDTO searchDatasheets(String query, boolean forceAi) {
+        String webStatus = "SKIPPED";
+        String webDetail = null;
+
         // 1. Try DuckDuckGo — best relevance, no API key needed (unless the caller asked to skip it)
         if (!forceAi) {
-            List<DatasheetSuggestionDTO> ddg = duckDuckGoDatasheetService.search(query);
-            if (!ddg.isEmpty()) {
-                return ddg;
+            DuckDuckGoDatasheetService.SearchResult ddg = duckDuckGoDatasheetService.search(query);
+            webStatus = ddg.status().name();
+            webDetail = ddg.detail();
+            if (!ddg.results().isEmpty()) {
+                return DatasheetSearchResponseDTO.builder()
+                        .results(ddg.results())
+                        .source("WEB")
+                        .webSearchStatus(webStatus)
+                        .build();
             }
         }
 
         // Fall back to AI suggestions
         if (apiKey == null || apiKey.isBlank()) {
-            return List.of();
+            return noResults(webStatus, webDetail);
         }
 
         HttpHeaders headers = new HttpHeaders();
@@ -277,10 +292,28 @@ public class AiPartSearchService {
         try {
             ResponseEntity<String> response = restTemplate.exchange(API_URL, HttpMethod.POST,
                     new HttpEntity<>(body, headers), String.class);
-            return parseDatasheetResponse(response.getBody());
+            List<DatasheetSuggestionDTO> suggestions = parseDatasheetResponse(response.getBody());
+            if (suggestions.isEmpty()) {
+                return noResults(webStatus, webDetail);
+            }
+            return DatasheetSearchResponseDTO.builder()
+                    .results(suggestions)
+                    .source("AI")
+                    .webSearchStatus(webStatus)
+                    .detail(webDetail)
+                    .build();
         } catch (Exception e) {
-            return List.of();
+            return noResults(webStatus, webDetail);
         }
+    }
+
+    private static DatasheetSearchResponseDTO noResults(String webStatus, String webDetail) {
+        return DatasheetSearchResponseDTO.builder()
+                .results(List.of())
+                .source("NONE")
+                .webSearchStatus(webStatus)
+                .detail(webDetail)
+                .build();
     }
 
     // ── Wikimedia Commons image search ──────────────────────────────────────────

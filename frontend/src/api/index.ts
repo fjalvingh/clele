@@ -10,7 +10,7 @@ import type {
   CategoryRequest,
   CategoryTree,
   Dashboard,
-  DatasheetSuggestion,
+  DatasheetSearchResponse,
   EmailLookup,
   Invitation,
   InvitationRequest,
@@ -420,7 +420,7 @@ export const searchPartImages = (q: string) =>
 
 export const searchPartDatasheets = (q: string, forceAi?: boolean) =>
   client
-    .get<DatasheetSuggestion[]>('/parts-search/datasheets', { params: { q, forceAi } })
+    .get<DatasheetSearchResponse>('/parts-search/datasheets', { params: { q, forceAi } })
     .then((r) => r.data);
 
 // OctoPart (Nexar) enrichment

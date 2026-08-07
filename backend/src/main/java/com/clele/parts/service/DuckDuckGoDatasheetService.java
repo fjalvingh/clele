@@ -16,6 +16,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -43,6 +44,13 @@ import java.util.regex.Pattern;
  * parameter. Because a `.pdf`-looking URL is often a dead link or a redirect to an HTML page (product
  * page, cookie wall, 404), every candidate is verified live (HEAD, falling back to a ranged GET
  * checking the `%PDF-` magic bytes) before being returned.
+ *
+ * <p><b>"Found nothing" and "was not allowed to look" are reported separately.</b> DuckDuckGo answers
+ * an automated search with a bot challenge ("Select all squares containing a duck") served as HTTP
+ * <b>202</b> — a success status, so a scraper parses it, finds no results and reports an empty search.
+ * The two are indistinguishable to the caller unless the block is detected explicitly, which is what
+ * {@link #classify} does; every result therefore carries a {@link SearchStatus} rather than being a
+ * bare list.
  */
 @Service
 @Slf4j
@@ -62,44 +70,95 @@ public class DuckDuckGoDatasheetService {
             Pattern.DOTALL);
     private static final Pattern TAG_PATTERN = Pattern.compile("<[^>]+>");
 
+    /**
+     * Fingerprints of DuckDuckGo's bot challenge, taken from the page it actually serves (verified
+     * 2026-08-07 by searching with a {@code curl} user-agent: HTTP 202, 14 KB, no results section).
+     */
+    private static final List<String> CHALLENGE_MARKERS = List.of(
+            "anomaly-modal", "anomaly.js", "challenge-form", "bots use duckduckgo");
+
+    /** How a search ended — an empty result list means nothing without this. */
+    public enum SearchStatus {
+        /** The search ran and returned usable links. */
+        OK,
+        /** The search ran and genuinely found nothing (or nothing that verified as a live PDF). */
+        NO_RESULTS,
+        /** DuckDuckGo refused to search: bot challenge, 403 or 429. Says nothing about the part. */
+        BLOCKED,
+        /** The request itself failed — network error, timeout, unexpected status. */
+        FAILED
+    }
+
+    public record SearchResult(SearchStatus status, List<DatasheetSuggestionDTO> results, String detail) {
+        public boolean blocked() {
+            return status == SearchStatus.BLOCKED;
+        }
+
+        static SearchResult of(SearchStatus status, String detail) {
+            return new SearchResult(status, List.of(), detail);
+        }
+    }
+
+    /** One fetched result page: its status, the PDF links on it, and whether it held results at all. */
+    private record Page(SearchStatus status, String detail, List<DatasheetSuggestionDTO> pdfs, boolean hadResults) {
+        static Page failed(SearchStatus status, String detail) {
+            return new Page(status, detail, List.of(), false);
+        }
+    }
+
     private final RestTemplate restTemplate;
 
     /** Short-timeout template dedicated to per-candidate liveness checks (many run in parallel). */
     private final RestTemplate verifyRestTemplate = buildVerifyRestTemplate();
 
-    public List<DatasheetSuggestionDTO> search(String query) {
+    public SearchResult search(String query) {
         String q = query + " datasheet filetype:pdf";
 
         List<DatasheetSuggestionDTO> candidates = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
+        SearchStatus refusal = null;
+        String refusalDetail = null;
+
         for (int page = 0; page < MAX_PAGES && candidates.size() < MAX_CANDIDATES; page++) {
-            List<DatasheetSuggestionDTO> pageResults;
-            try {
-                pageResults = fetchPage(q, page * PAGE_STEP, seen);
-            } catch (RestClientException e) {
-                log.warn("DuckDuckGo datasheet search for '{}' failed on page {}: {}", query, page, e.toString());
+            Page result = fetchPage(q, page * PAGE_STEP, seen);
+
+            if (result.status() == SearchStatus.BLOCKED || result.status() == SearchStatus.FAILED) {
+                log.warn("DuckDuckGo datasheet search for '{}' {} on page {}: {}",
+                        query, result.status() == SearchStatus.BLOCKED ? "was blocked" : "failed",
+                        page, result.detail());
+                // Only fatal while we have nothing: being cut off on page 3 still leaves pages 1–2.
+                if (candidates.isEmpty()) {
+                    refusal = result.status();
+                    refusalDetail = result.detail();
+                }
                 break;
             }
-            if (pageResults.isEmpty()) {
-                break; // no more result pages (or DDG is blocking us) — stop paging
+
+            candidates.addAll(result.pdfs());
+            if (!result.hadResults()) {
+                break; // ran out of result pages
             }
-            candidates.addAll(pageResults);
         }
 
         if (candidates.isEmpty()) {
-            log.warn("DuckDuckGo datasheet search for '{}' returned no candidate PDF links", query);
-            return List.of();
+            if (refusal != null) {
+                return SearchResult.of(refusal, refusalDetail);
+            }
+            log.info("DuckDuckGo datasheet search for '{}' returned no candidate PDF links", query);
+            return SearchResult.of(SearchStatus.NO_RESULTS, null);
         }
 
         List<DatasheetSuggestionDTO> verified = verifyAll(candidates);
         if (verified.isEmpty()) {
             log.warn("DuckDuckGo datasheet search for '{}' found {} pdf-suffixed candidates but none verified live",
                     query, candidates.size());
+            return SearchResult.of(SearchStatus.NO_RESULTS,
+                    candidates.size() + " candidate link(s) found, none served a live PDF");
         }
-        return verified;
+        return new SearchResult(SearchStatus.OK, verified, null);
     }
 
-    private List<DatasheetSuggestionDTO> fetchPage(String q, int offset, Set<String> seen) {
+    private Page fetchPage(String q, int offset, Set<String> seen) {
         String url = DDG_HTML + "?q=" + encode(q) + (offset > 0 ? "&s=" + offset : "");
 
         HttpHeaders headers = new HttpHeaders();
@@ -107,13 +166,68 @@ public class DuckDuckGoDatasheetService {
                 "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0");
         headers.set("Accept-Language", "en-US,en;q=0.5");
 
-        ResponseEntity<String> resp = restTemplate.exchange(
-                url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
-
-        if (!resp.getStatusCode().is2xxSuccessful()) {
-            return List.of();
+        ResponseEntity<String> resp;
+        try {
+            resp = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+        } catch (HttpStatusCodeException e) {
+            int code = e.getStatusCode().value();
+            // 403/429 are how a search engine says "not you", not how it says "nothing found".
+            SearchStatus status = (code == 403 || code == 429) ? SearchStatus.BLOCKED : SearchStatus.FAILED;
+            return Page.failed(status, "HTTP " + code);
+        } catch (RestClientException e) {
+            return Page.failed(SearchStatus.FAILED, e.getMessage());
         }
-        return parseResults(resp.getBody(), seen);
+
+        String body = resp.getBody();
+        SearchStatus status = classify(resp.getStatusCode().value(), body);
+        if (status == SearchStatus.BLOCKED || status == SearchStatus.FAILED) {
+            return Page.failed(status, detailFor(status, resp.getStatusCode().value(), body));
+        }
+        return new Page(status, null, parseResults(body, seen), status == SearchStatus.OK);
+    }
+
+    /**
+     * Decides what a fetched page actually is. Package-private and static so the classification can be
+     * pinned against the real challenge page without going near the network.
+     *
+     * <p>{@link SearchStatus#OK} here means "this page holds search results" — whether any of them are
+     * PDFs is a separate question, answered by the caller.
+     */
+    static SearchStatus classify(int statusCode, String body) {
+        if (body == null || body.isBlank()) {
+            return SearchStatus.FAILED;
+        }
+        String lower = body.toLowerCase();
+        for (String marker : CHALLENGE_MARKERS) {
+            if (lower.contains(marker)) {
+                return SearchStatus.BLOCKED;
+            }
+        }
+        if (lower.contains("result__a")) {
+            return SearchStatus.OK;
+        }
+        if (statusCode != 200) {
+            // A results page is answered 200. Anything else with no results on it is a refusal —
+            // the challenge is served as 202, a *success* status, which is what made it invisible.
+            return SearchStatus.BLOCKED;
+        }
+        if (lower.contains("no-results") || lower.contains("no results found")) {
+            return SearchStatus.NO_RESULTS;
+        }
+        // 200, no results section, no "no results" message: the page is not what we parse. Reporting
+        // that as "this part has no datasheet" is exactly the lie this method exists to prevent.
+        return SearchStatus.BLOCKED;
+    }
+
+    private static String detailFor(SearchStatus status, int statusCode, String body) {
+        if (status == SearchStatus.FAILED) {
+            return "empty response (HTTP " + statusCode + ")";
+        }
+        String lower = body == null ? "" : body.toLowerCase();
+        boolean challenge = CHALLENGE_MARKERS.stream().anyMatch(lower::contains);
+        return challenge
+                ? "bot challenge served as HTTP " + statusCode
+                : "unrecognised response (HTTP " + statusCode + ", no results section)";
     }
 
     private List<DatasheetSuggestionDTO> parseResults(String body, Set<String> seen) {

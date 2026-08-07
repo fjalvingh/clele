@@ -1,6 +1,6 @@
 package com.clele.parts.controller;
 
-import com.clele.parts.dto.DatasheetSuggestionDTO;
+import com.clele.parts.dto.DatasheetSearchResponseDTO;
 import com.clele.parts.dto.ImageSuggestionDTO;
 import com.clele.parts.dto.PartSearchResultDTO;
 import com.clele.parts.dto.QuickAddRequest;
@@ -34,7 +34,7 @@ public class PartSearchController {
     }
 
     @GetMapping("/api/parts-search/datasheets")
-    public List<DatasheetSuggestionDTO> searchDatasheets(
+    public DatasheetSearchResponseDTO searchDatasheets(
             @RequestParam String q,
             @RequestParam(required = false, defaultValue = "false") boolean forceAi) {
         return aiPartSearchService.searchDatasheets(q, forceAi);

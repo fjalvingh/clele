@@ -29,6 +29,7 @@ import {
 } from '../api';
 import type {
   AttachmentType,
+  DatasheetSearchResponse,
   DatasheetSuggestion,
   ImageSuggestion,
   Location,
@@ -194,6 +195,9 @@ export default function PartDetailPage() {
   const [datasheetModalOpen, setDatasheetModalOpen] = useState(false);
   const [datasheetQuery, setDatasheetQuery] = useState('');
   const [datasheetSuggestions, setDatasheetSuggestions] = useState<DatasheetSuggestion[]>([]);
+  // How the last search ended. Empty results mean nothing without it: a bot-challenged search and a
+  // part with no datasheet anywhere both return nothing, and only the first is worth retrying.
+  const [datasheetOutcome, setDatasheetOutcome] = useState<DatasheetSearchResponse | null>(null);
   const [datasheetsLoading, setDatasheetsLoading] = useState(false);
   const [datasheetAttaching, setDatasheetAttaching] = useState(false);
   const [datasheetAttachError, setDatasheetAttachError] = useState<string | null>(null);
@@ -635,9 +639,21 @@ export default function PartDetailPage() {
     if (!q.trim()) return;
     setDatasheetsLoading(true);
     setDatasheetSuggestions([]);
+    setDatasheetOutcome(null);
     searchPartDatasheets(q.trim(), forceAi)
-      .then(setDatasheetSuggestions)
-      .catch(() => setDatasheetSuggestions([]))
+      .then((res) => {
+        setDatasheetSuggestions(res.results ?? []);
+        setDatasheetOutcome(res);
+      })
+      .catch((err: unknown) => {
+        setDatasheetSuggestions([]);
+        setDatasheetOutcome({
+          results: [],
+          source: 'NONE',
+          webSearchStatus: 'FAILED',
+          detail: (err as Error).message,
+        });
+      })
       .finally(() => setDatasheetsLoading(false));
   };
 
@@ -1801,9 +1817,52 @@ export default function PartDetailPage() {
           </button>
         </div>
 
+        {/* A blocked web search is not an empty one — say which happened rather than "not found". */}
+        {!datasheetsLoading && datasheetOutcome?.webSearchStatus === 'BLOCKED' && datasheetSuggestions.length > 0 && (
+          <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 ring-1 ring-inset ring-amber-600/20">
+            The web search was blocked by a bot check, so these are AI suggestions rather than search
+            results.
+          </p>
+        )}
+
         <div className="min-h-[8rem]">
           {datasheetsLoading ? (
             <p className="text-sm text-gray-400">Searching for datasheets…</p>
+          ) : datasheetSuggestions.length === 0 && datasheetOutcome?.webSearchStatus === 'BLOCKED' ? (
+            <div className="text-sm text-gray-500">
+              <p>
+                The web search was blocked by a bot check — it did not run out of results, so this says
+                nothing about whether a datasheet exists. Try again in a minute, or{' '}
+                <button
+                  onClick={() => runDatasheetSearch(datasheetQuery, true)}
+                  disabled={!datasheetQuery.trim()}
+                  className="text-blue-600 hover:underline disabled:opacity-50"
+                >
+                  ask the AI instead
+                </button>
+                .
+              </p>
+              {datasheetOutcome.detail && (
+                <p className="mt-1 text-xs text-gray-400">{datasheetOutcome.detail}</p>
+              )}
+            </div>
+          ) : datasheetSuggestions.length === 0 && datasheetOutcome?.webSearchStatus === 'FAILED' ? (
+            <div className="text-sm text-gray-500">
+              <p>
+                The web search could not be completed. Try again, or{' '}
+                <button
+                  onClick={() => runDatasheetSearch(datasheetQuery, true)}
+                  disabled={!datasheetQuery.trim()}
+                  className="text-blue-600 hover:underline disabled:opacity-50"
+                >
+                  ask the AI instead
+                </button>
+                .
+              </p>
+              {datasheetOutcome.detail && (
+                <p className="mt-1 text-xs text-gray-400">{datasheetOutcome.detail}</p>
+              )}
+            </div>
           ) : datasheetSuggestions.length === 0 ? (
             <p className="text-sm text-gray-400">
               No datasheets found. Try a different search term, or{' '}

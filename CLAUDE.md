@@ -355,10 +355,9 @@ datasheets (the licensing-clean path; see *Part metadata sources* below).
 70 are 60 TI parts TI no longer hosts and 10 Analog Devices/Maxim parts with no resolver.
 
 - **Search is not available in bulk.** DuckDuckGo answers automated searches with a CAPTCHA
-  ("select all squares containing a duck") served as HTTP **202** — a 2xx, so `DuckDuckGoDatasheetService`
-  parses it, finds nothing, and reports no results. A blocked search and an empty one are
-  indistinguishable, which also means the Part Detail datasheet search reports "none found" when it
-  is really being blocked. Fixing that reporting is a one-line check on the challenge body.
+  ("select all squares containing a duck") served as HTTP **202** — a 2xx, so a scraper parses it,
+  finds nothing, and reports an empty search. See *Blocked vs. empty* below: the block is now
+  detected and reported as such, but it is still a block — bulk searching does not work.
 - **`VendorDatasheetUrls` asks the manufacturer directly instead**, which needs no search engine and
   returns the vendor's own document. It covers **Texas Instruments only** — right for this list
   (271/281) but *not general*: any other vendor falls through to the blocked search path. Rather than
@@ -380,6 +379,33 @@ datasheets (the licensing-clean path; see *Part metadata sources* below).
   Both cost recall (a digit-final suffix like `SN7402NE4`, and part numbers spaced out in a heading),
   which surfaces as an honest `NO_MATCH` rather than as bad data. `DatasheetResourcingServiceTest`
   pins both regressions using the actual text that fooled the first version.
+
+### Blocked vs. empty — the datasheet search reports which
+
+A search that was refused and a search that found nothing both return an empty list, and only the
+first is worth retrying. `DuckDuckGoDatasheetService.search` therefore returns a `SearchResult`
+(status + results + detail) instead of a bare list, and the distinction is carried all the way to
+the user:
+
+- **`SearchStatus`**: `OK` / `NO_RESULTS` / `BLOCKED` / `FAILED`. `classify(statusCode, body)` is
+  static and package-private so it can be pinned against the real pages without the network —
+  `src/test/resources/ddg/` holds the actual challenge page (HTTP 202, served to a `curl`
+  user-agent) and a trimmed real result page.
+- **What counts as blocked**: the challenge markers in the body (`anomaly-modal`, `anomaly.js`,
+  `challenge-form`, "bots use DuckDuckGo"), HTTP 403/429, **any 2xx that is not 200 with no results
+  section** (the challenge is a *success* status — that is what hid it), and — deliberately — a
+  page we cannot parse at all. An unrecognised page is reported as a refusal rather than as "this
+  part has no datasheet": guessing the optimistic reading is the bug being fixed.
+- **Being cut off mid-paging is not fatal**: the refusal only decides the outcome while no
+  candidates have been collected, so a block on page 3 still returns pages 1–2.
+- **`GET /api/parts-search/datasheets` now returns an object**, not an array —
+  `DatasheetSearchResponseDTO` (`results`, `source` WEB/AI/NONE, `webSearchStatus` including
+  `SKIPPED` for `forceAi`, `detail`). The AI fallback is unchanged; what changed is that the web
+  search's own outcome survives it. The Part Detail "Find datasheet" modal says "the web search was
+  blocked by a bot check — it did not run out of results" instead of "no datasheets found", and
+  notes when the listed links are AI suggestions that followed a block.
+- **`DatasheetResourcingService`** reports a new outcome `SEARCH_BLOCKED`, separate from
+  `NO_CANDIDATES`. In a re-sourcing report those two mean opposite things.
 
 ## Partsbox Import
 
@@ -1126,6 +1152,9 @@ and would need to become display-only.
 - `GET /dashboard`
 - `GET /parts-search?q=` — AI part search
 - `GET /parts-search/images?q=` — image suggestions
+- `GET /parts-search/datasheets?q=&forceAi=` — datasheet links, web search first and AI as fallback.
+  Returns `DatasheetSearchResponseDTO` (results **plus** the web search's outcome) — see *Blocked vs.
+  empty* above
 - `GET /image-proxy?url=` — external image proxy
 - `GET/POST /spec-groups`, `GET/PUT/DELETE /spec-groups/{id}`, `GET /spec-groups/{id}/spec-definitions`
   — spec groups and the fields inside one (see Spec Groups & Aliases)

@@ -568,6 +568,16 @@ export interface DatasheetSuggestion {
   source?: string;  // hostname the result came from, for display
 }
 
+/** BLOCKED means the search engine refused to answer — it says nothing about the part. */
+export type WebSearchStatus = 'OK' | 'NO_RESULTS' | 'BLOCKED' | 'FAILED' | 'SKIPPED';
+
+export interface DatasheetSearchResponse {
+  results: DatasheetSuggestion[];
+  source: 'WEB' | 'AI' | 'NONE';
+  webSearchStatus: WebSearchStatus;
+  detail?: string; // why, when there is something worth showing ("bot challenge served as HTTP 202")
+}
+
 export type AttachmentType = 'PHOTO' | 'DATASHEET' | 'ATTACHMENT';
 
 export interface PartAttachment {

@@ -1,6 +1,5 @@
 package com.clele.parts.service;
 
-import com.clele.parts.dto.DatasheetSuggestionDTO;
 import com.clele.parts.model.Part;
 import com.clele.parts.repository.PartRepository;
 import lombok.Builder;
@@ -139,13 +138,21 @@ public class DatasheetResourcingService {
         int vendorCandidates = urls.size();
 
         if (urls.isEmpty()) {
-            List<DatasheetSuggestionDTO> found;
+            DuckDuckGoDatasheetService.SearchResult found;
             try {
                 found = searchService.search(query);
             } catch (Exception e) {
                 return row.outcome("SEARCH_FAILED").rejections(shorten(e.toString())).build();
             }
-            found.forEach(s -> urls.add(s.getUrl()));
+            // A blocked search is not an absent datasheet — reporting it as NO_CANDIDATES would say
+            // "nothing exists for this part" about a request the search engine never answered.
+            if (found.blocked()) {
+                return row.outcome("SEARCH_BLOCKED").rejections(shorten(found.detail())).build();
+            }
+            if (found.status() == DuckDuckGoDatasheetService.SearchStatus.FAILED) {
+                return row.outcome("SEARCH_FAILED").rejections(shorten(found.detail())).build();
+            }
+            found.results().forEach(s -> urls.add(s.getUrl()));
         }
 
         row.candidatesFound(urls.size());
@@ -345,6 +352,7 @@ public class DatasheetResourcingService {
     }
 
     private static String shorten(String s) {
+        if (s == null) return null;
         String one = s.replaceAll("\\s+", " ").trim();
         return one.length() <= 160 ? one : one.substring(0, 160) + "…";
     }
