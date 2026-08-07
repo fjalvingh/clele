@@ -928,6 +928,93 @@ must be sent or the printer decodes raster with leftover state; `ESC i K` `0x08`
   `GET /api/parts/auto-categorize/status` (progress: total/processed/assigned/skipped/lastError).
   The Parts page has an "Auto-categorize (AI)" button that starts the job and polls status.
 
+### What a lookup costs, and why prompt caching is not worth it
+
+`AiPartSearchService.search` logs one INFO line per call (`ai-part-search …`) with tokens, cache
+figures, web-search count, spec-definition count, elapsed time and an estimated cost. Rates live in
+`anthropic.pricing.*` — **change them with the model**, since the line prices whatever `anthropic.model`
+is set to and a stale rate is worse than no figure at all. `input_tokens` from the API is only the
+*uncached* remainder, so the line's `promptTok` is `input + cacheWrite + cacheRead`.
+
+**Do not add `cache_control` to the system prompt, and do not narrow the injected spec list by
+category, expecting either to save money.** Both were proposed on the theory that the ~331 injected
+spec definitions dominate the bill. Measured 2026-08-07 on `L7809CD2T` — 48,993 input tokens total,
+of which the whole system prompt is **6,962** (counted with `/v1/messages/count_tokens` against a
+byte-exact reconstruction of `buildSystemPrompt`):
+
+| | tokens | cost | share |
+|---|---:|---:|---:|
+| web searches (3 × $10/1k) | — | 3.00¢ | 37% |
+| search results replayed through the tool loop | ~42,000 | 4.20¢ | 52% |
+| system prompt (all 331 definitions) | 6,962 | 0.70¢ | 8.6% |
+| output | 446 | 0.22¢ | 3% |
+
+So the spec list is **8.6%** of spend, not "almost all" of it. Caching it saves at most ~0.6¢ per
+lookup and only from the *second* lookup inside the 5-minute TTL; a cache write costs 1.25×, so an
+occasional user pays more than they save. Category scoping is worth even less — deleting the list
+outright saves 0.70¢ — and it actively **breaks** caching: Haiku 4.5's minimum cacheable prefix is
+**4096 tokens**, which the full prompt clears at 6,962 but a fifteen-field category-scoped prompt
+(~500–800 tokens) would not, so it would silently stop caching with no error. The two levers
+disable each other and neither pays for itself.
+
+The cost is web search: the searches plus the results the model re-reads each turn. It also is not
+stable — the same part measured 8.1¢/3 searches and, on another run, 5.2¢/2 searches, and SPECS.md
+recorded 13¢/4 searches. It tracks how many times the model searches, **not** how large the spec
+catalogue is, so growing the catalogue does not make lookups more expensive.
+
+If lookup cost ever needs attacking, the lever is the web-search behaviour (fewer searches, or a
+newer `web_search` tool version — which needs a model above Haiku 4.5, so measure the trade), not
+the prompt.
+
+## Spec coverage — keeping newly added parts from arriving bare
+
+The imported catalogue is fine; the risk is what gets added from here. See `SPECS.md` (untracked
+working note) for the original analysis. What is built:
+
+- **`part.specs` may hold keys no `spec_definition` covers, and that is deliberate.** The AI intake
+  paths keep whatever the model returned so that "Rescan from parts" can promote the survivors into
+  real fields — it is how the catalogue learns. Quick Add shows them under an **"Other"** heading on
+  the confirm step; the part edit modal shows them under "Other" too.
+- ⚠️ **`PartRequest.specsMode` (`MERGE` default / `REPLACE`) exists because of this.** A form that
+  builds its fields from the definitions does not know every key the part carries, so setting
+  `part.specs` wholesale from such a form **deletes** the undefined ones. `PartService.resolveSpecs`
+  therefore merges by default: an omitted key is left alone, and a key sent null/blank is removed
+  (that is how a merging client clears a field). **Send `REPLACE` only from a form that rendered
+  every key** — today exactly one does, `PartEditModal`, which needs it for its per-row remove
+  button to work at all. A client that forgets the flag can only fail to delete, never destroy.
+- **Dashboard tile + Parts filter** count parts holding fewer than
+  `PartRepository.SPARSE_SPEC_THRESHOLD` (5) spec keys — 336 of 1102 when added. The tile links to
+  `/parts?sparse=1`; the flag must appear in `Parts.tsx`'s `hasCriteria` **and** `hasAdvanced`, or
+  the link lands on a page that never fetches. The count is a `jsonb_object_keys` sub-select, not
+  indexable as written and not worth indexing at this size. Note `coalesce(p.specs, '{}')` carries
+  **no `::jsonb` cast** — Hibernate reads the `:` of `::` as a named parameter and mangles the SQL
+  at runtime (`syntax error at or near ":"`); none is needed, since `p.specs` is already jsonb. Use
+  `cast(x as jsonb)` if an explicit cast is ever unavoidable.
+
+### Looking a part up after it exists
+
+**"Look up specs"** on Part Detail runs the same `AiPartSearchService.search` the wizard uses and
+applies the result through `POST /parts/{id}/ai-apply`. The button is **unconditional** for an
+editor — no credentials, and no "already linked" guard like OctoPart's — because the hand-entered
+part is exactly the one that needs it.
+
+Unlike the OctoPart flow, which applies specs wholesale, each spec is confirmed individually,
+because this runs on parts that already carry curated data. Returned specs are classified against
+what the part holds: **new** (ticked by default), **differs** (listed, *not* ticked), **identical**
+(not shown — nothing to decide). That is what "only fill empty fields" means here: a default, not a
+mode. The suggested **category is shown but never applied** — the lookup returns a category *name*,
+and resolving that to one of this organisation's categories is a separate, fuzzy problem.
+
+`PartService.applyAiLookup` is a sibling of `applyOctopart`, not a flag on it: the OctoPart path
+additionally sets the OctoPart link and requires an id, and one method with a sometimes-required id
+is how the wrong field gets written.
+
+**Expect nothing back for house-numbered and vintage parts.** Measured: `L7809CD2T` returned 8 specs
+(6.5¢); the DEC PDP-11 board `M7093` returned zero (5.2¢). That is a correct answer, not a failure,
+and the modal says so rather than telling the user to search again — "nothing searched yet" and
+"searched, found nothing" are different facts. It also bounds the feature's reach: most of the
+hand-entered backlog *is* DEC boards and unbranded modules.
+
 ## Part metadata sources — distributor APIs are off the table
 
 **Do not propose or build an integration that pulls part specifications from a distributor API.**
@@ -1103,7 +1190,7 @@ and would need to become display-only.
   `PUT /admin/users/{id}/organisations/{organisationId}/permissions` `{permissions}` — permissions
   in one named organisation. All `GLOBAL_ADMIN` (see All Users below)
 - `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`)
-  - `GET /parts?search=&categoryId=&sort=&personalNumber=&manufacturer=&locationId=&tags=` — search
+  - `GET /parts?search=&categoryId=&sort=&personalNumber=&manufacturer=&locationId=&sparseSpecs=&tags=` — search
     runs in the DB: `search` matches name / part_number (case-insensitive substring) + description
     **plus `details` and the string values in `part.specs`** (PostgreSQL full-text,
     `websearch_to_tsquery`, over the single concatenated vector indexed by V43 — so "sot-23" or
@@ -1112,10 +1199,12 @@ and would need to become display-only.
     descendants** (recursive CTE over `parent_id`); `sort` is `partNumber` (default) or
     `manufacturer`. The Parts page only fetches results once a search/filter is applied (it does not
     list the whole catalogue on load).
-    The last four are the **advanced filters** (the collapsible "More search options" panel under
+    The last five are the **advanced filters** (the collapsible "More search options" panel under
     the search bar), all optional and ANDed with the rest: `personalNumber` (exact boolean match on
     the flag), `manufacturer` (case-insensitive substring), `locationId` (parts holding stock >0 in
-    that location **or any location below it** — the same recursive walk as categories), and `tags`
+    that location **or any location below it** — the same recursive walk as categories),
+    `sparseSpecs` (parts carrying fewer than `PartRepository.SPARSE_SPEC_THRESHOLD` spec keys — see
+    *Spec coverage* below), and `tags`
     (repeated param; a part must carry **all** of them). Tags are matched in `PartService` rather
     than SQL — they are already loaded for the DTO mapping, and "all of N" is awkward in a native
     query with a variable-length list. The SPA sends them with axios `paramsSerializer: {indexes:
@@ -1150,9 +1239,14 @@ and would need to become display-only.
   `POST /stock-thresholds` → upsert (create or update) a threshold, 201; location must be a root
   (400 otherwise); `DELETE /stock-thresholds/{id}` → 204
 - `GET /dashboard`
-- `GET /parts-search?q=` — AI part search
-- `GET /parts-search/images?q=` — image suggestions
-- `GET /parts-search/datasheets?q=&forceAi=` — datasheet links, web search first and AI as fallback.
+- `GET /parts-search?q=` — AI part search (requires `PARTS_EDIT`)
+- `POST /parts/{id}/ai-apply` — apply a chosen AI-lookup result to an existing part; specs merge onto
+  the part and a null column field leaves that column alone, since both arrive filtered to what the
+  user confirmed. Free — the search already happened (requires `PARTS_EDIT`). See *Looking a part up
+  after it exists* below
+- `GET /parts-search/images?q=` — image suggestions (requires `PARTS_EDIT`)
+- `GET /parts-search/datasheets?q=&forceAi=` — datasheet links, web search first and AI as fallback
+  (requires `PARTS_EDIT`).
   Returns `DatasheetSearchResponseDTO` (results **plus** the web search's outcome) — see *Blocked vs.
   empty* above
 - `GET /image-proxy?url=` — external image proxy
