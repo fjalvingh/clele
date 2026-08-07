@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   addAttachmentFromUrl,
   addStock,
+  applyAiLookup,
   applyOctopart,
   attachmentUrl,
   deletePart,
@@ -21,6 +22,7 @@ import {
   moveStock,
   searchOctopart,
   searchPartDatasheets,
+  searchPartsOnline,
   searchPartImages,
   takeStock,
   updatePart,
@@ -28,6 +30,7 @@ import {
   upsertStockThreshold,
 } from '../api';
 import type {
+  AiApplyRequest,
   AttachmentType,
   DatasheetSearchResponse,
   DatasheetSuggestion,
@@ -39,6 +42,7 @@ import type {
   Part,
   PartAttachment,
   PartRequest,
+  PartSearchResult,
   SpecDefinition,
   StockEntry,
   StockMovement,
@@ -54,6 +58,7 @@ import Modal from '../components/Modal';
 import PartEditModal from '../components/PartEditModal';
 import PrintLabelModal from '../components/PrintLabelModal';
 import { formatMetric } from '../utils/units';
+import { parseAiSpecs } from '../utils/specs';
 
 // The three stock operations offered per location, plus the top-level "add".
 type StockOp = 'add' | 'take' | 'move';
@@ -138,6 +143,39 @@ const OCTOPART_FIELDS = [
 
 type OctopartFieldKey = (typeof OCTOPART_FIELDS)[number]['key'];
 
+// Real part columns an AI lookup can change. No footprint — the lookup does not return one — and no
+// category: it returns a category *name*, and resolving that to one of this organisation's
+// categories is a separate, fuzzy problem, so the name is shown as context and never applied.
+// `key` names the part column (and the AiApplyRequest field); `from` names the field on the search
+// result, which is not always the same — the lookup calls the description `shortDescription`.
+const AI_FIELDS = [
+  { key: 'mpn', from: 'mpn', label: 'MPN' },
+  { key: 'manufacturer', from: 'manufacturer', label: 'Manufacturer' },
+  { key: 'description', from: 'shortDescription', label: 'Description' },
+  { key: 'datasheetUrl', from: 'datasheetUrl', label: 'Datasheet URL' },
+] as const;
+
+type AiFieldKey = (typeof AI_FIELDS)[number]['key'];
+
+/**
+ * How one spec the lookup returned relates to what the part already holds.
+ *
+ * `new` is ticked by default and `conflict` is not: filling a gap is what the action is for, while
+ * overwriting a value someone already curated should be a deliberate act. `same` is not shown at
+ * all — a row you cannot act on is noise.
+ */
+type SpecVerdict = 'new' | 'conflict' | 'same';
+
+interface AiSpecRow {
+  key: string;
+  /** The definition's title where one exists, else the raw key (which is then a new field). */
+  label: string;
+  known: boolean;
+  oldValue: string;
+  newValue: string;
+  verdict: SpecVerdict;
+}
+
 export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -214,6 +252,25 @@ export default function PartDetailPage() {
     {} as Record<OctopartFieldKey, boolean>,
   );
   const [octoApplying, setOctoApplying] = useState(false);
+
+  // AI lookup — "Look up specs" on an existing part. Same search/pick/confirm shape as OctoPart
+  // above, but the specs are confirmed one by one rather than applied wholesale, because this runs
+  // on parts that already carry curated data.
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiQuery, setAiQuery] = useState('');
+  const [aiResults, setAiResults] = useState<PartSearchResult[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiPicked, setAiPicked] = useState<PartSearchResult | null>(null);
+  // "Not searched yet" and "searched, found nothing" are different facts and must not share a
+  // message — vintage and one-off parts genuinely return nothing, and telling the user to press
+  // the button they just pressed reads as if the search never ran.
+  const [aiSearched, setAiSearched] = useState(false);
+  const [aiAcceptFields, setAiAcceptFields] = useState<Record<AiFieldKey, boolean>>(
+    {} as Record<AiFieldKey, boolean>,
+  );
+  const [aiAcceptSpecs, setAiAcceptSpecs] = useState<Record<string, boolean>>({});
+  const [aiApplying, setAiApplying] = useState(false);
 
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -335,6 +392,98 @@ export default function PartDetailPage() {
       setOctoError((err as Error).message);
     } finally {
       setOctoApplying(false);
+    }
+  };
+
+  // ── AI lookup ────────────────────────────────────────────────────────────
+
+  const runAiSearch = (q: string) => {
+    if (!q.trim()) return;
+    setAiLoading(true);
+    setAiError(null);
+    setAiResults([]);
+    setAiPicked(null);
+    searchPartsOnline(q.trim())
+      .then((results) => {
+        setAiResults(results);
+        setAiSearched(true);
+      })
+      .catch((err) => setAiError((err as Error).message))
+      .finally(() => setAiLoading(false));
+  };
+
+  const openAiLookup = () => {
+    const q = part?.mpn || part?.partNumber || '';
+    setAiQuery(q);
+    setAiResults([]);
+    setAiPicked(null);
+    setAiError(null);
+    setAiSearched(false);
+    setAiModalOpen(true);
+  };
+
+  /**
+   * Every spec the lookup returned, classified against what the part already holds. Values that
+   * match are dropped: there is nothing to decide about them.
+   */
+  const aiSpecRows = (result: PartSearchResult): AiSpecRow[] => {
+    const incoming = parseAiSpecs(result.specs);
+    const existing = part?.specs ?? {};
+    // Built here rather than reusing the render-scope map so this does not depend on where that
+    // one happens to be declared relative to the handlers.
+    const byKey = new Map(specDefs.map((d) => [d.jsonName, d]));
+    return Object.entries(incoming)
+      .map(([key, newValue]) => {
+        const oldValue = existing[key] == null ? '' : String(existing[key]);
+        const verdict: SpecVerdict =
+          oldValue.trim() === '' ? 'new' : oldValue.trim() === newValue.trim() ? 'same' : 'conflict';
+        return {
+          key,
+          label: byKey.get(key)?.name ?? key,
+          known: byKey.has(key),
+          oldValue,
+          newValue,
+          verdict,
+        };
+      })
+      .filter((r) => r.verdict !== 'same')
+      .sort((a, b) => (a.verdict === b.verdict ? a.label.localeCompare(b.label) : a.verdict === 'new' ? -1 : 1));
+  };
+
+  const pickAiResult = (result: PartSearchResult) => {
+    setAiPicked(result);
+    // Columns default to accepted, as in the OctoPart flow — only changed ones are rendered.
+    const fields = {} as Record<AiFieldKey, boolean>;
+    for (const f of AI_FIELDS) fields[f.key] = true;
+    setAiAcceptFields(fields);
+    // Specs default to "fill the gaps, leave curated values alone".
+    const specs: Record<string, boolean> = {};
+    for (const row of aiSpecRows(result)) specs[row.key] = row.verdict === 'new';
+    setAiAcceptSpecs(specs);
+  };
+
+  const handleApplyAiLookup = async () => {
+    if (!aiPicked || !part) return;
+    setAiApplying(true);
+    setAiError(null);
+    try {
+      const body: AiApplyRequest = {};
+      for (const f of AI_FIELDS) {
+        const newVal = aiPicked[f.from];
+        if (aiAcceptFields[f.key] && newVal) body[f.key] = newVal;
+      }
+      const specs: Record<string, string> = {};
+      for (const row of aiSpecRows(aiPicked)) {
+        if (aiAcceptSpecs[row.key]) specs[row.key] = row.newValue;
+      }
+      if (Object.keys(specs).length > 0) body.specs = specs;
+      await applyAiLookup(part.id, body);
+      setAiModalOpen(false);
+      loadData();
+    } catch (err) {
+      setAiError((err as Error).message);
+    } finally {
+      setAiApplying(false);
     }
   };
 
@@ -955,6 +1104,19 @@ export default function PartDetailPage() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
+                {/* AI lookup. Unconditional for an editor — no credentials to hold and no
+                    "already linked" state to exclude it, which is the point: a part typed in by
+                    hand is exactly the one that needs it, and it must be available on every part. */}
+                {canEdit && (
+                  <button
+                    onClick={openAiLookup}
+                    title="Look this part up and fill in missing details"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+                  >
+                    {SearchIcon}
+                    Look up specs
+                  </button>
+                )}
                 {/* OctoPart enrichment — only when the part has no link yet */}
                 {canEdit && !part.octopartId && (
                   user?.hasOctopartCredentials ? (
@@ -1932,6 +2094,239 @@ export default function PartDetailPage() {
             Cancel
           </button>
         </div>
+      </Modal>
+
+      {/* AI lookup — search / pick / confirm. Wide, because the confirm step shows old and new
+          values side by side for every spec. */}
+      <Modal
+        open={aiModalOpen}
+        onClose={() => setAiModalOpen(false)}
+        title="Look up specs"
+        wide
+      >
+        {!aiPicked ? (
+          <>
+            <div className="mb-2 flex gap-2">
+              <input
+                type="text"
+                value={aiQuery}
+                onChange={(e) => setAiQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && runAiSearch(aiQuery)}
+                placeholder="Part number, or a description of the part"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                onClick={() => runAiSearch(aiQuery)}
+                disabled={!aiQuery.trim() || aiLoading}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Search
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-gray-400">
+              Searches the web and reads datasheets. Takes a few seconds and costs a little each
+              time, so it does not run until you press Search.
+            </p>
+
+            {aiError && <p className="mb-3 text-sm text-red-600">{aiError}</p>}
+
+            <div className="min-h-[8rem]">
+              {aiLoading ? (
+                <p className="text-sm text-gray-400">Searching… this usually takes 5–15 seconds.</p>
+              ) : aiResults.length === 0 ? (
+                aiSearched ? (
+                  <div className="text-sm text-gray-500">
+                    <p className="font-medium text-gray-700">The search found nothing.</p>
+                    <p className="mt-1">
+                      That is a real answer, not a failure: one-off, vintage and house-numbered
+                      parts often have no public data to find. Try the manufacturer's own name for
+                      it, or fill the specifications in by hand.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">
+                    Nothing searched yet. Check the term above and press Search.
+                  </p>
+                )
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {aiResults.map((r, i) => (
+                    <li key={`${r.mpn}-${i}`} className="flex items-start justify-between gap-3 py-3">
+                      <div className="min-w-0">
+                        <div className="font-mono text-sm font-medium text-gray-900">{r.mpn}</div>
+                        {r.manufacturer && (
+                          <div className="text-xs text-gray-500">{r.manufacturer}</div>
+                        )}
+                        {r.shortDescription && (
+                          <div className="mt-0.5 truncate text-xs text-gray-600">
+                            {r.shortDescription}
+                          </div>
+                        )}
+                        <div className="mt-0.5 text-xs text-gray-400">
+                          {r.specs.length} specification{r.specs.length === 1 ? '' : 's'}
+                          {r.category ? ` · ${r.category}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => pickAiResult(r)}
+                        className="shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                      >
+                        Use this
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </>
+        ) : (
+          (() => {
+            const rows = aiSpecRows(aiPicked);
+            const newCount = rows.filter((r) => r.verdict === 'new').length;
+            const conflictCount = rows.filter((r) => r.verdict === 'conflict').length;
+            // Only columns that would actually change are worth a row.
+            const fieldChanges = AI_FIELDS.map((f) => ({
+              field: f,
+              oldVal: (part?.[f.key] as string | undefined) ?? '',
+              newVal: aiPicked[f.from] ?? '',
+            })).filter((c) => c.newVal && c.newVal !== c.oldVal);
+            const setAll = (only: SpecVerdict | null) => {
+              const next: Record<string, boolean> = {};
+              for (const r of rows) next[r.key] = only == null ? false : r.verdict === only;
+              setAiAcceptSpecs(next);
+            };
+            return (
+              <>
+                <p className="mb-3 text-sm text-gray-600">
+                  Found <span className="font-mono">{aiPicked.mpn}</span>
+                  {aiPicked.manufacturer ? ` — ${aiPicked.manufacturer}` : ''}
+                  {aiPicked.category ? (
+                    <span className="text-gray-400"> · suggested category: {aiPicked.category}</span>
+                  ) : null}
+                </p>
+
+                {fieldChanges.length > 0 && (
+                  <div className="mb-4">
+                    <h4 className="mb-2 text-sm font-semibold text-gray-900">Part details</h4>
+                    <div className="space-y-2">
+                      {fieldChanges.map((c) => (
+                        <label key={c.field.key} className="flex items-start gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={aiAcceptFields[c.field.key] ?? false}
+                            onChange={(e) =>
+                              setAiAcceptFields((prev) => ({
+                                ...prev,
+                                [c.field.key]: e.target.checked,
+                              }))
+                            }
+                            className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="min-w-0">
+                            <span className="font-medium text-gray-700">{c.field.label}</span>
+                            {c.oldVal && (
+                              <span className="ml-2 text-gray-400 line-through">{c.oldVal}</span>
+                            )}
+                            <span className="ml-2 break-words text-gray-900">{c.newVal}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                  <h4 className="text-sm font-semibold text-gray-900">Specifications</h4>
+                  {rows.length > 0 && (
+                    <span className="text-xs text-gray-500">
+                      {newCount} new, {conflictCount} differ from stored values. Unticked rows are
+                      left as they are.
+                    </span>
+                  )}
+                </div>
+                {rows.length > 0 && (
+                  <div className="mb-2 flex gap-3 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setAll('new')}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Select all new
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAll(null)}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Select none
+                    </button>
+                  </div>
+                )}
+
+                {rows.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    Nothing to add — every specification this lookup returned already matches what
+                    the part holds.
+                  </p>
+                ) : (
+                  <ul className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
+                    {rows.map((r) => (
+                      <li key={r.key} className="py-2">
+                        <label className="flex items-start gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={aiAcceptSpecs[r.key] ?? false}
+                            onChange={(e) =>
+                              setAiAcceptSpecs((prev) => ({ ...prev, [r.key]: e.target.checked }))
+                            }
+                            className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="font-medium text-gray-700">{r.label}</span>
+                            {!r.known && (
+                              <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700">
+                                new field
+                              </span>
+                            )}
+                            {r.verdict === 'conflict' && (
+                              <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+                                differs
+                              </span>
+                            )}
+                            <span className="mt-0.5 block break-words">
+                              {r.oldValue && (
+                                <span className="mr-2 text-gray-400 line-through">{r.oldValue}</span>
+                              )}
+                              <span className="text-gray-900">{r.newValue}</span>
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {aiError && <p className="mt-3 text-sm text-red-600">{aiError}</p>}
+
+                <div className="mt-4 flex justify-between gap-2">
+                  <button
+                    onClick={() => setAiPicked(null)}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+                  >
+                    ← Back to results
+                  </button>
+                  <button
+                    onClick={handleApplyAiLookup}
+                    disabled={aiApplying}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {aiApplying ? 'Applying…' : 'Apply to part'}
+                  </button>
+                </div>
+              </>
+            );
+          })()
+        )}
       </Modal>
 
       {/* OctoPart search / pick / confirm modal */}

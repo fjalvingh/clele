@@ -2,6 +2,7 @@ import client from './client';
 import type {
   AcceptInvitationRequest,
   AdminUser,
+  AiApplyRequest,
   AppSettings,
   AuthUser,
   CancelRequest,
@@ -423,6 +424,13 @@ export const searchPartDatasheets = (q: string, forceAi?: boolean) =>
   client
     .get<DatasheetSearchResponse>('/parts-search/datasheets', { params: { q, forceAi } })
     .then((r) => r.data);
+
+/**
+ * Apply a chosen lookup result to an existing part. Free — the search already happened; this writes
+ * only what the user ticked, merging specs onto the part rather than replacing them.
+ */
+export const applyAiLookup = (partId: number, data: AiApplyRequest) =>
+  client.post<Part>(`/parts/${partId}/ai-apply`, data).then((r) => r.data);
 
 // OctoPart (Nexar) enrichment
 export const getOctopartUsage = () =>

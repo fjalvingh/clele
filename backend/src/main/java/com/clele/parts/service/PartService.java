@@ -214,6 +214,35 @@ public class PartService {
         return toDTO(partRepository.save(part));
     }
 
+    /**
+     * Applies a chosen AI-lookup result to an existing part — the "Look up specs" action.
+     *
+     * <p>Same shape as {@link #applyOctopart}: specs are merged onto the part's map and a null
+     * column field leaves that column alone, because both fields and specs arrive already filtered
+     * to what the user ticked. It is a separate method rather than a flag on that one so neither
+     * contract has to grow a "which source is this?" branch — the OctoPart path additionally sets
+     * the OctoPart link, and this one has no id to set.
+     */
+    @Transactional
+    public PartDTO applyAiLookup(Long id, com.clele.parts.dto.AiApplyRequest request) {
+        Part part = requirePart(id);
+
+        if (request.getSpecs() != null) {
+            Map<String, Object> merged = part.getSpecs() != null
+                    ? new LinkedHashMap<>(part.getSpecs())
+                    : new LinkedHashMap<>();
+            merged.putAll(specDefinitionService.canonicalizeKeys(request.getSpecs()));
+            part.setSpecs(merged);
+        }
+
+        if (request.getDescription() != null) part.setDescription(request.getDescription());
+        if (request.getManufacturer() != null) part.setManufacturer(request.getManufacturer());
+        if (request.getMpn() != null) part.setMpn(request.getMpn());
+        if (request.getDatasheetUrl() != null) part.setDatasheetUrl(request.getDatasheetUrl());
+
+        return toDTO(partRepository.save(part));
+    }
+
     @Transactional
     public void delete(Long id) {
         requirePart(id);

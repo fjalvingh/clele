@@ -517,6 +517,21 @@ export interface PartSearchResult {
   specs: string[];
 }
 
+/**
+ * Applies a chosen AI-lookup result to an existing part ("Look up specs" on Part Detail).
+ *
+ * Every field is what the user ticked in the confirmation step, so an omitted column field leaves
+ * the part's value alone rather than clearing it, and `specs` carries only the accepted entries and
+ * is merged onto the part rather than replacing its map.
+ */
+export interface AiApplyRequest {
+  description?: string;
+  manufacturer?: string;
+  mpn?: string;
+  datasheetUrl?: string;
+  specs?: Record<string, string>;
+}
+
 export interface QuickAddRequest {
   partNumber: string;
   description?: string;

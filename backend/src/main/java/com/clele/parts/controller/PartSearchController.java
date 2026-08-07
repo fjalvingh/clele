@@ -1,12 +1,15 @@
 package com.clele.parts.controller;
 
+import com.clele.parts.dto.AiApplyRequest;
 import com.clele.parts.dto.DatasheetSearchResponseDTO;
 import com.clele.parts.dto.ImageSuggestionDTO;
+import com.clele.parts.dto.PartDTO;
 import com.clele.parts.dto.PartSearchResultDTO;
 import com.clele.parts.dto.QuickAddRequest;
 import com.clele.parts.dto.QuickAddResponseDTO;
 import com.clele.parts.model.Permissions;
 import com.clele.parts.service.AiPartSearchService;
+import com.clele.parts.service.PartService;
 import com.clele.parts.service.QuickAddService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,11 +19,23 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * The AI lookup endpoints.
+ *
+ * <p>All of them require {@code PARTS_EDIT}. They are the only endpoints in the app that spend real
+ * money per call — a part search runs web searches and costs roughly 8-13 cents each — so leaving
+ * them open to any authenticated member would let a read-only account drain the organisation's
+ * Anthropic budget. Nothing is lost by gating them: every caller ends in a mutation that already
+ * requires the same permission, so a user who could search but not save could do nothing with the
+ * result anyway.
+ */
 @RestController
 @RequiredArgsConstructor
+@PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
 public class PartSearchController {
 
     private final AiPartSearchService aiPartSearchService;
+    private final PartService partService;
     private final QuickAddService quickAddService;
 
     @GetMapping("/api/parts-search")
@@ -38,6 +53,15 @@ public class PartSearchController {
             @RequestParam String q,
             @RequestParam(required = false, defaultValue = "false") boolean forceAi) {
         return aiPartSearchService.searchDatasheets(q, forceAi);
+    }
+
+    /**
+     * Applies a chosen lookup result to an existing part. Free — the search already happened; this
+     * only writes what the user ticked.
+     */
+    @PostMapping("/api/parts/{id}/ai-apply")
+    public PartDTO applyAiLookup(@PathVariable Long id, @RequestBody AiApplyRequest request) {
+        return partService.applyAiLookup(id, request);
     }
 
     @PostMapping("/api/parts/quick-add")
