@@ -73,6 +73,16 @@ public class DatasheetAnalyzer {
             SECTION_HEADINGS.stream().map(Pattern::quote).reduce((a, b) -> a + "|" + b).orElseThrow(),
             Pattern.CASE_INSENSITIVE);
 
+    /**
+     * The parametric-heading pattern, for callers that need to <em>locate</em> the sections rather
+     * than only count them — {@link DatasheetSpecExtractionService} slices its excerpt around these
+     * matches. Exposed rather than duplicated so the phrases stay calibrated in one place: a
+     * heading added here immediately widens both the routing and the excerpt.
+     */
+    public static Pattern headingPattern() {
+        return HEADING_PATTERN;
+    }
+
     /** How the specs in this document can be reached. */
     public enum Route {
         /** Parametric headings found in the text layer — text extraction will yield specs. */

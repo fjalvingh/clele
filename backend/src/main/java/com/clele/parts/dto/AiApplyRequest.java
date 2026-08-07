@@ -32,6 +32,13 @@ public class AiApplyRequest {
     private String mpn;
     private String datasheetUrl;
 
+    /**
+     * The long free-text description. Only the datasheet reader fills this — the web lookup returns
+     * a one-line {@code shortDescription}, which belongs in {@code description}, while a datasheet
+     * carries several sentences of what the part actually does.
+     */
+    private String details;
+
     /** The accepted specs, merged onto the part's existing map. */
     private Map<String, Object> specs;
 }

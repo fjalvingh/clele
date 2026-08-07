@@ -1,6 +1,7 @@
 package com.clele.parts.controller;
 
 import com.clele.parts.dto.AiApplyRequest;
+import com.clele.parts.dto.DatasheetExtractionDTO;
 import com.clele.parts.dto.DatasheetSearchResponseDTO;
 import com.clele.parts.dto.ImageSuggestionDTO;
 import com.clele.parts.dto.PartDTO;
@@ -9,6 +10,7 @@ import com.clele.parts.dto.QuickAddRequest;
 import com.clele.parts.dto.QuickAddResponseDTO;
 import com.clele.parts.model.Permissions;
 import com.clele.parts.service.AiPartSearchService;
+import com.clele.parts.service.DatasheetSpecExtractionService;
 import com.clele.parts.service.PartService;
 import com.clele.parts.service.QuickAddService;
 import jakarta.validation.Valid;
@@ -35,6 +37,7 @@ import java.util.List;
 public class PartSearchController {
 
     private final AiPartSearchService aiPartSearchService;
+    private final DatasheetSpecExtractionService datasheetSpecExtractionService;
     private final PartService partService;
     private final QuickAddService quickAddService;
 
@@ -53,6 +56,23 @@ public class PartSearchController {
             @RequestParam String q,
             @RequestParam(required = false, defaultValue = "false") boolean forceAi) {
         return aiPartSearchService.searchDatasheets(q, forceAi);
+    }
+
+    /**
+     * Reads a datasheet already stored on the part and proposes specs plus a description from it.
+     *
+     * <p>Writes nothing — the caller confirms the proposal and applies it through
+     * {@link #applyAiLookup}, the same path the web lookup uses. {@code attachmentId} is optional:
+     * omitted, the part's first stored datasheet is read, which is the usual case.
+     *
+     * <p>A POST rather than a GET despite reading nothing but the database: it costs money and is
+     * not idempotent in the way a cache or a prefetch would assume.
+     */
+    @PostMapping("/api/parts/{id}/datasheet-extract")
+    public DatasheetExtractionDTO extractFromDatasheet(
+            @PathVariable Long id,
+            @RequestParam(required = false) Long attachmentId) {
+        return datasheetSpecExtractionService.extract(id, attachmentId);
     }
 
     /**

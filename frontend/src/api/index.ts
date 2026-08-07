@@ -11,6 +11,7 @@ import type {
   CategoryRequest,
   CategoryTree,
   Dashboard,
+  DatasheetExtraction,
   DatasheetSearchResponse,
   EmailLookup,
   Invitation,
@@ -431,6 +432,19 @@ export const searchPartDatasheets = (q: string, forceAi?: boolean) =>
  */
 export const applyAiLookup = (partId: number, data: AiApplyRequest) =>
   client.post<Part>(`/parts/${partId}/ai-apply`, data).then((r) => r.data);
+
+/**
+ * Read a datasheet already stored on the part and propose specs + a description from it. Writes
+ * nothing: the result is confirmed field by field and applied through `applyAiLookup`.
+ *
+ * Omit `attachmentId` to read the part's first stored datasheet, which is the usual case.
+ */
+export const extractDatasheetSpecs = (partId: number, attachmentId?: number) =>
+  client
+    .post<DatasheetExtraction>(`/parts/${partId}/datasheet-extract`, null, {
+      params: attachmentId ? { attachmentId } : undefined,
+    })
+    .then((r) => r.data);
 
 // OctoPart (Nexar) enrichment
 export const getOctopartUsage = () =>

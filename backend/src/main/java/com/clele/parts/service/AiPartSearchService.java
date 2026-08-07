@@ -4,8 +4,6 @@ import com.clele.parts.dto.DatasheetSearchResponseDTO;
 import com.clele.parts.dto.DatasheetSuggestionDTO;
 import com.clele.parts.dto.ImageSuggestionDTO;
 import com.clele.parts.dto.PartSearchResultDTO;
-import com.clele.parts.model.SpecDefinition;
-import com.clele.parts.repository.SpecDefinitionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -29,8 +27,7 @@ public class AiPartSearchService {
 
     private final DuckDuckGoImageService duckDuckGoImageService;
     private final DuckDuckGoDatasheetService duckDuckGoDatasheetService;
-    private final SpecDefinitionRepository specDefinitionRepository;
-    private final CurrentOrganisationService currentOrganisationService;
+    private final SpecFieldCatalog specFieldCatalog;
 
     private static final String API_URL = "https://api.anthropic.com/v1/messages";
     private static final String API_VERSION = "2023-06-01";
@@ -518,21 +515,10 @@ public class AiPartSearchService {
 
     private SystemPrompt buildSystemPrompt() {
         // The prompt describes the current organisation's spec fields, so the AI returns keys that
-        // match this tenant's part.specs schema.
-        List<SpecDefinition> defs = specDefinitionRepository
-                .findByOrganisationIdOrderByDisplayOrderAscNameAsc(currentOrganisationService.currentId());
-        StringBuilder sb = new StringBuilder();
-        for (SpecDefinition def : defs) {
-            sb.append("\n  - \"").append(def.getJsonName()).append("\" (").append(def.getName()).append(")");
-            if ("SELECT".equals(def.getDataType()) && def.getOptions() != null) {
-                sb.append("  (options: ").append(def.getOptions()).append(")");
-            } else if ("NUMBER".equals(def.getDataType()) && def.getUnit() != null) {
-                sb.append("  (unit: ").append(def.getUnit()).append(")");
-            } else if ("BOOLEAN".equals(def.getDataType())) {
-                sb.append("  (true/false)");
-            }
-        }
-        return new SystemPrompt(String.format(SYSTEM_PROMPT_TEMPLATE, sb.toString()), defs.size());
+        // match this tenant's part.specs schema. Rendered by the shared catalogue so the datasheet
+        // reader describes the same fields the same way.
+        SpecFieldCatalog.Fields fields = specFieldCatalog.render();
+        return new SystemPrompt(String.format(SYSTEM_PROMPT_TEMPLATE, fields.text()), fields.count());
     }
 
     private static String nullIfBlank(String s) {

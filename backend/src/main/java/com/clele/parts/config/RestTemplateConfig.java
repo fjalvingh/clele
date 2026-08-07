@@ -58,6 +58,22 @@ public class RestTemplateConfig {
         return new RestTemplate(new HttpComponentsClientHttpRequestFactory(httpClient));
     }
 
+    /**
+     * Dedicated template for model calls that carry a whole document.
+     *
+     * <p>The datasheet extraction sends a ~20k-token excerpt and waits for a few thousand tokens
+     * back, which routinely runs past the 30 s read timeout on the shared {@link #restTemplate()}.
+     * That timeout does not surface as "the model is slow" — it surfaces as a read failure on a
+     * request that was already billed, so the user pays and gets nothing.
+     */
+    @Bean
+    public RestTemplate aiDocumentRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5_000);
+        factory.setReadTimeout(180_000);
+        return new RestTemplate(factory);
+    }
+
     /** Dedicated template for local Ollama calls — CPU inference of a 3B model can be slow. */
     @Bean
     public RestTemplate ollamaRestTemplate() {

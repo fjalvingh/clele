@@ -1009,6 +1009,57 @@ and resolving that to one of this organisation's categories is a separate, fuzzy
 additionally sets the OctoPart link and requires an id, and one method with a sometimes-required id
 is how the wrong field gets written.
 
+### Reading the specs out of the datasheet
+
+**"Get specs"** beside each stored datasheet on Part Detail reads that PDF and proposes specs plus a
+functional description from it (`POST /parts/{id}/datasheet-extract?attachmentId=`,
+`DatasheetSpecExtractionService`). It **writes nothing** — the result is confirmed field by field
+and applied through the same `POST /parts/{id}/ai-apply` the web lookup uses.
+
+**This is the cheap source and the licensing-clean one.** Measured on the same catalogue: a web
+lookup of `L7809CD2T` cost 6.5¢ and returned 8 specs; reading the stored `at28c16.pdf` cost **1.6¢**
+(12,028 in / 808 out, no web searches) and returned **19**. The difference is that ~89% of a web
+lookup is the searches plus the results replayed through the tool loop, and this path runs none — the
+document is already in the database. A manufacturer datasheet is also a published document about one
+part rather than a compiled parametric database, so nothing restricts retaining what it says (see
+*Part metadata sources*).
+
+**It does not send the document.** A datasheet is tens of pages of pinouts, package outlines and
+ordering tables; sending all of it would cost more than the lookup it undercuts.
+`buildExcerpt` sends the **front matter** (page 1, plus page 2 when page 1 is barely more than a
+title block) and a **6,000-character window from each parametric heading** `DatasheetAnalyzer` found,
+with overlapping windows merged and the whole thing capped at 90,000 chars. Measured: a 12-page
+datasheet reduces to 13,003 chars. Pages are marked `[page N]` in the excerpt and the model reports a
+page per value, which the confirm modal shows beside it — a value you cannot trace is a value you
+cannot defend when it turns out to be wrong. `DatasheetSpecExtractionServiceTest` pins the merging,
+the cap and the front-matter fallback.
+
+**The route decides whether it runs at all** (`DatasheetAnalyzer`, same classifier as the preflight):
+- `TEXT` — what the feature is for; ~64% of the usable datasheets in this catalogue.
+- `IMAGE_TABLES` — the parametric tables are pasted-in scans. It still runs, because the front matter
+  is real text and yields a description, but the response carries the route and the modal says so.
+  Measured on `sn74ls174.pdf`: 815 chars of excerpt, 2 specs and a good description, for 0.8¢.
+  Reporting that as a complete read would be the same mistake as reporting a blocked web search as
+  "no results".
+- `NO_TEXT_LAYER` — a pure scan, **refused before spending anything**. There is no text to send and
+  the vision path is not built.
+
+Landing rules match every other intake path: keys go through `SpecDefinitionService.canonicalizeKeys`,
+unknown keys are kept (a rescan promotes them later), and the confirm step ticks **new** values by
+default while leaving **differing** ones unticked.
+
+⚠️ **`DatasheetSpecExtractionService` takes `aiDocumentRestTemplate`, not the shared one.** The shared
+`restTemplate` has a 30 s read timeout, which a 20k-token extraction routinely exceeds — and that does
+not surface as "slow", it surfaces as a read failure on a request Anthropic already billed. Spelled as
+an explicit constructor because `@RequiredArgsConstructor` drops the `@Qualifier` and would inject the
+wrong bean silently (same trap as `PartAttachmentService`).
+
+`AiApplyRequest` gained **`details`** for this path: the web lookup returns a one-line
+`shortDescription` (→ `description`), while a datasheet carries several sentences of what the part
+does (→ `details`). `SpecFieldCatalog` renders the spec-field list both prompts inject, so the two
+describe the catalogue identically — a spec offered as `"100 nF"` in one prompt and a bare number in
+the other would store two different values for the same field.
+
 ### Datasheets are fetched at creation
 
 Quick Add pulls the part's `datasheetUrl` into `part_attachment` as a `DATASHEET` right after
@@ -1270,8 +1321,12 @@ and would need to become display-only.
 - `GET /parts-search?q=` — AI part search (requires `PARTS_EDIT`)
 - `POST /parts/{id}/ai-apply` — apply a chosen AI-lookup result to an existing part; specs merge onto
   the part and a null column field leaves that column alone, since both arrive filtered to what the
-  user confirmed. Free — the search already happened (requires `PARTS_EDIT`). See *Looking a part up
-  after it exists* below
+  user confirmed. Free — the search already happened (requires `PARTS_EDIT`). Also the apply path for
+  the datasheet reader, which is why it carries `details`. See *Looking a part up after it exists* below
+- `POST /parts/{id}/datasheet-extract?attachmentId=` — read a datasheet already stored on the part and
+  propose specs + a description from it (`DatasheetExtractionDTO`); writes nothing, ~1.6¢, no web
+  search. `attachmentId` optional (defaults to the part's first datasheet). Requires `PARTS_EDIT`.
+  See *Reading the specs out of the datasheet* below
 - `GET /parts-search/images?q=` — image suggestions (requires `PARTS_EDIT`)
 - `GET /parts-search/datasheets?q=&forceAi=` — datasheet links, web search first and AI as fallback
   (requires `PARTS_EDIT`).

@@ -526,10 +526,43 @@ export interface PartSearchResult {
  */
 export interface AiApplyRequest {
   description?: string;
+  /**
+   * The long free-text description. Only the datasheet reader fills this — the web lookup returns a
+   * one-line `shortDescription`, which belongs in `description`, while a datasheet carries several
+   * sentences of what the part actually does.
+   */
+  details?: string;
   manufacturer?: string;
   mpn?: string;
   datasheetUrl?: string;
   specs?: Record<string, string>;
+}
+
+/** One specification read out of a datasheet, with the page of the PDF it came from. */
+export interface ExtractedSpec {
+  key: string;
+  value: string;
+  /** Null where the value came from prose rather than a table the model could place. */
+  page?: number | null;
+}
+
+/**
+ * What reading a stored datasheet produced — a proposal, not a change. Applied (after per-field
+ * confirmation) through `applyAiLookup`, the same path the web lookup uses.
+ *
+ * `route` and `headings` explain a thin result rather than leaving it looking like the whole
+ * document had been read: `IMAGE_TABLES` means the parametric tables are pasted-in scans, so only
+ * the description and whatever sits in the text layer could be reached.
+ */
+export interface DatasheetExtraction {
+  attachmentId: number;
+  filename?: string | null;
+  route: 'TEXT' | 'IMAGE_TABLES';
+  pages: number;
+  headings: string[];
+  excerptChars: number;
+  details?: string | null;
+  specs: ExtractedSpec[];
 }
 
 export interface QuickAddRequest {

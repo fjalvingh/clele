@@ -10,6 +10,7 @@ import {
   deletePartAttachment,
   deleteStockEntry,
   deleteStockThreshold,
+  extractDatasheetSpecs,
   getLocations,
   getMyLocations,
   getOctopartUsage,
@@ -32,6 +33,7 @@ import {
 import type {
   AiApplyRequest,
   AttachmentType,
+  DatasheetExtraction,
   DatasheetSearchResponse,
   DatasheetSuggestion,
   ImageSuggestion,
@@ -174,6 +176,8 @@ interface AiSpecRow {
   oldValue: string;
   newValue: string;
   verdict: SpecVerdict;
+  /** Datasheet extraction only: the PDF page the value was read from, so it can be checked. */
+  page?: number | null;
 }
 
 export default function PartDetailPage() {
@@ -271,6 +275,18 @@ export default function PartDetailPage() {
   );
   const [aiAcceptSpecs, setAiAcceptSpecs] = useState<Record<string, boolean>>({});
   const [aiApplying, setAiApplying] = useState(false);
+
+  // Datasheet extraction — "Get specs from document". Reads a PDF already stored on the part, so
+  // there is nothing to search and nothing to pick: it is one run, then the same per-field
+  // confirmation the AI lookup uses.
+  const [dsModalOpen, setDsModalOpen] = useState(false);
+  const [dsAttachment, setDsAttachment] = useState<PartAttachment | null>(null);
+  const [dsResult, setDsResult] = useState<DatasheetExtraction | null>(null);
+  const [dsLoading, setDsLoading] = useState(false);
+  const [dsError, setDsError] = useState<string | null>(null);
+  const [dsAcceptSpecs, setDsAcceptSpecs] = useState<Record<string, boolean>>({});
+  const [dsAcceptDetails, setDsAcceptDetails] = useState(false);
+  const [dsApplying, setDsApplying] = useState(false);
 
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -423,11 +439,17 @@ export default function PartDetailPage() {
   };
 
   /**
-   * Every spec the lookup returned, classified against what the part already holds. Values that
-   * match are dropped: there is nothing to decide about them.
+   * Classify incoming specs against what the part already holds. Values that match are dropped:
+   * there is nothing to decide about them.
+   *
+   * Shared by the web lookup and the datasheet reader — both present the user with the same
+   * question ("this source says X, the part says Y, which do you keep?") and must answer it the
+   * same way, or the two actions would default differently on the same part.
    */
-  const aiSpecRows = (result: PartSearchResult): AiSpecRow[] => {
-    const incoming = parseAiSpecs(result.specs);
+  const classifySpecs = (
+    incoming: Record<string, string>,
+    pageByKey?: Record<string, number | null | undefined>,
+  ): AiSpecRow[] => {
     const existing = part?.specs ?? {};
     // Built here rather than reusing the render-scope map so this does not depend on where that
     // one happens to be declared relative to the handlers.
@@ -444,11 +466,15 @@ export default function PartDetailPage() {
           oldValue,
           newValue,
           verdict,
+          page: pageByKey?.[key] ?? null,
         };
       })
       .filter((r) => r.verdict !== 'same')
       .sort((a, b) => (a.verdict === b.verdict ? a.label.localeCompare(b.label) : a.verdict === 'new' ? -1 : 1));
   };
+
+  const aiSpecRows = (result: PartSearchResult): AiSpecRow[] =>
+    classifySpecs(parseAiSpecs(result.specs));
 
   const pickAiResult = (result: PartSearchResult) => {
     setAiPicked(result);
@@ -484,6 +510,68 @@ export default function PartDetailPage() {
       setAiError((err as Error).message);
     } finally {
       setAiApplying(false);
+    }
+  };
+
+  // ── Datasheet extraction ─────────────────────────────────────────────────
+
+  /** Rows for the confirm step, carrying the page each value was read from. */
+  const dsSpecRows = (result: DatasheetExtraction): AiSpecRow[] => {
+    const incoming: Record<string, string> = {};
+    const pages: Record<string, number | null | undefined> = {};
+    for (const s of result.specs) {
+      incoming[s.key] = s.value;
+      pages[s.key] = s.page;
+    }
+    return classifySpecs(incoming, pages);
+  };
+
+  const runDatasheetExtract = (attachment: PartAttachment) => {
+    setDsLoading(true);
+    setDsError(null);
+    setDsResult(null);
+    extractDatasheetSpecs(partId, attachment.id)
+      .then((result) => {
+        setDsResult(result);
+        // Same default as the AI lookup: fill the gaps, leave curated values alone.
+        const accept: Record<string, boolean> = {};
+        for (const row of dsSpecRows(result)) accept[row.key] = row.verdict === 'new';
+        setDsAcceptSpecs(accept);
+        // Details is one long block, not a merge — only offer it ticked when there is nothing to
+        // overwrite.
+        setDsAcceptDetails(!!result.details && !part?.details);
+      })
+      .catch((err) => setDsError((err as Error).message))
+      .finally(() => setDsLoading(false));
+  };
+
+  const openDatasheetExtract = (attachment: PartAttachment) => {
+    setDsAttachment(attachment);
+    setDsResult(null);
+    setDsError(null);
+    setDsModalOpen(true);
+    runDatasheetExtract(attachment);
+  };
+
+  const handleApplyDatasheetExtract = async () => {
+    if (!dsResult || !part) return;
+    setDsApplying(true);
+    setDsError(null);
+    try {
+      const body: AiApplyRequest = {};
+      const specs: Record<string, string> = {};
+      for (const row of dsSpecRows(dsResult)) {
+        if (dsAcceptSpecs[row.key]) specs[row.key] = row.newValue;
+      }
+      if (Object.keys(specs).length > 0) body.specs = specs;
+      if (dsAcceptDetails && dsResult.details) body.details = dsResult.details;
+      await applyAiLookup(part.id, body);
+      setDsModalOpen(false);
+      loadData();
+    } catch (err) {
+      setDsError((err as Error).message);
+    } finally {
+      setDsApplying(false);
     }
   };
 
@@ -1273,12 +1361,21 @@ export default function PartDetailPage() {
                       {d.filename ?? `datasheet-${d.id}`}
                     </a>
                     {canEdit && (
-                      <button
-                        onClick={() => handleDeleteAttachment(d)}
-                        className="shrink-0 text-xs text-red-600 hover:underline"
-                      >
-                        Remove
-                      </button>
+                      <>
+                        <button
+                          onClick={() => openDatasheetExtract(d)}
+                          title="Read this PDF and propose specifications and a description from it"
+                          className="shrink-0 text-xs text-blue-600 hover:underline"
+                        >
+                          Get specs
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAttachment(d)}
+                          className="shrink-0 text-xs text-red-600 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      </>
                     )}
                   </li>
                 ))}
@@ -2321,6 +2418,204 @@ export default function PartDetailPage() {
                     className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                   >
                     {aiApplying ? 'Applying…' : 'Apply to part'}
+                  </button>
+                </div>
+              </>
+            );
+          })()
+        )}
+      </Modal>
+
+      {/* Datasheet extraction — read the stored PDF, then confirm field by field. No search step:
+          the document is already chosen, so this opens straight into the run. */}
+      <Modal
+        open={dsModalOpen}
+        onClose={() => setDsModalOpen(false)}
+        title="Get specs from document"
+        wide
+      >
+        <p className="mb-3 text-sm text-gray-600">
+          Reading{' '}
+          <span className="font-mono">
+            {dsAttachment?.filename ?? `datasheet-${dsAttachment?.id ?? ''}`}
+          </span>
+          . Nothing is changed until you apply it below.
+        </p>
+
+        {dsLoading && (
+          <p className="text-sm text-gray-400">
+            Reading the document… this usually takes 10–30 seconds.
+          </p>
+        )}
+
+        {dsError && !dsLoading && (
+          <div className="text-sm">
+            <p className="text-red-600">{dsError}</p>
+            {dsAttachment && (
+              <button
+                onClick={() => runDatasheetExtract(dsAttachment)}
+                className="mt-3 rounded-lg border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50"
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        )}
+
+        {dsResult && !dsLoading && (
+          (() => {
+            const rows = dsSpecRows(dsResult);
+            const newCount = rows.filter((r) => r.verdict === 'new').length;
+            const conflictCount = rows.filter((r) => r.verdict === 'conflict').length;
+            const setAll = (only: SpecVerdict | null) => {
+              const next: Record<string, boolean> = {};
+              for (const r of rows) next[r.key] = only == null ? false : r.verdict === only;
+              setDsAcceptSpecs(next);
+            };
+            return (
+              <>
+                <p className="mb-4 text-xs text-gray-500">
+                  {dsResult.pages} page{dsResult.pages === 1 ? '' : 's'}, {dsResult.excerptChars}{' '}
+                  characters read
+                  {dsResult.headings.length > 0
+                    ? ` from ${dsResult.headings.length} parametric section${
+                        dsResult.headings.length === 1 ? '' : 's'
+                      }`
+                    : ''}
+                  .
+                </p>
+
+                {/* A thin result from an IMAGE_TABLES document is not the same fact as a thin
+                    result from a fully readable one, and saying so is the difference between "this
+                    part has little data" and "this document could not be read". */}
+                {dsResult.route === 'IMAGE_TABLES' && (
+                  <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    This datasheet's specification tables are images, not text — only the
+                    description and whatever else sits in the text layer could be read. Expect few
+                    or no specifications; that is the document, not the part.
+                  </p>
+                )}
+
+                {dsResult.details && (
+                  <div className="mb-4">
+                    <h4 className="mb-2 text-sm font-semibold text-gray-900">Description</h4>
+                    <label className="flex items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={dsAcceptDetails}
+                        onChange={(e) => setDsAcceptDetails(e.target.checked)}
+                        className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="font-medium text-gray-700">Details</span>
+                        {part?.details && (
+                          <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+                            replaces the current text
+                          </span>
+                        )}
+                        <span className="mt-1 block whitespace-pre-wrap text-gray-900">
+                          {dsResult.details}
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                )}
+
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                  <h4 className="text-sm font-semibold text-gray-900">Specifications</h4>
+                  {rows.length > 0 && (
+                    <span className="text-xs text-gray-500">
+                      {newCount} new, {conflictCount} differ from stored values. Unticked rows are
+                      left as they are.
+                    </span>
+                  )}
+                </div>
+                {rows.length > 0 && (
+                  <div className="mb-2 flex gap-3 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setAll('new')}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Select all new
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAll(null)}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Select none
+                    </button>
+                  </div>
+                )}
+
+                {rows.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    Nothing to add — the document yielded no specifications beyond what the part
+                    already holds.
+                  </p>
+                ) : (
+                  <ul className="max-h-72 divide-y divide-gray-100 overflow-y-auto">
+                    {rows.map((r) => (
+                      <li key={r.key} className="py-2">
+                        <label className="flex items-start gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={dsAcceptSpecs[r.key] ?? false}
+                            onChange={(e) =>
+                              setDsAcceptSpecs((prev) => ({ ...prev, [r.key]: e.target.checked }))
+                            }
+                            className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="font-medium text-gray-700">{r.label}</span>
+                            {!r.known && (
+                              <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] font-medium text-blue-700">
+                                new field
+                              </span>
+                            )}
+                            {r.verdict === 'conflict' && (
+                              <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] font-medium text-amber-800">
+                                differs
+                              </span>
+                            )}
+                            {r.page != null && (
+                              <span className="ml-2 text-[11px] text-gray-400">page {r.page}</span>
+                            )}
+                            <span className="mt-0.5 block break-words">
+                              {r.oldValue && (
+                                <span className="mr-2 text-gray-400 line-through">{r.oldValue}</span>
+                              )}
+                              <span className="text-gray-900">{r.newValue}</span>
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <p className="mt-3 text-xs text-gray-400">
+                  Values are read from this document only. Check anything that matters against the
+                  page shown — a datasheet that covers a family prints values for parts other than
+                  this one.
+                </p>
+
+                {dsError && <p className="mt-3 text-sm text-red-600">{dsError}</p>}
+
+                <div className="mt-4 flex justify-between gap-2">
+                  <button
+                    onClick={() => setDsModalOpen(false)}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleApplyDatasheetExtract}
+                    disabled={dsApplying}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {dsApplying ? 'Applying…' : 'Apply to part'}
                   </button>
                 </div>
               </>
