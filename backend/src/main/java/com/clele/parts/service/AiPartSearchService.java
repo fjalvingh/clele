@@ -9,6 +9,7 @@ import com.clele.parts.repository.SpecDefinitionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
@@ -23,6 +24,7 @@ import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class AiPartSearchService {
 
     private final DuckDuckGoImageService duckDuckGoImageService;
@@ -95,6 +97,21 @@ public class AiPartSearchService {
     @Value("${anthropic.model:claude-haiku-4-5-20251001}")
     private String model;
 
+    @Value("${anthropic.pricing.input-per-mtok:1.00}")
+    private double inputPerMTok;
+
+    @Value("${anthropic.pricing.output-per-mtok:5.00}")
+    private double outputPerMTok;
+
+    @Value("${anthropic.pricing.cache-read-multiplier:0.1}")
+    private double cacheReadMultiplier;
+
+    @Value("${anthropic.pricing.cache-write-multiplier:1.25}")
+    private double cacheWriteMultiplier;
+
+    @Value("${anthropic.pricing.web-search-per-ksearch:10.00}")
+    private double webSearchPerKSearch;
+
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
@@ -110,15 +127,17 @@ public class AiPartSearchService {
         headers.set("anthropic-version", API_VERSION);
         headers.set("anthropic-beta", "web-search-2025-03-05");
 
+        SystemPrompt prompt = buildSystemPrompt();
         Map<String, Object> body = Map.of(
                 "model", model,
                 "max_tokens", 4096,
-                "system", buildSystemPrompt(),
+                "system", prompt.text(),
                 "tools", List.of(Map.of("type", "web_search_20250305", "name", "web_search")),
                 "messages", List.of(Map.of("role", "user", "content", query))
         );
 
         ResponseEntity<String> response;
+        long startedAt = System.currentTimeMillis();
         try {
             response = restTemplate.exchange(API_URL, HttpMethod.POST,
                     new HttpEntity<>(body, headers), String.class);
@@ -128,13 +147,74 @@ public class AiPartSearchService {
         }
 
         try {
-            return parseResponse(response.getBody());
+            List<PartSearchResultDTO> results = parseResponse(response.getBody());
+            logUsage(response.getBody(), query, prompt, results.size(),
+                    System.currentTimeMillis() - startedAt);
+            return results;
         } catch (ResponseStatusException e) {
             throw e;
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Failed to parse AI response: " + e.getMessage());
         }
+    }
+
+    /**
+     * One INFO line per lookup with what it cost and why. Until this existed nothing recorded the
+     * price of a part search, so the figures in SPECS.md had to be produced by replaying the call by
+     * hand — which is no way to tell whether a change made things better or worse.
+     *
+     * <p>Note {@code input_tokens} is only the <em>uncached</em> remainder: the prompt actually sent
+     * is that plus the cache-creation and cache-read counts, which is why {@code promptTok} is a sum
+     * rather than the field. Today nothing sets {@code cache_control}, so the cache figures are 0 and
+     * the sum equals {@code input_tokens} — they are logged now so that turning caching on shows up
+     * here as a drop rather than as a mystery.
+     *
+     * <p>The cost is an estimate from configured rates, not a billed amount; it names the model it
+     * priced so a rate left behind by a model change is visible rather than silently wrong.
+     *
+     * <p>Logging must never break a search that otherwise worked, so every failure in here is
+     * swallowed at DEBUG.
+     */
+    private void logUsage(String body, String query, SystemPrompt prompt, int resultCount, long millis) {
+        try {
+            JsonNode usage = objectMapper.readTree(body).path("usage");
+            long input = usage.path("input_tokens").asLong(0);
+            long output = usage.path("output_tokens").asLong(0);
+            long cacheWrite = usage.path("cache_creation_input_tokens").asLong(0);
+            long cacheRead = usage.path("cache_read_input_tokens").asLong(0);
+            long searches = webSearchCount(body, usage);
+
+            double cost = (input * inputPerMTok
+                    + cacheWrite * inputPerMTok * cacheWriteMultiplier
+                    + cacheRead * inputPerMTok * cacheReadMultiplier
+                    + output * outputPerMTok) / 1_000_000d
+                    + searches * webSearchPerKSearch / 1_000d;
+
+            log.info("ai-part-search model={} query=\"{}\" specDefs={} promptChars={} "
+                            + "promptTok={} (in={} cacheWrite={} cacheRead={}) outTok={} "
+                            + "webSearches={} results={} ms={} estCostUsd={}",
+                    model, query, prompt.definitionCount(), prompt.text().length(),
+                    input + cacheWrite + cacheRead, input, cacheWrite, cacheRead, output,
+                    searches, resultCount, millis, String.format("%.4f", cost));
+        } catch (Exception e) {
+            log.debug("Could not log AI search usage: {}", e.toString());
+        }
+    }
+
+    /**
+     * How many billable web searches the model ran. Anthropic reports this under
+     * {@code usage.server_tool_use}; when that is absent, count the {@code server_tool_use} blocks in
+     * the content array instead — the model emits one per search, so the two agree.
+     */
+    private long webSearchCount(String body, JsonNode usage) throws Exception {
+        JsonNode reported = usage.path("server_tool_use").path("web_search_requests");
+        if (reported.isNumber()) return reported.asLong();
+        long counted = 0;
+        for (JsonNode item : objectMapper.readTree(body).path("content")) {
+            if ("server_tool_use".equals(item.path("type").asText(""))) counted++;
+        }
+        return counted;
     }
 
     private List<PartSearchResultDTO> parseResponse(String body) throws Exception {
@@ -428,7 +508,15 @@ public class AiPartSearchService {
         return results;
     }
 
-    private String buildSystemPrompt() {
+    /**
+     * The system prompt plus the figure that explains its size. Almost the whole cost of a lookup is
+     * this prompt, and its length is driven by how many spec definitions the organisation has — so
+     * the two travel together to the log line, where a cost can be read against the thing that
+     * caused it.
+     */
+    private record SystemPrompt(String text, int definitionCount) {}
+
+    private SystemPrompt buildSystemPrompt() {
         // The prompt describes the current organisation's spec fields, so the AI returns keys that
         // match this tenant's part.specs schema.
         List<SpecDefinition> defs = specDefinitionRepository
@@ -444,7 +532,7 @@ public class AiPartSearchService {
                 sb.append("  (true/false)");
             }
         }
-        return String.format(SYSTEM_PROMPT_TEMPLATE, sb.toString());
+        return new SystemPrompt(String.format(SYSTEM_PROMPT_TEMPLATE, sb.toString()), defs.size());
     }
 
     private static String nullIfBlank(String s) {
