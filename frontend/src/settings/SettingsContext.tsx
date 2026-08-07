@@ -7,8 +7,15 @@ const DEFAULT_SETTINGS: AppSettings = { currencyCode: 'EUR', currencySymbol: '�
 
 interface SettingsContextValue {
   settings: AppSettings;
-  /** Format a numeric amount with the app currency symbol, e.g. "€ 12.34". */
-  formatMoney: (amount: number | string | null | undefined) => string;
+  /**
+   * Format a numeric amount with the app currency symbol, e.g. "€ 12.34".
+   * `whole` rounds to entire currency units ("€ 6,065") — for summary figures like the
+   * dashboard's total stock value, where the cents are noise and cost width.
+   */
+  formatMoney: (
+    amount: number | string | null | undefined,
+    opts?: { whole?: boolean },
+  ) => string;
 }
 
 const SettingsContext = createContext<SettingsContextValue | undefined>(undefined);
@@ -27,11 +34,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   // browser treats "€ 6,064.90" as two words and wraps between them, which is what put a lone €
   // on its own line above the figure in a dashboard tile. Every price in the app goes through
   // here, so this keeps the symbol attached to its amount in tiles, tables and totals alike.
-  const formatMoney = (amount: number | string | null | undefined) => {
+  const formatMoney = (
+    amount: number | string | null | undefined,
+    opts?: { whole?: boolean },
+  ) => {
     const n = Number(amount ?? 0);
+    const digits = opts?.whole ? 0 : 2;
     return `${settings.currencySymbol}\u00A0${n.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
     })}`;
   };
 

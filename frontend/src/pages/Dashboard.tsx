@@ -116,7 +116,7 @@ export default function DashboardPage() {
           />
           <StatCard
             label="Total Stock Value"
-            value={formatMoney(stats.totalStockValue)}
+            value={formatMoney(stats.totalStockValue, { whole: true })}
             to="/parts"
             color="bg-amber-50 text-amber-900"
             icon="💰"
