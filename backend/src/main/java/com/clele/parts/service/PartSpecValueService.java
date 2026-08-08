@@ -165,8 +165,8 @@ public class PartSpecValueService {
         String s = String.valueOf(raw).trim();
         Optional<UnitFamily> family = def.family();
 
-        if (isRange(s)) {
-            String[] bounds = s.split("\\.\\.", 2);
+        String[] bounds = splitRange(s);
+        if (bounds != null) {
             BigDecimal lo = parseBound(bounds[0], family);
             BigDecimal hi = parseBound(bounds[1], family);
             if (lo != null || hi != null) return Classification.range(lo, hi);
@@ -184,9 +184,28 @@ public class PartSpecValueService {
         return plain != null ? Classification.scalar(plain) : Classification.text(false);
     }
 
-    /** A Partsbox range: two bounds separated by "..", either of which may be the word "null". */
-    private static boolean isRange(String s) {
-        return s.contains("..");
+    /**
+     * The three ways a range is written in this catalogue's sources, or null when the value is not
+     * one. Bounds come back untrimmed; either may be the word "null" (an open bound).
+     *
+     * <ul>
+     *   <li>{@code "3..16"} — Partsbox, and the bulk of the data (1,488 values).</li>
+     *   <li>{@code "-40.0 °C ~ 105.0 °C"} — the component cache's own {@code display} rendering, so
+     *       this form keeps arriving from a live source rather than only from the backlog.</li>
+     *   <li>{@code "15 V to 35 V"} — how a datasheet writes it, and so how the extractor returns it.
+     *       The spaces are required, or "to" would match inside a word.</li>
+     * </ul>
+     *
+     * <p>A hyphen is deliberately <b>not</b> a separator: "-40-125" cannot be told from a negative
+     * number, and guessing would invent bounds that were never written.
+     */
+    // Package-private so the separator rules can be pinned by test without a database.
+    static String[] splitRange(String s) {
+        for (String sep : new String[]{"\\.\\.", "~", "(?i)\\s+to\\s+"}) {
+            String[] parts = s.split(sep, 2);
+            if (parts.length == 2) return parts;
+        }
+        return null;
     }
 
     /** One bound of a range; null when open ("null") or unparseable. */

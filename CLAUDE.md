@@ -238,8 +238,14 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     `value_num` / `value_min`+`value_max` / `value_text`, enforced by a CHECK; NUMERIC rather than
     `double precision` so one column serves both `=` and ranges. **The JSONB is still authoritative
     for reads** — this is the dual-write step (see Typed Spec Values below)
+  - V51 assigns **unit families** to the spec definitions — 189 of 209 NUMBER fields and the 18 TEXT
+    fields that hold measurements, per organisation, by hand (a regex over `json_name` gets
+    `naturalthermalresistance`, `inductancetolerance` and `numberofresistors` wrong). It also fixes
+    `currenttransferratio`, which was declared in amperes and rendered "1.6 kA" for a 1600% opto.
+    20 NUMBER fields are deliberately left family-less — see the migration's header for the measured
+    reason on each
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V51** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V52** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover
@@ -923,11 +929,24 @@ ranges (`4.5..null`) that convert-to-number has to *refuse*, ~400 are unit-beari
 the full-text index. **`part_spec_value` (V50) replaces it with typed rows.** Design note and the
 full migration plan: `SPECS-REWRITE.md`.
 
-**Where this currently stands: step 1 of 6 — dual-write.** Rows are written on every intake path;
-**the JSONB is still what every read uses**. Nothing user-visible has changed, and a bug in the new
-path cannot lose data because the rows are derived and rebuildable. Still to come: unit-family
-assignment, the bulk backfill, flipping reads, the parametric search UI, and finally dropping
+**Where this currently stands: steps 1–2 of 6 — dual-write, and the families assigned.** Rows are
+written on every intake path; **the JSONB is still what every read uses**. Nothing user-visible has
+changed, and a bug in the new path cannot lose data because the rows are derived and rebuildable.
+Still to come: the bulk backfill, flipping reads, the parametric search UI, and dropping
 `part.specs`.
+
+Measured coverage once V51's families are in place — **12,872 of 21,719 values (59%) become
+numerically queryable**: 11,384 bare numbers, plus 1,492 ranges that were entirely dead before (no
+query could reach inside `"3..16"`, and convert-to-number has to refuse it). 8,553 correctly stay
+text — packages, dates, logic functions, enumerations. Across the whole catalogue exactly **one**
+value in a family-bearing field fails to parse (`5V ± 10%`).
+
+⚠️ **A family asserts "a bare number in this field is in the base SI unit", so verify before
+assigning one.** That held throughout here — the Partsbox/Octopart import stored base units
+(`inputoffsetvoltage_vos_` 2e-5…0.02 V, `propagationdelay` 1.9e-9…1e-5 s) — but it is a property of
+the data, not a rule, and checking is what kept three fields out: `datarate` is 1…480 (Mbit/s, so a
+bit/s family would be wrong by 10⁶), `weight` is in grams while the SI base is the kilogram, and
+`memorysize`/`ramsize`/`density` mix bits, bytes and KB.
 
 - **`PartSpecValueService.sync(part)` is the single write path** and takes the part's
   *already-resolved* map, making the rows match it exactly. It deliberately does not reimplement
@@ -936,6 +955,11 @@ assignment, the bulk backfill, flipping reads, the parametric search UI, and fin
   and the coming backfill. Wired into `PartService.saveAndSync` (create / update / applyOctopart /
   applyAiLookup), `QuickAddService`, `PartKitTemplateService`, the Partsbox importer, and the two
   bulk paths in `SpecDefinitionService` (merge, convert-to-number) that rewrite `part.specs`.
+- **Three range spellings are recognised** (`PartSpecValueService.splitRange`): `"3..16"` (Partsbox,
+  the bulk), `"-40.0 °C ~ 105.0 °C"` (the **component cache's own `display`**, so this form keeps
+  arriving from a live source) and `"15 V to 35 V"` (how a datasheet writes it, and so how the
+  extractor returns it — the spaces around "to" are required or it matches inside a word). A hyphen
+  is deliberately **not** a separator: `-40-125` cannot be told from a negative number.
 - **Classification, in order**: a range string (`"3..16"`) → `value_min`/`value_max`; a JSON number →
   `value_num` *whatever the family*, since nothing is converted and so no magnitude can be got wrong;
   a string with a unit family → parsed to the base SI unit; anything else → `value_text`. A refusal

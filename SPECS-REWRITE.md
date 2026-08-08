@@ -2,10 +2,10 @@
 
 Working note, 2026-08-08. Design agreed in conversation.
 
-**Status: step 1 of the migration plan is built** (2026-08-08) — V50, the RKM parser/formatter pair
-and the dual-write funnel. The JSONB is still authoritative for reads; nothing user-visible has
-changed. Steps 2–6 (unit families, backfill, flip reads, parametric search UI, drop `part.specs`)
-are still open. What landed:
+**Status: steps 1–2 of the migration plan are built** (2026-08-08) — V50 + the RKM parser/formatter
+pair + the dual-write funnel, then V51's unit families. The JSONB is still authoritative for reads;
+nothing user-visible has changed. Steps 3–6 (backfill, flip reads, parametric search UI, drop
+`part.specs`) are still open. What landed:
 
 | | |
 |---|---|
@@ -18,9 +18,33 @@ are still open. What landed:
 | `service/PartSpecValueService` | `sync(part)` — the single write path, idempotent |
 | wiring | `PartService.saveAndSync`, QuickAdd, kit generation, Partsbox import, spec merge + convert-to-number |
 
-Verified end to end against a scratch database built from V1→V50: every classification branch lands
+| `V51__spec_unit_families.sql` | families for 189/209 NUMBER + 18/43 TEXT definitions, by hand |
+
+Verified end to end against a scratch database built from V1→V51: every classification branch lands
 in the right shape, MERGE leaves untouched keys alone, REPLACE removes their rows, and the row count
-matches the JSONB key count. 120 backend tests green.
+matches the JSONB key count. 126 backend tests green.
+
+**Measured after step 2** (development catalogue, 21,719 values): **12,872 (59%) become numerically
+queryable** — 11,384 bare numbers plus **1,492 ranges that were entirely dead**. 8,553 correctly stay
+text. Exactly **one** value in a family-bearing field fails to parse (`5V ± 10%`), so the
+"unparseable residue" the plan expected step 3 to surface is, in practice, empty.
+
+Three things learned in step 2 that were not in the original design:
+
+- **The ranges live in TEXT definitions, not NUMBER ones** — all 1,488 of them, in
+  `operatingtemperature` (744), `supplyvoltage` (476), `powerdissipation` (76) and friends. They are
+  TEXT precisely *because* no number column could hold them. Giving a TEXT definition a family is
+  therefore the single highest-value part of step 2, and it works because the family drives storage
+  while `data_type` only drives the edit widget. Their `data_type` stays TEXT: a range is not a number.
+- **Two more range spellings were worth supporting.** `A ~ B` is the component cache's own `display`
+  format and `A to B` is how a datasheet writes it, so both keep arriving from live sources rather
+  than only sitting in the backlog. A hyphen is deliberately not a separator.
+- **V42's cross-type near-duplicates can now be merged.** `operatingsupplyvoltage` (NUMBER, scalars)
+  and `supplyvoltage` (TEXT, ranges) were left unmerged because one held a scalar and the other a
+  range and no single column could hold both. `part_spec_value` holds either per row, so the reason
+  is gone — the same applies to `powerconsumption`/`powerdissipation`,
+  `reversevoltage_dc_`/`reversevoltage` and `breakdownvoltage`/`reversebreakdownvoltage`. Worth doing
+  once reads are flipped, not before.
 
 ## The problem
 
