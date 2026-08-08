@@ -57,6 +57,7 @@ public class PartSpecValueService {
     private final PartSpecValueRepository valueRepo;
     private final SpecDefinitionRepository specRepo;
     private final SpecGroupRepository groupRepo;
+    private final com.clele.parts.repository.PartRepository partRepo;
 
     private static final String DEFAULT_GROUP_NAME = "Technical";
 
@@ -66,6 +67,11 @@ public class PartSpecValueService {
         public int total() {
             return scalars + ranges + texts;
         }
+
+        /** A part that vanished between listing and syncing — an empty outcome, not an error. */
+        static SyncResult empty() {
+            return new SyncResult(0, 0, 0, 0, List.of());
+        }
     }
 
     /**
@@ -74,6 +80,10 @@ public class PartSpecValueService {
      */
     @Transactional
     public SyncResult sync(Part part) {
+        return syncLoaded(part);
+    }
+
+    private SyncResult syncLoaded(Part part) {
         Map<String, Object> specs = part.getSpecs() == null ? Map.of() : part.getSpecs();
         Long orgId = part.getOrganisation().getId();
 
@@ -113,7 +123,7 @@ public class PartSpecValueService {
                     ranges++;
                 }
                 case TEXT -> {
-                    row.setText(String.valueOf(raw).trim());
+                    row.setText(MetricUnitParser.normalizeSpaces(String.valueOf(raw)));
                     texts++;
                     if (c.wanted()) unparsed.add(key + "=" + raw);
                 }
@@ -131,6 +141,79 @@ public class PartSpecValueService {
         if (!toSave.isEmpty()) valueRepo.saveAll(toSave);
 
         return new SyncResult(scalars, ranges, texts, created, unparsed);
+    }
+
+    /**
+     * Classify a part's specs and report what {@link #sync} <em>would</em> do, writing nothing.
+     *
+     * <p>⚠️ <b>It deliberately never loads a {@code PartSpecValue}, and never creates a definition.</b>
+     * The rows {@code sync} works on are managed entities, and mutating one in a "dry run" is enough
+     * for Hibernate's dirty checking to flush it — the preview silently <em>is</em> the write.
+     * {@code @Transactional(readOnly = true)} does not save you either: with
+     * {@code spring.jpa.open-in-view} at its default, the EntityManager outlives the transaction
+     * that set the flush mode. This is the same trap {@code ProjectBomImportService.preview}
+     * documents, avoided here by not touching a managed row at all rather than by detaching.
+     *
+     * <p>A key with no definition is counted in {@code definitionsCreated} as one that <em>would</em>
+     * be created, and classified as if it had no family — which is what it would get.
+     */
+    @Transactional(readOnly = true)
+    public SyncResult preview(Part part) {
+        return previewLoaded(part);
+    }
+
+    private SyncResult previewLoaded(Part part) {
+        Map<String, Object> specs = part.getSpecs() == null ? Map.of() : part.getSpecs();
+        Long orgId = part.getOrganisation().getId();
+
+        int scalars = 0, ranges = 0, texts = 0, wouldCreate = 0;
+        List<String> unparsed = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+
+        for (Map.Entry<String, Object> entry : specs.entrySet()) {
+            String key = entry.getKey();
+            Object raw = entry.getValue();
+            if (key == null || key.isBlank() || raw == null || String.valueOf(raw).isBlank()) continue;
+
+            SpecDefinition def = specRepo.findByOrganisationIdAndJsonName(orgId, key).orElse(null);
+            if (def == null) {
+                wouldCreate++;
+                // The definition it would get carries no family, so the value would stay as it is.
+                def = SpecDefinition.builder().jsonName(key).dataType(inferDataType(raw)).build();
+            }
+            if (!seen.add(def.getJsonName())) continue;
+
+            Classification c = classify(raw, def);
+            switch (c.shape()) {
+                case SCALAR -> scalars++;
+                case RANGE -> ranges++;
+                case TEXT -> {
+                    texts++;
+                    if (c.wanted()) unparsed.add(key + "=" + raw);
+                }
+            }
+        }
+        return new SyncResult(scalars, ranges, texts, wouldCreate, unparsed);
+    }
+
+    /**
+     * {@link #sync} for a part loaded by id, inside this method's own transaction — the entry point
+     * the bulk backfill uses.
+     *
+     * <p>The backfill has no request and therefore no open-session-in-view, so a {@code Part} handed
+     * across a loop boundary is detached and its lazy {@code organisation} cannot be read. Loading
+     * inside the transaction avoids that, and gives each part its own commit, so an interrupted run
+     * leaves every part it reached correct rather than rolling the lot back.
+     */
+    @Transactional
+    public SyncResult syncById(Long partId) {
+        return partRepo.findById(partId).map(this::syncLoaded).orElseGet(SyncResult::empty);
+    }
+
+    /** {@link #preview} for a part loaded by id. Writes nothing; see the warning on {@code preview}. */
+    @Transactional(readOnly = true)
+    public SyncResult previewById(Long partId) {
+        return partRepo.findById(partId).map(this::previewLoaded).orElseGet(SyncResult::empty);
     }
 
     /** Drop a part's rows outright — for the paths that delete a part's specs wholesale. */
@@ -162,7 +245,7 @@ public class PartSpecValueService {
             return Classification.scalar(new BigDecimal(n.toString()));
         }
 
-        String s = String.valueOf(raw).trim();
+        String s = MetricUnitParser.normalizeSpaces(String.valueOf(raw));
         Optional<UnitFamily> family = def.family();
 
         String[] bounds = splitRange(s);
@@ -210,7 +293,7 @@ public class PartSpecValueService {
 
     /** One bound of a range; null when open ("null") or unparseable. */
     private static BigDecimal parseBound(String bound, Optional<UnitFamily> family) {
-        String b = bound.trim();
+        String b = MetricUnitParser.normalizeSpaces(bound);
         if (b.isEmpty() || b.equalsIgnoreCase("null")) return null;
         if (family.isPresent()) {
             return MetricUnitParser.parseToBase(b, family.get()).map(BigDecimal::new).orElse(null);
@@ -220,7 +303,7 @@ public class PartSpecValueService {
 
     private static BigDecimal plainNumber(String s) {
         try {
-            return new BigDecimal(s.trim());
+            return new BigDecimal(MetricUnitParser.normalizeSpaces(s));
         } catch (NumberFormatException e) {
             return null;
         }
@@ -262,7 +345,7 @@ public class PartSpecValueService {
     private static String inferDataType(Object sample) {
         if (sample instanceof Boolean) return "BOOLEAN";
         if (sample instanceof Number) return "NUMBER";
-        String s = String.valueOf(sample).trim();
+        String s = MetricUnitParser.normalizeSpaces(String.valueOf(sample));
         if ("true".equalsIgnoreCase(s) || "false".equalsIgnoreCase(s)) return "BOOLEAN";
         return plainNumber(s) != null ? "NUMBER" : "TEXT";
     }

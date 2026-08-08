@@ -198,6 +198,19 @@ public interface PartRepository extends JpaRepository<Part, Long> {
     long countByOrganisationId(Long organisationId);
 
     /**
+     * Identity of every part across every organisation — {@code [id, partNumber, organisationName]} —
+     * for the spec-value backfill CLI, which is a maintenance tool rather than a per-tenant request.
+     *
+     * <p>Deliberately a projection rather than {@code findAll()}: the backfill syncs each part in its
+     * own transaction, so loading whole entities up front would both waste memory and hand the loop a
+     * detached graph whose lazy {@code organisation} cannot be read (there is no open session outside
+     * a request — the CLI profiles set {@code web-application-type: none}, so there is no OSIV
+     * either). Ordered by id so a capped run samples deterministically.
+     */
+    @Query("SELECT p.id, p.partNumber, o.name FROM Part p JOIN p.organisation o ORDER BY p.id")
+    List<Object[]> findAllForSpecBackfill();
+
+    /**
      * Parts carrying a datasheet URL that has not been downloaded into {@code part_attachment} yet,
      * across every organisation — this drives the datasheet preflight/backfill CLI, which is a
      * maintenance tool rather than a per-tenant request. Ordered by id so a capped run

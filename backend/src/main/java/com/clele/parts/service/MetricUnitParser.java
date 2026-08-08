@@ -47,6 +47,9 @@ import java.util.regex.Pattern;
  * written out the reader and the parser see the same thing, and refusing it would break machine
  * intake for no gain (the component cache and the datasheet extractor both emit that form, and
  * sub-ohm resistance is ordinary — RDS(on), ESR, contact resistance, DCR).
+ *
+ * <p>⚠️ <b>Every value goes through {@link #normalizeSpaces} first</b> — neither
+ * {@code trim()} nor {@code strip()} is sufficient on real vendor text. See that method.
  */
 public final class MetricUnitParser {
 
@@ -78,6 +81,27 @@ public final class MetricUnitParser {
     // RKM tail: the letter(s) standing in for the decimal point, then the fractional digits.
     private static final Pattern RKM_TAIL = Pattern.compile("^([^0-9.\\s]+)(\\d+)$");
 
+    // Every Unicode space separator, plus the stray line separators. \p{Zs} covers U+00A0, U+2009
+    // and U+202F, which is the point — see normalizeSpaces.
+    private static final Pattern UNICODE_SPACE = Pattern.compile("[\\p{Zs}\\u0085\\u2028\\u2029]");
+
+    /**
+     * Fold every kind of Unicode space to a plain one and trim the ends — the first thing done to
+     * any value, and shared with the spec-value write funnel so both see the same string.
+     *
+     * <p>⚠️ <b>Neither {@code trim()} nor {@code strip()} is enough on its own.</b> {@code trim}
+     * only removes characters at or below U+0020, and {@code strip} defers to
+     * {@link Character#isWhitespace}, which deliberately answers <b>false</b> for the non-breaking
+     * spaces U+00A0 and U+202F. Vendor and AI text is full of all three: the catalogue's own
+     * {@code "5.5 V"} uses a thin space (U+2009) between number and unit, and a non-breaking space
+     * is the usual way a datasheet keeps "100 nF" from wrapping. Left in place they become part of
+     * the unit tail, so the value matches no unit and silently stays text — which is exactly how it
+     * was found, by measuring against the real catalogue rather than by reading the code.
+     */
+    public static String normalizeSpaces(String s) {
+        return s == null ? null : UNICODE_SPACE.matcher(s).replaceAll(" ").strip();
+    }
+
     /** One successful parse: the value in the base unit, and how the magnitude was expressed. */
     private record Match(BigDecimal base, int exp, boolean bareLetter) {}
 
@@ -88,7 +112,7 @@ public final class MetricUnitParser {
      */
     public static Optional<String> parseToBase(String raw, String baseUnit) {
         if (baseUnit == null) return Optional.empty();
-        String unit = baseUnit.trim();
+        String unit = normalizeSpaces(baseUnit);
         return match(raw, unit, unit).map(m -> plain(m.base()));
     }
 
@@ -113,13 +137,13 @@ public final class MetricUnitParser {
 
     private static Optional<Match> match(String raw, String baseUnit, String baseMarker) {
         if (raw == null || baseUnit == null) return Optional.empty();
-        String s = raw.trim();
+        String s = normalizeSpaces(raw);
         if (s.isEmpty()) return Optional.empty();
 
         // A half-open Partsbox range with no lower bound ("null..X") collapses to its single defined
         // value X. Other ranges ("X..Y", "X..null") are handled by the caller as real ranges.
         if (s.regionMatches(true, 0, "null..", 0, 6)) {
-            s = s.substring(6).trim();
+            s = s.substring(6).strip();
             if (s.isEmpty()) return Optional.empty();
         }
 
@@ -127,7 +151,7 @@ public final class MetricUnitParser {
         if (!m.find()) return Optional.empty();
 
         String numText = m.group();
-        String rest = s.substring(m.end()).trim();
+        String rest = s.substring(m.end()).strip();
 
         // --- RKM infix: "4k7", "4R7", "2n2" — the letter is the decimal point. -------------------
         Matcher rkm = RKM_TAIL.matcher(rest);
@@ -200,7 +224,7 @@ public final class MetricUnitParser {
      */
     public static Optional<Double> factorToBase(String unit, String baseUnit) {
         if (unit == null || unit.isBlank()) return Optional.empty();
-        return parseToBase("1" + unit.trim(), baseUnit).map(Double::parseDouble);
+        return parseToBase("1" + normalizeSpaces(unit), baseUnit).map(Double::parseDouble);
     }
 
     /**
@@ -214,10 +238,10 @@ public final class MetricUnitParser {
         Map<String, Integer> tally = new LinkedHashMap<>();
         for (String raw : values) {
             if (raw == null) continue;
-            String s = raw.trim();
+            String s = normalizeSpaces(raw);
             Matcher m = NUMBER.matcher(s);
             if (!m.find()) continue;
-            String rest = s.substring(m.end()).trim();
+            String rest = s.substring(m.end()).strip();
             if (rest.isEmpty() || !rest.chars().allMatch(Character::isLetter)) continue;
             // Drop a single leading prefix char when it leaves a non-empty unit.
             if (rest.length() > 1 && PREFIX_EXP.containsKey(rest.substring(0, 1))) {

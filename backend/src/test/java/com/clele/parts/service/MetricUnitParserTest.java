@@ -44,6 +44,16 @@ class MetricUnitParserTest {
         }
 
         @Test
+        @DisplayName("Unicode spaces separate number from unit in real vendor text")
+        void unicodeWhitespaceIsStripped() {
+            // The catalogue's own ATTINY3216-SN supplyvoltage: "5.5" U+2009 "V". String.trim() only
+            // strips at or below U+0020, so it left " V" and the value silently stayed text.
+            assertThat(parse("5.5 V", UnitFamily.VOLTAGE)).contains("5.5");
+            assertThat(parse("100 nF", UnitFamily.CAPACITANCE)).contains("0.0000001");
+            assertThat(parse(" 15 mΩ ", UnitFamily.RESISTANCE)).contains("0.015");
+        }
+
+        @Test
         void factorToBaseIsUnchanged() {
             assertThat(MetricUnitParser.factorToBase("mm", "m")).contains(0.001);
             assertThat(MetricUnitParser.factorToBase("kΩ", "Ω")).contains(1000.0);

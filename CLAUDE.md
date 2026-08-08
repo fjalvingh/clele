@@ -929,11 +929,11 @@ ranges (`4.5..null`) that convert-to-number has to *refuse*, ~400 are unit-beari
 the full-text index. **`part_spec_value` (V50) replaces it with typed rows.** Design note and the
 full migration plan: `SPECS-REWRITE.md`.
 
-**Where this currently stands: steps 1–2 of 6 — dual-write, and the families assigned.** Rows are
-written on every intake path; **the JSONB is still what every read uses**. Nothing user-visible has
-changed, and a bug in the new path cannot lose data because the rows are derived and rebuildable.
-Still to come: the bulk backfill, flipping reads, the parametric search UI, and dropping
-`part.specs`.
+**Where this currently stands: steps 1–3 of 6 — dual-write, families assigned, backfill built.** Rows
+are written on every intake path and the backlog can be filled from the JSONB on demand; **the JSONB
+is still what every read uses**. Nothing user-visible has changed, and a bug in the new path cannot
+lose data because the rows are derived and rebuildable. Still to come: flipping reads, the
+parametric search UI, and dropping `part.specs`.
 
 Measured coverage once V51's families are in place — **12,872 of 21,719 values (59%) become
 numerically queryable**: 11,384 bare numbers, plus 1,492 ranges that were entirely dead before (no
@@ -974,6 +974,39 @@ bit/s family would be wrong by 10⁶), `weight` is in grams while the SI base is
   to fill in for tidiness. Note the name is not the family: `naturalthermalresistance` is °C/W not Ω,
   `inductancetolerance` is a percentage, `numberofresistors` is a count.
 
+### The backfill CLI
+
+`imports/SpecValueBackfillRunner` + `service/SpecValueBackfillService`, active only under the
+**`specvalues`** profile (`application-specvalues.yml` sets `web-application-type: none`, so it runs
+and exits). It fills the rows from the existing JSONB through the same `PartSpecValueService` the
+intake paths use, and reports the values that *should* have parsed and did not, grouped by distinct
+value the way convert-to-number's dry run groups its failures.
+
+```
+cd backend
+# preview (default — writes nothing):
+mvn21 spring-boot:run -Dspring-boot.run.profiles=specvalues
+# backfill:
+mvn21 spring-boot:run -Dspring-boot.run.profiles=specvalues \
+  -Dspring-boot.run.arguments=--specvalues.dry-run=false
+```
+Options: `--specvalues.dry-run` (default true), `--specvalues.limit` (0 = all), `--specvalues.report`
+(CSV path). Measured on the development catalogue: 1,102 parts / 21,719 values in ~15 s.
+
+- **Each part is synced in its own transaction** (`PartSpecValueService.syncById`), and the runner
+  iterates a *projection* (`PartRepository.findAllForSpecBackfill`) rather than entities. That is not
+  tidiness: a CLI profile has no request and therefore **no open-session-in-view**, so a `Part` held
+  across the loop is detached and its lazy `organisation` throws on first read. This was found by
+  running it, not by reading it.
+- ⚠️ **The dry run must never touch a managed row.** `PartSpecValueService.preview` deliberately does
+  not load a `PartSpecValue` or create a definition, because mutating a managed entity in a "dry run"
+  is enough for dirty checking to flush it — and `@Transactional(readOnly = true)` does not save you
+  while `open-in-view` is on. Same trap `ProjectBomImportService.preview` documents, avoided here by
+  not touching the rows at all rather than by detaching. The evidence it works: a preview reported
+  "7 definitions would be created" twice, and the backfill then created 7.
+- **Re-runnable rather than resumable** — `sync` is idempotent and touches no network, so a second
+  full pass costs seconds and converges on the same rows.
+
 ### RKM code (`4k7`, `100R`, `2n2`) and the prefix window
 
 The decimal point is the least reliable character in electronics, so IEC 60062 puts the multiplier
@@ -998,6 +1031,14 @@ else's parse, whereas here we do the parsing.
   same class of error as taking 4 KB for 4000, so `R` in an inductance field does not parse.
 - ⚠️ **Case is load-bearing**; `PREFIX_EXP` is case-sensitive with `K` as a kilo alias (also the usual
   RKM spelling). Do not "clean this up" into a case-insensitive match.
+- ⚠️ **Every value goes through `MetricUnitParser.normalizeSpaces` — `trim()` and `strip()` are both
+  insufficient.** `trim` only removes characters at or below U+0020, and `strip` defers to
+  `Character.isWhitespace`, which deliberately answers **false** for the non-breaking spaces U+00A0
+  and U+202F. Real vendor text uses all of them *between the number and its unit*, which is exactly
+  where it breaks parsing: the catalogue's own `"5.5 V"` uses a **thin space** (U+2009), so the tail
+  read `" V"`, matched no unit, and the value silently stayed text. It was one value out of 21,719
+  and was found only by measuring the backfill against real data. `units.ts` mirrors the same
+  normalisation (JS `trim()` handles the ends but not the middle either).
 - **Three files must stay in step**: `MetricUnitParser`, `MetricUnitFormatter` and
   `frontend/src/utils/units.ts` (`UNIT_FAMILIES`, `formatFamilyValue`, `parseFamilyValue`).
   `MetricUnitParserTest` pins the example table on the Java side; the frontend has no test runner, so

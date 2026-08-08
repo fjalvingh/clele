@@ -2,10 +2,10 @@
 
 Working note, 2026-08-08. Design agreed in conversation.
 
-**Status: steps 1–2 of the migration plan are built** (2026-08-08) — V50 + the RKM parser/formatter
-pair + the dual-write funnel, then V51's unit families. The JSONB is still authoritative for reads;
-nothing user-visible has changed. Steps 3–6 (backfill, flip reads, parametric search UI, drop
-`part.specs`) are still open. What landed:
+**Status: steps 1–3 of the migration plan are built** (2026-08-08) — V50 + the RKM parser/formatter
+pair + the dual-write funnel, V51's unit families, and the backfill CLI. The JSONB is still
+authoritative for reads; nothing user-visible has changed. Steps 4–6 (flip reads, parametric search
+UI, drop `part.specs`) are still open. What landed:
 
 | | |
 |---|---|
@@ -19,15 +19,25 @@ nothing user-visible has changed. Steps 3–6 (backfill, flip reads, parametric 
 | wiring | `PartService.saveAndSync`, QuickAdd, kit generation, Partsbox import, spec merge + convert-to-number |
 
 | `V51__spec_unit_families.sql` | families for 189/209 NUMBER + 18/43 TEXT definitions, by hand |
+| `SpecValueBackfillService` + `Runner` | the `specvalues` CLI profile — preview by default, per-part transactions, residue report |
 
 Verified end to end against a scratch database built from V1→V51: every classification branch lands
 in the right shape, MERGE leaves untouched keys alone, REPLACE removes their rows, and the row count
 matches the JSONB key count. 126 backend tests green.
 
-**Measured after step 2** (development catalogue, 21,719 values): **12,872 (59%) become numerically
-queryable** — 11,384 bare numbers plus **1,492 ranges that were entirely dead**. 8,553 correctly stay
-text. Exactly **one** value in a family-bearing field fails to parse (`5V ± 10%`), so the
+**Measured by the real backfill** (development catalogue, 1,102 parts, 21,719 values, ~15 s):
+**13,265 (61%) are numerically queryable** — 11,773 scalars plus **1,492 ranges that were entirely
+dead**. 8,454 correctly stay text. Exactly **one** value fails to parse (`5V ± 10%`), so the
 "unparseable residue" the plan expected step 3 to surface is, in practice, empty.
+
+Both queries the JSONB could never answer now run against the rows:
+
+```sql
+-- resistors between 1k and 10k
+WHERE sd.json_name='resistance' AND v.value_num BETWEEN 1000 AND 10000
+-- parts whose supply-voltage RANGE covers 3.3 V
+WHERE coalesce(v.value_min,'-Infinity') <= 3.3 AND coalesce(v.value_max,'Infinity') >= 3.3
+```
 
 Three things learned in step 2 that were not in the original design:
 
@@ -39,6 +49,12 @@ Three things learned in step 2 that were not in the original design:
 - **Two more range spellings were worth supporting.** `A ~ B` is the component cache's own `display`
   format and `A to B` is how a datasheet writes it, so both keep arriving from live sources rather
   than only sitting in the backlog. A hyphen is deliberately not a separator.
+- **Whitespace was the one real bug, and only real data found it.** `"5.5 V"` in the catalogue uses a
+  **thin space** (U+2009) between number and unit. Java's `trim()` only strips at or below U+0020 and
+  `strip()` defers to `Character.isWhitespace`, which answers *false* for the non-breaking U+00A0 and
+  U+202F — so the tail read `" V"`, matched no unit, and the value quietly stayed text. Both sides now
+  share a `normalizeSpaces` that folds every `\p{Zs}`. No amount of reading the code would have
+  surfaced this; it was one value in 21,719.
 - **V42's cross-type near-duplicates can now be merged.** `operatingsupplyvoltage` (NUMBER, scalars)
   and `supplyvoltage` (TEXT, ranges) were left unmerged because one held a scalar and the other a
   range and no single column could hold both. `part_spec_value` holds either per row, so the reason

@@ -162,6 +162,19 @@ const LETTER_EXP: Record<string, number> = {
 };
 
 /**
+ * Fold every kind of Unicode space to a plain one and trim — mirrors
+ * MetricUnitParser.normalizeSpaces, and must stay in step with it.
+ *
+ * Real vendor text separates a number from its unit with whatever space the typesetter used: the
+ * catalogue's own "5.5 V" uses a thin space (U+2009), and a non-breaking space is the usual way a
+ * datasheet keeps "100 nF" from wrapping. JS trim() removes those at the ends but not between the
+ * number and the unit, which is exactly where they sit.
+ */
+export function normalizeSpaces(s: string): string {
+  return s.replace(/[\p{Zs}\u0085\u2028\u2029]/gu, ' ').trim();
+}
+
+/**
  * Render a base-unit value the way people write it — "4k7" for resistance, "9 mA" for current.
  * The exact inverse of parseFamilyValue, which is why no rendering is ever stored.
  *
@@ -207,14 +220,14 @@ export function formatFamilyValue(value: string | number, familyCode: string | n
 export function parseFamilyValue(raw: string, familyCode: string | null | undefined): number | null {
   const family = unitFamily(familyCode);
   if (!family || raw == null) return null;
-  let s = raw.trim();
+  let s = normalizeSpaces(raw);
   if (s === '') return null;
   if (s.toLowerCase().startsWith('null..')) s = s.slice(6).trim();
 
   const numMatch = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/.exec(s);
   if (!numMatch) return null;
   const numText = numMatch[0];
-  const rest = s.slice(numText.length).trim();
+  const rest = normalizeSpaces(s.slice(numText.length));
 
   const allowed = (exp: number, bareLetter: boolean) =>
     exp === 0 || !(bareLetter || (family.minExp === 0 && family.maxExp === 0))
