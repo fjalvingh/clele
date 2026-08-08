@@ -206,8 +206,29 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     values it varies over, unique per template) + `part_kit_template_tag` (tag **names**, resolved
     at generate time). Every column is TEXT because it holds a template, not a value (see Part Kit
     Templates below)
+  - V46 makes attachments **shareable between parts**: `part_attachment` keeps the content and the
+    new `part_attachment_link(part_id, attachment_id, display_order)` records which parts use it
+    (`part_id`/`display_order` move there). It also adds `description` (the part number of the first
+    part the attachment was used for, never updated), `md5_hash` (backfilled with PostgreSQL's
+    `md5(data)`, deliberately **not** unique) and `organisation_id` — with several parts on one row
+    the tenant can no longer be derived through `part_id` (see Part Attachments below)
+  - V47 collapses the attachments V46's hashes exposed as byte-identical copies of each other:
+    **403 of 955 rows** on the development catalogue (98 groups, ~42%) — the Partsbox import fetched
+    the same product photo for every part it appeared on. Each group keeps its lowest id, which is
+    also its earliest, so the survivor's `description` still names the first part the content was
+    used for; every link is re-pointed at it (dropping the extra link where one part held the same
+    file twice), then `display_order` is re-sequenced. No part loses a photo or a document; the
+    discarded ids stop resolving, which shows only as a stale browser cache missing once
+  - V48 deletes the stored `DATASHEET` rows that are **not PDFs** — HTML landing pages a vendor
+    served with HTTP 200 where a document used to be, saved before `uploadFromUrl` checked (two
+    167-byte "301 Moved Permanently" interstitials in the development catalogue). The condition
+    mirrors `util/PdfBytes.looksLikePdf` (`%PDF` within the first 1024 bytes, not only at offset 0),
+    the links go with them through the cascade, and `display_order` is re-sequenced.
+    `part.datasheet_url` is left alone — it is still the canonical link, and re-fetching it is what
+    "Download from URL" and the re-sourcing tool are for. PHOTO rows are not judged (ImageIO
+    validated them on the way in) and neither are ATTACHMENTs, which are whatever the user says
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V46** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V49** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover
@@ -743,10 +764,12 @@ values. "Generate parts" expands the two into real parts with stock. Package: `P
 ## Organisations (multi-tenancy)
 
 - **The tenant boundary.** Every `part`, `category`, `location`, `spec_definition`, `tag` and
-  `project` carries an `organisation_id` (V36). `stock_entry`, `stock_movement`,
-  `part_stock_threshold`, `part_attachment`, `project_part`, `project_stock`, `part_tag` and
-  `category_spec` deliberately **do not** — they derive their organisation through
-  `part_id`/`location_id`/`project_id`, so there is nothing that can drift out of sync.
+  `project` carries an `organisation_id` (V36), and so does `part_attachment` (V46 — it used to
+  derive one through `part_id`, which stopped holding once several parts could share a row).
+  `stock_entry`, `stock_movement`, `part_stock_threshold`, `part_attachment_link`, `project_part`,
+  `project_stock`, `part_tag` and `category_spec` deliberately **do not** — they derive their
+  organisation through `part_id`/`location_id`/`project_id`, so there is nothing that can drift out
+  of sync.
 - **`service/CurrentOrganisationService`** is the counterpart to `CurrentUserService` and the single
   source of the tenant: `current()`/`currentId()` read the `currentOrganisationId` **HTTP session
   attribute** (persisted by Spring Session JDBC), falling back to `app_user.last_organisation_id`
@@ -978,22 +1001,55 @@ matches no definition collecting in a trailing "Other" section.
 
 ## Part Attachments
 
-- A single `part_attachment` bytea table (entity `PartAttachment`, V19) stores all per-part binary
-  content, distinguished by `type` (`AttachmentType`: `PHOTO`, `DATASHEET`, `ATTACHMENT`). Columns:
-  `data` (bytea), `type`, `display_order`, `content_type`, `filename` (NULL for photos), `created_at`;
-  `part_id` FK is `ON DELETE CASCADE`.
+- A single `part_attachment` bytea table (entity `PartAttachment`, V19) stores all binary content,
+  distinguished by `type` (`AttachmentType`: `PHOTO`, `DATASHEET`, `ATTACHMENT`). Columns: `data`
+  (bytea), `type`, `content_type`, `filename` (NULL for photos), `description`, `md5_hash`,
+  `organisation_id`, `created_at`.
+- **Attachments are shared, not owned by one part** (V46). Which parts use a row lives in
+  `part_attachment_link(part_id, attachment_id, display_order)` — entity `PartAttachmentLink`, both
+  FKs `ON DELETE CASCADE`, unique per pair. That is what lets every value in a resistor kit show the
+  same photo: they are the same picture, and storing thirty copies of it was the problem.
+  `display_order` is per (part, type) and belongs to the link, since two parts may order their
+  photos differently.
+  - **`description` is the part number of the *first* part the attachment was used for and never
+    changes.** Once several parts share a row, that is the only thing about its origin that stays
+    true; re-pointing it at whichever part happens to be looked at would make it say nothing.
+  - **`md5_hash` is what recognises content already held** — matched with `type` and
+    `organisation_id` (the index `idx_part_attachment_hash` covers exactly that), then confirmed by
+    comparing the bytes, because silently serving another part's document on a hash collision is the
+    kind of wrong nobody notices. It is deliberately **not unique** — V47 collapsed the duplicates
+    the import had already accumulated (403 of 955 rows), but a hash is a fingerprint, not a key:
+    the same bytes may legitimately be held twice while a merge is pending, and a unique constraint
+    would turn that into a failed upload rather than a duplicate to tidy up later.
+  - **`organisation_id` is stored, not derived.** Every other per-part table reaches its tenant
+    through `part_id`; with several parts on one row that derivation is gone, so sharing and hash
+    matching are confined to one organisation explicitly.
+- **`PartAttachmentService.store(partId, data, contentType, filename, type)` is the single write
+  path** — `upload`, `uploadFromUrl` and the datasheet backfill all funnel through it, so nothing
+  can add a row without going past the dedupe. It takes a part *id*, not the entity: the backfill
+  runs outside a transaction with detached parts, whose lazy organisation could not be read.
 - **`PartAttachmentService`** branches by type:
   - `PHOTO` — PNG-normalized via ImageIO (`convertToPng` / `downloadAndConvertToPng`), `content_type`
-    `image/png`, no filename, **capped at 5 per part** (`countByPartIdAndType(.., PHOTO)`).
+    `image/png`, no filename, **capped at 5 per part** (counted over the links). Normalizing before
+    hashing is what makes the same photo re-uploaded as a JPEG match the stored PNG.
   - `DATASHEET` / `ATTACHMENT` — stored **as-is**: original bytes, original `content_type` and
     `filename`, **uncapped**. `uploadFromUrl(.., DATASHEET)` downloads the raw file (response
     content-type preserved, filename derived from the URL path) — used by the Part Detail
     "Download from URL" button to pull the part's `datasheet_url` PDF into storage.
-  - `delete` re-sequences `display_order` within the same part+type group.
+  - `delete` **unlinks from this part** and drops the content only when the last link goes, then
+    re-sequences `display_order` within the same part+type group. Deleting a part goes through
+    `deleteAllForPart`; the bulk paths that delete parts straight through the database (a
+    `deleteByUser` cleanup) rely on the link's `ON DELETE CASCADE` and must call `deleteOrphans()`
+    afterwards, since the DB cannot know whether the content survived on another part.
 - **`PartAttachmentController`** (`/api/parts/{partId}/attachments`): `GET` (optional `?type=`),
   `GET /{id}` serves bytes with the stored content-type (photos render inline with a 7-day cache;
   datasheets/attachments add `Content-Disposition: attachment; filename=…`), `POST` (multipart
-  `file` + `type`), `POST /from-url` (`{url, type}`), `DELETE /{id}`. Mutations require `PARTS_EDIT`.
+  `file` + `type`), `POST /from-url` (`{url, type}`), `DELETE /{id}` (unlinks; see above). Mutations
+  require `PARTS_EDIT`. The URLs are unchanged by sharing — a link is what authorises
+  `/parts/{partId}/attachments/{id}`, so an attachment the part does not use is simply 404.
+  `PartAttachmentDTO` carries `description`, `md5Hash` and `partCount` (how many parts use it); the
+  Part Detail page marks a shared file with a **shared** badge and warns before removing one that
+  the other parts keep it.
 - **`part.datasheet_url` is unchanged** — it remains the canonical URL string; binary `DATASHEET`
   rows are an additional, optional copy. The Part Detail page has a **Documents** card listing
   datasheets and attachments (download links) with upload controls + the "Download from URL" action.
@@ -1411,9 +1467,11 @@ and would need to become display-only.
   - Location is **required** (the submit button is disabled until one is picked) and pre-selects the
     user's last-used location (`AuthUser.lastLocationId`); after a successful add the backend records
     the chosen location as the new last-used and the SPA calls `useAuth().refresh()` — see Locations
-- **Part attachments**: one `part_attachment` bytea table holds three kinds of binary content per
-  part, keyed by `type` (PHOTO/DATASHEET/ATTACHMENT) — see Part Attachments below. Photos: PNG-
-  normalized, max 5. Datasheets & user attachments: original bytes + filename + content-type, uncapped
+- **Part attachments**: one `part_attachment` bytea table holds three kinds of binary content,
+  keyed by `type` (PHOTO/DATASHEET/ATTACHMENT), **shared** by every part that links to it — see Part
+  Attachments below. Photos: PNG-normalized, max 5 per part. Datasheets & user attachments: original
+  bytes + filename + content-type, uncapped. Identical bytes are stored once and linked, so a kit of
+  thirty resistor values carries one photo, not thirty copies
 - **Spec definitions**: configurable specification fields (text, number, boolean, select) with units; can be associated with categories
   - Every definition belongs to exactly one **spec group** and may carry **aliases** — the other
     JSON names the same spec has at other sources (see Spec Groups & Aliases)

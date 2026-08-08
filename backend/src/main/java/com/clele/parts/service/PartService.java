@@ -8,7 +8,7 @@ import com.clele.parts.model.Category;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.Tag;
 import com.clele.parts.repository.CategoryRepository;
-import com.clele.parts.repository.PartAttachmentRepository;
+import com.clele.parts.repository.PartAttachmentLinkRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.repository.StockEntryRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -35,7 +35,8 @@ public class PartService {
     private final PartRepository partRepository;
     private final CategoryRepository categoryRepository;
     private final StockEntryRepository stockEntryRepository;
-    private final PartAttachmentRepository partAttachmentRepository;
+    private final PartAttachmentLinkRepository partAttachmentLinkRepository;
+    private final PartAttachmentService partAttachmentService;
     private final CurrentUserService currentUserService;
     private final CurrentOrganisationService currentOrganisationService;
     private final TagService tagService;
@@ -88,7 +89,7 @@ public class PartService {
         List<Long> ids = parts.stream().map(Part::getId).collect(Collectors.toList());
         Map<Long, Long> result = new HashMap<>();
         // Rows arrive ordered by display order, so the first one seen for a part is its first photo.
-        partAttachmentRepository.findIdsByPartIdsAndType(ids, AttachmentType.PHOTO)
+        partAttachmentLinkRepository.findIdsByPartIdsAndType(ids, AttachmentType.PHOTO)
                 .forEach(row -> result.putIfAbsent((Long) row[0], (Long) row[1]));
         return result;
     }
@@ -266,7 +267,9 @@ public class PartService {
     public void delete(Long id) {
         requirePart(id);
         stockEntryRepository.deleteByPartId(id);
-        partAttachmentRepository.deleteByPartId(id);
+        // Unlinks this part's attachments and drops the content no other part still uses — a shared
+        // photo outlives the part it was first uploaded for.
+        partAttachmentService.deleteAllForPart(id);
         partRepository.deleteById(id);
     }
 
@@ -286,7 +289,11 @@ public class PartService {
         // stock_entry has no ON DELETE CASCADE (part_attachment and stock_movement do), so clear it
         // explicitly before removing the parts.
         stockEntryRepository.deleteByPartIdIn(partIds);
-        return partRepository.deleteByIdIn(partIds);
+        int deleted = partRepository.deleteByIdIn(partIds);
+        // The DB cascade took the attachment links with the parts; it cannot know whether the
+        // content survived on another part, so sweep what nothing points at any more.
+        partAttachmentService.deleteOrphans();
+        return deleted;
     }
 
     public long countAll() {

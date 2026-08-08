@@ -2,8 +2,6 @@ package com.clele.parts.service;
 
 import com.clele.parts.model.AttachmentType;
 import com.clele.parts.model.Part;
-import com.clele.parts.model.PartAttachment;
-import com.clele.parts.repository.PartAttachmentRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.util.UrlSafety;
 import lombok.Builder;
@@ -50,7 +48,7 @@ public class DatasheetBackfillService {
     private static final int MAX_BYTES = 40 * 1024 * 1024;
 
     private final PartRepository partRepository;
-    private final PartAttachmentRepository partAttachmentRepository;
+    private final PartAttachmentService partAttachmentService;
     private final DatasheetAnalyzer analyzer;
     private final RestTemplate restTemplate;
 
@@ -63,11 +61,11 @@ public class DatasheetBackfillService {
      * silently injecting the 30-second {@code restTemplate} instead.
      */
     public DatasheetBackfillService(PartRepository partRepository,
-                                    PartAttachmentRepository partAttachmentRepository,
+                                    PartAttachmentService partAttachmentService,
                                     DatasheetAnalyzer analyzer,
                                     @Qualifier("datasheetRestTemplate") RestTemplate restTemplate) {
         this.partRepository = partRepository;
-        this.partAttachmentRepository = partAttachmentRepository;
+        this.partAttachmentService = partAttachmentService;
         this.analyzer = analyzer;
         this.restTemplate = restTemplate;
     }
@@ -175,23 +173,19 @@ public class DatasheetBackfillService {
     }
 
     /**
-     * Persist one datasheet. Deliberately <em>not</em> annotated {@code @Transactional}: this is
-     * called from {@link #process} on the same bean, and self-invocation does not pass through the
-     * proxy, so the annotation would be silently inert. The run needs no outer transaction anyway —
-     * {@code JpaRepository.save} is itself transactional, which makes each part its own commit and
-     * is exactly the resumability boundary wanted here. {@code part} is detached (loaded outside a
-     * transaction); Hibernate only needs its id to write the FK.
+     * Persist one datasheet through the shared attachment funnel, which also gives the run free
+     * de-duplication: several parts often point at the same PDF, and the second one links the
+     * stored copy instead of downloading a duplicate into the database.
+     *
+     * <p>Deliberately <em>not</em> annotated {@code @Transactional}. {@code PartAttachmentService}
+     * is a different bean, so its own annotation applies and each part becomes its own commit —
+     * exactly the resumability boundary wanted here. It is handed the part <em>id</em> because
+     * {@code part} is detached (loaded outside a transaction) and its lazy organisation could not
+     * be read.
      */
     private void store(Part part, Fetched fetched) {
-        PartAttachment attachment = PartAttachment.builder()
-                .part(part)
-                .type(AttachmentType.DATASHEET)
-                .displayOrder(partAttachmentRepository.countByPartIdAndType(part.getId(), AttachmentType.DATASHEET))
-                .data(fetched.data())
-                .contentType(MediaType.APPLICATION_PDF_VALUE)
-                .filename(filenameFor(part, fetched.url()))
-                .build();
-        partAttachmentRepository.save(attachment);
+        partAttachmentService.store(part.getId(), fetched.data(), MediaType.APPLICATION_PDF_VALUE,
+                filenameFor(part, fetched.url()), AttachmentType.DATASHEET);
     }
 
     record Fetched(byte[] data, String contentType, int status, String url) {}

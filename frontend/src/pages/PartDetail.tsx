@@ -203,6 +203,34 @@ interface AiSpecRow {
   page?: number | null;
 }
 
+/**
+ * Attachments are shared: the same photo or PDF can be linked from several parts. Removing it here
+ * only unlinks it from this part, which is worth saying before somebody assumes the worst.
+ */
+const removalPrompt = (att: PartAttachment, noun: string) => {
+  const others = (att.partCount ?? 1) - 1;
+  return others > 0
+    ? `This ${noun} is also used by ${others} other part${others === 1 ? '' : 's'}. ` +
+        `Remove it from this part? The others keep it.`
+    : `Remove this ${noun}?`;
+};
+
+/** Marks an attachment several parts share, naming the part it was first uploaded for. */
+const SharedBadge = ({ attachment }: { attachment: PartAttachment }) => {
+  const others = (attachment.partCount ?? 1) - 1;
+  if (others < 1) return null;
+  return (
+    <span
+      className="shrink-0 rounded bg-gray-500/10 px-1.5 py-0.5 text-[11px] text-gray-500"
+      title={`Shared with ${others} other part${others === 1 ? '' : 's'}${
+        attachment.description ? ` — first added for ${attachment.description}` : ''
+      }`}
+    >
+      shared
+    </span>
+  );
+};
+
 export default function PartDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -851,7 +879,7 @@ export default function PartDetailPage() {
   };
 
   const handleDeleteImage = async (image: PartAttachment) => {
-    if (!confirm('Remove this image?')) return;
+    if (!confirm(removalPrompt(image, 'image'))) return;
     try {
       await deletePartAttachment(partId, image.id);
       await refreshAttachments();
@@ -920,7 +948,7 @@ export default function PartDetailPage() {
   };
 
   const handleDeleteAttachment = async (att: PartAttachment) => {
-    if (!confirm('Remove this file?')) return;
+    if (!confirm(removalPrompt(att, 'file'))) return;
     try {
       await deletePartAttachment(partId, att.id);
       await refreshAttachments();
@@ -1228,7 +1256,11 @@ export default function PartDetailPage() {
                       type="button"
                       onClick={() => setSelectedImageId(img.id)}
                       className="block"
-                      title="Show this photo"
+                      title={
+                        (img.partCount ?? 1) > 1
+                          ? `Show this photo — shared with ${(img.partCount ?? 1) - 1} other part(s)`
+                          : 'Show this photo'
+                      }
                     >
                       <img
                         src={attachmentUrl(partId, img.id)}
@@ -1493,6 +1525,7 @@ export default function PartDetailPage() {
                     >
                       {d.filename ?? `datasheet-${d.id}`}
                     </a>
+                    <SharedBadge attachment={d} />
                     {canEdit && (
                       <>
                         <button
@@ -1621,6 +1654,7 @@ export default function PartDetailPage() {
                     >
                       {a.filename ?? `attachment-${a.id}`}
                     </a>
+                    <SharedBadge attachment={a} />
                     {canEdit && (
                       <button
                         onClick={() => handleDeleteAttachment(a)}

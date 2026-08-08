@@ -8,6 +8,7 @@ import com.clele.parts.model.StockMovement;
 import com.clele.parts.model.AttachmentType;
 import com.clele.parts.repository.LocationRepository;
 import com.clele.parts.repository.OrganisationRepository;
+import com.clele.parts.repository.PartAttachmentLinkRepository;
 import com.clele.parts.repository.PartAttachmentRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.repository.StockEntryRepository;
@@ -56,6 +57,7 @@ public class PartsboxImportService {
     private final StockEntryRepository stockEntryRepository;
     private final StockMovementRepository stockMovementRepository;
     private final PartAttachmentRepository partAttachmentRepository;
+    private final PartAttachmentLinkRepository partAttachmentLinkRepository;
     private final PartAttachmentService partAttachmentService;
     private final PlatformTransactionManager txManager;
 
@@ -198,6 +200,7 @@ public class PartsboxImportService {
         log.info("Wiping existing part data (keeping categories, spec definitions, locations)");
         stockMovementRepository.deleteAllInBatch();
         stockEntryRepository.deleteAllInBatch();
+        partAttachmentLinkRepository.deleteAllInBatch();
         partAttachmentRepository.deleteAllInBatch();
         partRepository.deleteAllInBatch();
     }

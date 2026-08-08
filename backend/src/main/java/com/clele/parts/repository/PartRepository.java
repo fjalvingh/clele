@@ -207,8 +207,9 @@ public interface PartRepository extends JpaRepository<Part, Long> {
     @Query("""
             SELECT p FROM Part p
             WHERE p.datasheetUrl IS NOT NULL AND TRIM(p.datasheetUrl) <> ''
-              AND NOT EXISTS (SELECT 1 FROM PartAttachment a
-                              WHERE a.part = p AND a.type = com.clele.parts.model.AttachmentType.DATASHEET)
+              AND NOT EXISTS (SELECT 1 FROM PartAttachmentLink l
+                              WHERE l.part = p
+                                AND l.attachment.type = com.clele.parts.model.AttachmentType.DATASHEET)
             ORDER BY p.id
             """)
     List<Part> findWithUndownloadedDatasheet();

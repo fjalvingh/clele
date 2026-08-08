@@ -4,6 +4,8 @@ import com.clele.parts.dto.PartAttachmentDTO;
 import com.clele.parts.model.AttachmentType;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.PartAttachment;
+import com.clele.parts.model.PartAttachmentLink;
+import com.clele.parts.repository.PartAttachmentLinkRepository;
 import com.clele.parts.repository.PartAttachmentRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.util.PdfBytes;
@@ -27,8 +29,23 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+/**
+ * Photos, datasheets and files held against parts.
+ *
+ * <p><b>Attachments are shared.</b> The bytes live in one {@code part_attachment} row and each part
+ * that shows them holds a {@code part_attachment_link} — so the thirty values of a resistor kit can
+ * carry the identical photo without thirty copies of it. Every write goes through
+ * {@link #store(Long, byte[], String, String, AttachmentType)}, which is the only place that decides
+ * whether bytes are new: content already held for the organisation with the same MD5 and type is
+ * linked rather than stored again.
+ */
 @Slf4j
 @Service
 @Transactional(readOnly = true)
@@ -38,6 +55,7 @@ public class PartAttachmentService {
     private static final MediaType PNG = MediaType.IMAGE_PNG;
 
     private final PartAttachmentRepository partAttachmentRepository;
+    private final PartAttachmentLinkRepository partAttachmentLinkRepository;
     private final PartRepository partRepository;
 
     /**
@@ -58,9 +76,11 @@ public class PartAttachmentService {
     private final RestTemplate restTemplate;
 
     public PartAttachmentService(PartAttachmentRepository partAttachmentRepository,
+                                 PartAttachmentLinkRepository partAttachmentLinkRepository,
                                  PartRepository partRepository,
                                  @Qualifier("datasheetRestTemplate") RestTemplate restTemplate) {
         this.partAttachmentRepository = partAttachmentRepository;
+        this.partAttachmentLinkRepository = partAttachmentLinkRepository;
         this.partRepository = partRepository;
         this.restTemplate = restTemplate;
     }
@@ -69,10 +89,27 @@ public class PartAttachmentService {
     public record AttachmentContent(byte[] data, String contentType, String filename) {}
 
     public List<PartAttachmentDTO> list(Long partId, AttachmentType type) {
-        List<PartAttachment> rows = (type == null)
-                ? partAttachmentRepository.findByPartIdOrderByDisplayOrder(partId)
-                : partAttachmentRepository.findByPartIdAndTypeOrderByDisplayOrder(partId, type);
-        return rows.stream().map(this::toDTO).toList();
+        List<PartAttachmentLink> links = (type == null)
+                ? partAttachmentLinkRepository.findByPartId(partId)
+                : partAttachmentLinkRepository.findByPartIdAndType(partId, type);
+        Map<Long, Integer> counts = partCounts(links);
+        return links.stream().map(l -> toDTO(l, counts)).toList();
+    }
+
+    /**
+     * How many parts use each listed attachment, in one query — the figure the UI needs to say that
+     * removing a shared photo here leaves the other parts alone.
+     */
+    private Map<Long, Integer> partCounts(List<PartAttachmentLink> links) {
+        if (links.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = links.stream().map(l -> l.getAttachment().getId()).toList();
+        Map<Long, Integer> counts = new HashMap<>();
+        for (Object[] row : partAttachmentLinkRepository.countPartsByAttachmentIds(ids)) {
+            counts.put((Long) row[0], ((Number) row[1]).intValue());
+        }
+        return counts;
     }
 
     public AttachmentContent getContent(Long partId, Long attachmentId) {
@@ -83,81 +120,163 @@ public class PartAttachmentService {
 
     @Transactional
     public PartAttachmentDTO upload(Long partId, MultipartFile file, AttachmentType type) {
-        Part part = requirePart(partId);
-        int order = nextDisplayOrder(partId, type);
-
-        PartAttachment.PartAttachmentBuilder builder = PartAttachment.builder()
-                .part(part)
-                .type(type)
-                .displayOrder(order);
+        requirePart(partId);
 
         if (type == AttachmentType.PHOTO) {
-            enforcePhotoLimit(partId);
-            builder.data(convertToPng(file)).contentType(PNG.toString()).filename(null);
-        } else {
-            byte[] bytes;
-            try {
-                bytes = file.getBytes();
-            } catch (IOException e) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to read file: " + e.getMessage());
-            }
-            if (bytes.length == 0) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Empty file");
-            }
-            builder.data(bytes)
-                    .contentType(orDefault(file.getContentType(), MediaType.APPLICATION_OCTET_STREAM_VALUE))
-                    .filename(file.getOriginalFilename());
+            return store(partId, convertToPng(file), PNG.toString(), null, type);
         }
 
-        return toDTO(partAttachmentRepository.save(builder.build()));
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Failed to read file: " + e.getMessage());
+        }
+        if (bytes.length == 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Empty file");
+        }
+        return store(partId, bytes,
+                orDefault(file.getContentType(), MediaType.APPLICATION_OCTET_STREAM_VALUE),
+                file.getOriginalFilename(), type);
     }
 
     @Transactional
     public PartAttachmentDTO uploadFromUrl(Long partId, String url, AttachmentType type) {
-        Part part = requirePart(partId);
-        int order = nextDisplayOrder(partId, type);
+        requirePart(partId);
 
-        PartAttachment.PartAttachmentBuilder builder = PartAttachment.builder()
-                .part(part)
-                .type(type)
-                .displayOrder(order);
+        if (type == AttachmentType.PHOTO) {
+            return store(partId, downloadAndConvertToPng(url), PNG.toString(), null, type);
+        }
+
+        Downloaded d = download(url);
+        // A datasheet must actually be a PDF. Vendors answer a moved or retired document with
+        // HTTP 200 and an HTML landing page rather than a 404, and the URL ending in .pdf says
+        // nothing about what came back — stored unchecked, that page becomes a "datasheet" that
+        // only reveals itself when somebody opens it. Only DATASHEET is checked; a general
+        // ATTACHMENT is whatever the user says it is.
+        if (type == AttachmentType.DATASHEET && !PdfBytes.looksLikePdf(d.bytes())) {
+            log.warn("Refusing datasheet from {}: not a PDF (content-type {}, {} bytes)",
+                    url, d.contentType(), d.bytes().length);
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "That URL did not return a PDF — the vendor most likely served a web page "
+                            + "instead of the document. Open it in a browser to check.");
+        }
+        return store(partId, d.bytes(), d.contentType(), filenameFromUrl(url), type);
+    }
+
+    /**
+     * Attach content to a part — the single write path, and the only place that decides whether
+     * bytes are new.
+     *
+     * <p>Content the organisation already holds with the same MD5 and type is <b>linked, not
+     * stored again</b>: a photo shared by every value of a resistor kit exists once. A hit keeps
+     * its original {@code description}, {@code filename} and content type, since those record where
+     * the file first came from and the second part adds nothing to that.
+     *
+     * <p>Takes a part <em>id</em> rather than the entity because the datasheet backfill runs
+     * outside a transaction with detached parts, and reading {@code part.getOrganisation()} off one
+     * of those would fail lazily.
+     */
+    @Transactional
+    public PartAttachmentDTO store(Long partId, byte[] data, String contentType, String filename,
+                                   AttachmentType type) {
+        Part part = requirePart(partId);
+        String hash = md5(data);
+
+        // The hash narrows it down; the bytes decide. An MD5 collision is unlikely and silently
+        // serving another part's document would be the kind of wrong that never gets noticed.
+        PartAttachment attachment = partAttachmentRepository
+                .findByOrganisationIdAndMd5HashAndType(part.getOrganisation().getId(), hash, type)
+                .stream()
+                .filter(a -> Arrays.equals(a.getData(), data))
+                .findFirst()
+                .orElse(null);
+
+        if (attachment != null) {
+            // Already on this part: nothing to add, and re-linking would violate the unique key.
+            PartAttachmentLink existing = partAttachmentLinkRepository
+                    .findByPartIdAndAttachmentId(partId, attachment.getId()).orElse(null);
+            if (existing != null) {
+                return toDTO(existing, usageOf(attachment));
+            }
+        }
 
         if (type == AttachmentType.PHOTO) {
             enforcePhotoLimit(partId);
-            builder.data(downloadAndConvertToPng(url)).contentType(PNG.toString()).filename(null);
-        } else {
-            Downloaded d = download(url);
-            // A datasheet must actually be a PDF. Vendors answer a moved or retired document with
-            // HTTP 200 and an HTML landing page rather than a 404, and the URL ending in .pdf says
-            // nothing about what came back — stored unchecked, that page becomes a "datasheet" that
-            // only reveals itself when somebody opens it. Only DATASHEET is checked; a general
-            // ATTACHMENT is whatever the user says it is.
-            if (type == AttachmentType.DATASHEET && !PdfBytes.looksLikePdf(d.bytes())) {
-                log.warn("Refusing datasheet from {}: not a PDF (content-type {}, {} bytes)",
-                        url, d.contentType(), d.bytes().length);
-                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                        "That URL did not return a PDF — the vendor most likely served a web page "
-                                + "instead of the document. Open it in a browser to check.");
-            }
-            builder.data(d.bytes()).contentType(d.contentType()).filename(filenameFromUrl(url));
         }
 
-        return toDTO(partAttachmentRepository.save(builder.build()));
+        if (attachment == null) {
+            attachment = partAttachmentRepository.save(PartAttachment.builder()
+                    .organisation(part.getOrganisation())
+                    .type(type)
+                    .data(data)
+                    .contentType(contentType)
+                    .filename(filename)
+                    .description(truncate(part.getPartNumber(), 255))
+                    .md5Hash(hash)
+                    .build());
+        } else {
+            log.info("Reusing attachment {} ({}) for part {} — identical content already stored",
+                    attachment.getId(), type, partId);
+        }
+
+        PartAttachmentLink link = partAttachmentLinkRepository.save(PartAttachmentLink.builder()
+                .part(part)
+                .attachment(attachment)
+                .displayOrder(nextDisplayOrder(partId, type))
+                .build());
+        return toDTO(link, usageOf(attachment));
     }
 
+    /** The one-entry count map {@link #toDTO} needs when a single attachment is being reported. */
+    private Map<Long, Integer> usageOf(PartAttachment attachment) {
+        partAttachmentLinkRepository.flush();
+        return Map.of(attachment.getId(),
+                (int) partAttachmentLinkRepository.countByAttachmentId(attachment.getId()));
+    }
+
+    /**
+     * Remove an attachment <b>from this part</b>. Shared content stays put for the parts still
+     * using it; the bytes go only when the last part lets go of them.
+     */
     @Transactional
     public void delete(Long partId, Long attachmentId) {
-        PartAttachment a = partAttachmentRepository.findByIdAndPartId(attachmentId, partId)
+        PartAttachmentLink link = partAttachmentLinkRepository
+                .findByPartIdAndAttachmentId(partId, attachmentId)
                 .orElseThrow(() -> new EntityNotFoundException("Attachment not found: " + attachmentId));
-        AttachmentType type = a.getType();
-        partAttachmentRepository.delete(a);
+        AttachmentType type = link.getAttachment().getType();
+        PartAttachment attachment = link.getAttachment();
+
+        partAttachmentLinkRepository.delete(link);
+        partAttachmentLinkRepository.flush();
+        if (partAttachmentLinkRepository.countByAttachmentId(attachment.getId()) == 0) {
+            partAttachmentRepository.delete(attachment);
+        }
 
         // Re-sequence display_order within the same type so it stays 0-based and contiguous.
-        List<PartAttachment> remaining = partAttachmentRepository.findByPartIdAndTypeOrderByDisplayOrder(partId, type);
+        List<PartAttachmentLink> remaining = partAttachmentLinkRepository.findByPartIdAndType(partId, type);
         for (int i = 0; i < remaining.size(); i++) {
             remaining.get(i).setDisplayOrder(i);
         }
-        partAttachmentRepository.saveAll(remaining);
+        partAttachmentLinkRepository.saveAll(remaining);
+    }
+
+    /**
+     * Detach everything from a part that is being deleted, dropping the content no other part uses.
+     * Bulk paths that delete parts straight through the database rely on the {@code ON DELETE
+     * CASCADE} on the link instead, and must call {@link #deleteOrphans()} afterwards.
+     */
+    @Transactional
+    public void deleteAllForPart(Long partId) {
+        partAttachmentLinkRepository.deleteByPartId(partId);
+        partAttachmentLinkRepository.flush();
+        partAttachmentRepository.deleteOrphans();
+    }
+
+    /** Drop content no part links to any more; returns how many rows went. */
+    @Transactional
+    public int deleteOrphans() {
+        return partAttachmentRepository.deleteOrphans();
     }
 
     private Part requirePart(Long partId) {
@@ -166,14 +285,32 @@ public class PartAttachmentService {
     }
 
     private int nextDisplayOrder(Long partId, AttachmentType type) {
-        return partAttachmentRepository.countByPartIdAndType(partId, type);
+        return partAttachmentLinkRepository.countByPartIdAndType(partId, type);
     }
 
     private void enforcePhotoLimit(Long partId) {
-        if (partAttachmentRepository.countByPartIdAndType(partId, AttachmentType.PHOTO) >= MAX_PHOTOS) {
+        if (partAttachmentLinkRepository.countByPartIdAndType(partId, AttachmentType.PHOTO) >= MAX_PHOTOS) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "Maximum of " + MAX_PHOTOS + " photos per part");
         }
+    }
+
+    /** Hex MD5 of the stored bytes — the fingerprint an identical upload is recognised by. */
+    private static String md5(byte[] data) {
+        try {
+            byte[] digest = MessageDigest.getInstance("MD5").digest(data);
+            StringBuilder sb = new StringBuilder(32);
+            for (byte b : digest) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("MD5 unavailable", e);
+        }
+    }
+
+    private static String truncate(String value, int max) {
+        return (value != null && value.length() > max) ? value.substring(0, max) : value;
     }
 
     private record Downloaded(byte[] bytes, String contentType) {}
@@ -266,14 +403,18 @@ public class PartAttachmentService {
         return (value == null || value.isBlank()) ? fallback : value;
     }
 
-    private PartAttachmentDTO toDTO(PartAttachment a) {
+    private PartAttachmentDTO toDTO(PartAttachmentLink link, Map<Long, Integer> counts) {
+        PartAttachment a = link.getAttachment();
         return PartAttachmentDTO.builder()
                 .id(a.getId())
-                .partId(a.getPart().getId())
+                .partId(link.getPart().getId())
                 .type(a.getType())
-                .displayOrder(a.getDisplayOrder())
+                .displayOrder(link.getDisplayOrder())
                 .contentType(a.getContentType())
                 .filename(a.getFilename())
+                .description(a.getDescription())
+                .md5Hash(a.getMd5Hash())
+                .partCount(counts.getOrDefault(a.getId(), 1))
                 .createdAt(a.getCreatedAt())
                 .build();
     }

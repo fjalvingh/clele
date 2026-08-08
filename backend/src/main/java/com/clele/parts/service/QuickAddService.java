@@ -10,7 +10,7 @@ import com.clele.parts.model.Part;
 import com.clele.parts.model.StockEntry;
 import com.clele.parts.model.AttachmentType;
 import com.clele.parts.repository.CategoryRepository;
-import com.clele.parts.repository.PartAttachmentRepository;
+import com.clele.parts.repository.PartAttachmentLinkRepository;
 import com.clele.parts.repository.LocationRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.repository.StockEntryRepository;
@@ -38,7 +38,7 @@ public class QuickAddService {
     private final TagService tagService;
     private final SpecDefinitionService specDefinitionService;
     private final PartAttachmentService partAttachmentService;
-    private final PartAttachmentRepository partAttachmentRepository;
+    private final PartAttachmentLinkRepository partAttachmentLinkRepository;
 
     @Transactional
     public QuickAddResponseDTO quickAdd(QuickAddRequest request) {
@@ -105,7 +105,7 @@ public class QuickAddService {
         if (partId == null || datasheetUrl == null || datasheetUrl.isBlank()) {
             return;
         }
-        if (partAttachmentRepository.countByPartIdAndType(partId, AttachmentType.DATASHEET) > 0) {
+        if (partAttachmentLinkRepository.countByPartIdAndType(partId, AttachmentType.DATASHEET) > 0) {
             return;
         }
         try {

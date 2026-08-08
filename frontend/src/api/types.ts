@@ -875,6 +875,12 @@ export interface PartAttachment {
   displayOrder: number;
   contentType?: string;
   filename?: string;
+  /** Part number of the first part this attachment was used for; it never changes. */
+  description?: string;
+  /** MD5 of the stored bytes — identical content is stored once and linked from every part using it. */
+  md5Hash?: string;
+  /** How many parts use this attachment; more than 1 means removing it here leaves the others alone. */
+  partCount?: number;
   createdAt: string;
 }
 
