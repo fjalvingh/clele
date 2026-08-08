@@ -241,7 +241,9 @@ export default function ProjectBomPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    // Full width, unlike the other pages' centred max-w-6xl: the line table carries nine columns
+    // and the match controls sit in the last of them, so a 1152px cap pushes them out of sight.
+    <div className="space-y-6 p-4 md:p-8">
       <nav className="text-sm text-gray-500">
         <Link to="/projects" className="hover:underline">Projects</Link>
         {' › '}
@@ -400,13 +402,27 @@ export default function ProjectBomPage() {
                           )}
                         </td>
                         <td className="px-4 py-2 text-sm text-gray-700">{line.value ?? '—'}</td>
-                        <td className="px-4 py-2 text-sm text-gray-500">{line.footprint ?? '—'}</td>
+                        <td className="px-4 py-2 text-sm text-gray-500">
+                          {/* A KiCad footprint name runs to 50+ characters
+                              ("Capacitor_SMD:C_0805_2012Metric_Pad1.15x1.40mm_HandSolder") and
+                              would otherwise stretch the row past the match controls. */}
+                          <div className="max-w-[14rem] truncate" title={line.footprint ?? undefined}>
+                            {line.footprint ?? '—'}
+                          </div>
+                        </td>
                         <td className="px-4 py-2 text-right text-sm text-gray-700">{line.quantity}</td>
                         <td className="px-4 py-2 text-right text-sm text-gray-700">{line.totalNeeded}</td>
                         <td className="px-4 py-2 text-sm">
                           {line.partId ? (
                             <>
-                              <Link to={`/parts/${line.partId}`} className="font-medium text-blue-600 hover:underline">
+                              {/* New tab: matching is a long pass down the list — following a part
+                                  inline would lose the filters and the place in it. */}
+                              <Link
+                                to={`/parts/${line.partId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium text-blue-600 hover:underline"
+                              >
                                 {line.partNumber}
                               </Link>
                               {line.matchSource === 'AUTO' && (
@@ -477,10 +493,10 @@ export default function ProjectBomPage() {
                 Detected from the file's headers. Correct anything that is wrong — unmapped columns
                 are still kept with the line.
               </p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
                 {BOM_COLUMN_ROLES.map((role) => (
-                  <label key={role} className="flex items-center gap-2 text-sm">
-                    <span className="w-40 shrink-0 text-gray-600">{ROLE_LABELS[role]}</span>
+                  <label key={role} className="flex min-w-0 flex-col gap-1 text-sm">
+                    <span className="truncate text-xs font-medium text-gray-600">{ROLE_LABELS[role]}</span>
                     <select
                       value={mapping[role] ?? ''}
                       onChange={(e) => {
@@ -489,7 +505,7 @@ export default function ProjectBomPage() {
                         else delete next[role];
                         setMapping(next);
                       }}
-                      className="flex-1 rounded-lg border border-gray-300 px-2 py-1 text-sm"
+                      className="w-full min-w-0 rounded-lg border border-gray-300 px-2 py-1 text-sm"
                     >
                       <option value="">— not used —</option>
                       {preview.headers.map((h) => <option key={h} value={h}>{h}</option>)}
@@ -603,7 +619,12 @@ export default function ProjectBomPage() {
               <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm">
                 <span>
                   Currently matched to{' '}
-                  <Link to={`/parts/${matchLine.partId}`} className="font-medium text-blue-600 hover:underline">
+                  <Link
+                    to={`/parts/${matchLine.partId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-blue-600 hover:underline"
+                  >
                     {matchLine.partNumber}
                   </Link>
                 </span>

@@ -274,8 +274,11 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
   const [specGroups, setSpecGroups] = useState<SpecGroup[]>([]);
   const [specValues, setSpecValues] = useState<Record<string, string>>({});
-  // Specs added during this edit: shown while still empty, so a just-picked field can be typed into.
-  const [addedKeys, setAddedKeys] = useState<string[]>([]);
+  // Keys that stay on the form even while empty: everything the part arrived with, plus anything
+  // picked from the search during this edit. Without this a row would vanish under the cursor the
+  // moment its last character was deleted — clearing a field is how you retype it, not how you
+  // remove it (that is the per-row remove button, which drops the key from here).
+  const [shownKeys, setShownKeys] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -303,7 +306,7 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
       existing[k] = String(v);
     }
     setSpecValues(existing);
-    setAddedKeys([]);
+    setShownKeys(Object.keys(existing));
     setError(null);
   }, [open, part]);
 
@@ -316,9 +319,9 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
     getSpecGroups().then(setSpecGroups).catch(() => setSpecGroups([]));
   }, [open]);
 
-  // A spec is on the form when it holds a value, or was just picked from the search.
+  // A spec is on the form when it holds a value, or is one of the keys kept on it.
   const isShown = (key: string) =>
-    (specValues[key] !== undefined && specValues[key] !== '') || addedKeys.includes(key);
+    (specValues[key] !== undefined && specValues[key] !== '') || shownKeys.includes(key);
 
   const defsByKey = useMemo(
     () => new Map(specDefs.map((d) => [d.jsonName, d])),
@@ -340,29 +343,29 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
       .map(([name, specs]) => ({ name, specs }))
       .sort((a, b) => (order.get(a.name) ?? 999) - (order.get(b.name) ?? 999));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [specDefs, specGroups, specValues, addedKeys]);
+  }, [specDefs, specGroups, specValues, shownKeys]);
 
   // Values the part carries under a key no definition covers.
   const undefinedKeys = useMemo(
     () => Object.keys(specValues).filter((k) => !defsByKey.has(k) && isShown(k)),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-    [specValues, defsByKey, addedKeys]
+    [specValues, defsByKey, shownKeys]
   );
 
   // The search offers what is not already on the form.
   const addableSpecs = useMemo(
     () => specDefs.filter((d) => !isShown(d.jsonName)),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-    [specDefs, specValues, addedKeys]
+    [specDefs, specValues, shownKeys]
   );
 
   const addSpec = (spec: SpecDefinition) => {
-    setAddedKeys((prev) => (prev.includes(spec.jsonName) ? prev : [...prev, spec.jsonName]));
+    setShownKeys((prev) => (prev.includes(spec.jsonName) ? prev : [...prev, spec.jsonName]));
     setSpecValues((prev) => ({ ...prev, [spec.jsonName]: prev[spec.jsonName] ?? '' }));
   };
 
   const removeSpec = (key: string) => {
-    setAddedKeys((prev) => prev.filter((k) => k !== key));
+    setShownKeys((prev) => prev.filter((k) => k !== key));
     setSpecValues((prev) => {
       const next = { ...prev };
       delete next[key];
