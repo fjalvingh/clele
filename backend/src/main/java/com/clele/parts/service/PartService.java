@@ -284,9 +284,10 @@ public class PartService {
         Part part = new Part();
         // Set before buildPartFromRequest so category/tag resolution can scope to the organisation.
         part.setOrganisation(currentOrganisationService.current());
+        Map<String, Object> specs = resolveSpecs(part, request);
         part = buildPartFromRequest(part, request);
         part.setCreatedBy(currentUserService.current());
-        return toDTO(saveAndSync(part));
+        return toDTO(saveAndSync(part, specs));
     }
 
     @Transactional
@@ -297,7 +298,8 @@ public class PartService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Part number already exists: " + request.getPartNumber());
         }
-        return toDTO(saveAndSync(buildPartFromRequest(part, request)));
+        Map<String, Object> specs = resolveSpecs(part, request);
+        return toDTO(saveAndSync(buildPartFromRequest(part, request), specs));
     }
 
     /**
@@ -312,12 +314,9 @@ public class PartService {
 
         part.setOctopartId(request.getOctopartId());
 
+        Map<String, Object> specs = partSpecValueService.specsOf(part.getId());
         if (request.getSpecs() != null) {
-            java.util.Map<String, Object> merged = part.getSpecs() != null
-                    ? new java.util.LinkedHashMap<>(part.getSpecs())
-                    : new java.util.LinkedHashMap<>();
-            merged.putAll(specDefinitionService.canonicalizeKeys(request.getSpecs()));
-            part.setSpecs(merged);
+            specs.putAll(specDefinitionService.canonicalizeKeys(request.getSpecs()));
         }
 
         if (request.getDescription() != null) part.setDescription(request.getDescription());
@@ -326,7 +325,7 @@ public class PartService {
         if (request.getFootprint() != null) part.setFootprint(request.getFootprint());
         if (request.getDatasheetUrl() != null) part.setDatasheetUrl(request.getDatasheetUrl());
 
-        return toDTO(saveAndSync(part));
+        return toDTO(saveAndSync(part, specs));
     }
 
     /**
@@ -342,12 +341,9 @@ public class PartService {
     public PartDTO applyAiLookup(Long id, com.clele.parts.dto.AiApplyRequest request) {
         Part part = requirePart(id);
 
+        Map<String, Object> specs = partSpecValueService.specsOf(part.getId());
         if (request.getSpecs() != null) {
-            Map<String, Object> merged = part.getSpecs() != null
-                    ? new LinkedHashMap<>(part.getSpecs())
-                    : new LinkedHashMap<>();
-            merged.putAll(specDefinitionService.canonicalizeKeys(request.getSpecs()));
-            part.setSpecs(merged);
+            specs.putAll(specDefinitionService.canonicalizeKeys(request.getSpecs()));
         }
 
         if (request.getDescription() != null) part.setDescription(request.getDescription());
@@ -357,7 +353,7 @@ public class PartService {
         if (request.getFootprint() != null) part.setFootprint(request.getFootprint());
         if (request.getDatasheetUrl() != null) part.setDatasheetUrl(request.getDatasheetUrl());
 
-        return toDTO(saveAndSync(part));
+        return toDTO(saveAndSync(part, specs));
     }
 
     @Transactional
@@ -416,9 +412,9 @@ public class PartService {
      * user-visible depends on the rows yet, and a bug in the new path cannot lose data because
      * syncing again rebuilds them from the map.
      */
-    private Part saveAndSync(Part part) {
+    private Part saveAndSync(Part part, Map<String, Object> specs) {
         Part saved = partRepository.save(part);
-        partSpecValueService.sync(saved);
+        partSpecValueService.sync(saved, specs);
         return saved;
     }
 
@@ -429,7 +425,6 @@ public class PartService {
         part.setManufacturer(request.getManufacturer());
         part.setPersonalNumber(request.isPersonalNumber());
         part.setDatasheetUrl(request.getDatasheetUrl());
-        part.setSpecs(resolveSpecs(part, request));
         if (request.getCategoryId() != null) {
             Category category = categoryRepository
                     .findByIdAndOrganisationId(request.getCategoryId(), part.getOrganisation().getId())
@@ -466,8 +461,8 @@ public class PartService {
         if (request.getSpecsMode() == SpecsMode.REPLACE) {
             return incoming;
         }
-        Map<String, Object> merged = part.getSpecs() != null
-                ? new LinkedHashMap<>(part.getSpecs())
+        Map<String, Object> merged = part.getId() != null
+                ? new LinkedHashMap<>(partSpecValueService.specsOf(part.getId()))
                 : new LinkedHashMap<>();
         if (incoming != null) {
             merged.putAll(incoming);

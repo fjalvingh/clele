@@ -175,7 +175,10 @@ public class PartKitTemplateService {
             boolean isNew = existing.isEmpty();
             if (isNew) {
                 part = partRepository.save(buildPart(template, v, partNumber));
-                partSpecValueService.sync(part);
+                // Same landing rule as every other intake path: keys are resolved onto their
+                // canonical spec name (and its aliases) before they are stored.
+                partSpecValueService.sync(part, specDefinitionService.canonicalizeKeys(
+                        expandedSpecs(template, v)));
                 for (PartAttachment image : images) {
                     partAttachmentService.link(part.getId(), image);
                 }
@@ -231,6 +234,19 @@ public class PartKitTemplateService {
         return result.isBlank() ? null : result;
     }
 
+    /** The template's spec map with the placeholder expanded — what the generated part is given. */
+    private Map<String, Object> expandedSpecs(PartKitTemplate template, String value) {
+        Map<String, Object> specs = new LinkedHashMap<>();
+        if (template.getSpecs() != null) {
+            for (Map.Entry<String, Object> e : template.getSpecs().entrySet()) {
+                String substituted =
+                        substitute(e.getValue() == null ? null : String.valueOf(e.getValue()), value);
+                if (substituted != null) specs.put(e.getKey(), substituted);
+            }
+        }
+        return specs;
+    }
+
     private Part buildPart(PartKitTemplate template, String value, String partNumber) {
         Part part = new Part();
         part.setOrganisation(template.getOrganisation());
@@ -243,17 +259,6 @@ public class PartKitTemplateService {
         part.setDatasheetUrl(substitute(template.getDatasheetUrlTemplate(), value));
         part.setCategory(template.getCategory());
         part.setCreatedBy(currentUserService.current());
-
-        Map<String, Object> specs = new LinkedHashMap<>();
-        if (template.getSpecs() != null) {
-            for (Map.Entry<String, Object> e : template.getSpecs().entrySet()) {
-                String substituted = substitute(e.getValue() == null ? null : String.valueOf(e.getValue()), value);
-                if (substituted != null) specs.put(e.getKey(), substituted);
-            }
-        }
-        // Same landing rule as every other intake path: keys are resolved onto their canonical
-        // spec name (and its aliases) before they are stored.
-        part.setSpecs(specDefinitionService.canonicalizeKeys(specs));
 
         List<String> tags = template.getTags().stream()
                 .map(t -> substitute(t, value))

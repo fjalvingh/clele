@@ -2,14 +2,16 @@
 
 Working note, 2026-08-08. Design agreed in conversation.
 
-**Status: steps 1–5 of the migration plan are built** (2026-08-08) — V50 + the RKM parser/formatter
-pair + the dual-write funnel, V51's unit families, the backfill CLI, V52's read flip, and the
-parametric search. Only step 6 (drop `part.specs`) remains.
+**Status: complete** (2026-08-08). All six steps are built: V50 + the RKM parser/formatter pair +
+the dual-write funnel, V51's unit families, the backfill CLI, V52's read flip, the parametric
+search, and V53's drop of `part.specs`. The typed rows are the storage.
 
-⚠️ **Deviation from the plan below: step 4 does NOT stop writing the JSONB.** Doing so would make
-this step irreversible — any part edited afterwards would leave stale JSONB behind — while the plan
-itself puts the point of no return at step 6. Keeping the write costs one column and leaves a live
-fallback right up to the drop, which is also what made the equivalence check below possible.
+⚠️ **Two deviations from the plan below.** Step 4 did *not* stop writing the JSONB — that would
+have made it irreversible, while the plan itself puts the point of no return at step 6; keeping the
+write cost one column, left a live fallback, and is what made step 4's equivalence check possible.
+And step 6 could not be the bare `DROP COLUMN` the plan describes: on an installation older than
+V52, Flyway applies V50–V53 in one run, so the column would be dropped in the same breath as the
+table replacing it. V53 therefore carries its own data migration.
 
 What landed:
 
@@ -28,6 +30,7 @@ What landed:
 | `V52__part_spec_text_search.sql` | `part.spec_text` + the rebuilt FTS index; reads flipped in `PartService` / `PartRepository` |
 | parametric search | repeated `?spec=jsonName:op:value`, indexed per criterion; the Specifications block in the Parts panel |
 | family rendering | `formatSpecValue` renders by unit family, so `0.00000015` shows as `150 ns` |
+| `V53__drop_part_specs.sql` | the column dropped, with a self-sufficient SQL fallback; `sync` now takes the map as an argument |
 
 Verified end to end against a scratch database built from V1→V52: every classification branch lands
 in the right shape, MERGE leaves untouched keys alone, REPLACE removes their rows, and the row count
@@ -67,6 +70,29 @@ A second one only the browser could find: `formatSpecValue` is typed as taking a
 numeric spec now arrives as a JSON **number**, so `value.trim()` threw and blanked the whole Part
 Detail page. The build was clean — the types lied, because `part.specs` is a `Record<string,
 unknown>` the callers narrow by hand.
+
+**Step 6 was not a `DROP COLUMN`.** Two things had to happen first. The write path was inverted so
+that `sync(part, specs)` takes the map as an argument — previously it read `part.getSpecs()`, so the
+column was still the input even though nothing read it for display; every intake path, the spec
+merge, convert-to-number, rescan and the AI categoriser now read the part's current values back with
+`specsOf`. And the migration had to become self-sufficient, because the backfill CLI could never have
+rescued an older installation: the CLI runs Flyway on startup too, so it would hit V53 before it
+could copy anything.
+
+The SQL fallback needed three corrections, each caught by running the V49→V53 upgrade against a copy
+of the real catalogue and counting:
+
+- **7 values vanished** — their key had no `spec_definition`, and the join dropped them. The
+  migration now creates the missing definitions first.
+- **`0805` became `805` again** — the very bug fixed in step 4, reintroduced in SQL. The losslessness
+  rule is now a regex refusing a leading zero before another digit.
+- **362 values wrongly stayed text** — the first fix was too strict, because Java applies the
+  losslessness rule only to JSON *strings* while converting JSON *numbers* unconditionally.
+  `jsonb_each_text` flattens the two; reading `jsonb_each` and testing `jsonb_typeof` restores the
+  distinction.
+
+Final: 21,719 values through the fallback against 21,719 through the Java backfill, with 15 landing
+as text that Java would have typed.
 
 Two more things the step turned up:
 

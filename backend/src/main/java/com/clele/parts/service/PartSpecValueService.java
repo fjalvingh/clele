@@ -75,16 +75,16 @@ public class PartSpecValueService {
     }
 
     /**
-     * Make {@code part}'s typed rows match its spec map. The part must already be persisted — the
-     * rows are keyed on its id.
+     * Make {@code part}'s typed rows match {@code incoming} — <b>the single write path for a spec
+     * value</b>. The part must already be persisted; the rows are keyed on its id.
+     *
+     * <p>The map is passed in rather than read off the part: {@code part.specs} is gone (V53), so
+     * the rows are the storage and the map is only ever a transient input on its way here. Callers
+     * that need the part's current values to merge against read them back with {@link #specsOf}.
      */
     @Transactional
-    public SyncResult sync(Part part) {
-        return syncLoaded(part);
-    }
-
-    private SyncResult syncLoaded(Part part) {
-        Map<String, Object> specs = part.getSpecs() == null ? Map.of() : part.getSpecs();
+    public SyncResult sync(Part part, Map<String, Object> incoming) {
+        Map<String, Object> specs = incoming == null ? Map.of() : incoming;
         Long orgId = part.getOrganisation().getId();
 
         Map<Long, PartSpecValue> existing = new HashMap<>();
@@ -162,88 +162,17 @@ public class PartSpecValueService {
     }
 
     /**
-     * Classify a part's specs and report what {@link #sync} <em>would</em> do, writing nothing.
+     * A part's specs as the {@code jsonName -> value} map every caller expects — the read side of
+     * the typed rows, and since V53 the only place a part's specs come from.
      *
-     * <p>⚠️ <b>It deliberately never loads a {@code PartSpecValue}, and never creates a definition.</b>
-     * The rows {@code sync} works on are managed entities, and mutating one in a "dry run" is enough
-     * for Hibernate's dirty checking to flush it — the preview silently <em>is</em> the write.
-     * {@code @Transactional(readOnly = true)} does not save you either: with
-     * {@code spring.jpa.open-in-view} at its default, the EntityManager outlives the transaction
-     * that set the flush mode. This is the same trap {@code ProjectBomImportService.preview}
-     * documents, avoided here by not touching a managed row at all rather than by detaching.
+     * <p><b>The map keeps exactly the shape the old JSONB had</b>, which is what let the storage be
+     * swapped underneath without a client noticing: a numeric row yields the bare base-unit number
+     * (not a rendering), a range yields the {@code "min..max"} form, and text passes through.
+     * Rendering stays where it already lives — {@code units.ts} on the way to the screen — because
+     * the edit widgets bind to the stored base number and would break on {@code "4k7"}.
      *
-     * <p>A key with no definition is counted in {@code definitionsCreated} as one that <em>would</em>
-     * be created, and classified as if it had no family — which is what it would get.
-     */
-    @Transactional(readOnly = true)
-    public SyncResult preview(Part part) {
-        return previewLoaded(part);
-    }
-
-    private SyncResult previewLoaded(Part part) {
-        Map<String, Object> specs = part.getSpecs() == null ? Map.of() : part.getSpecs();
-        Long orgId = part.getOrganisation().getId();
-
-        int scalars = 0, ranges = 0, texts = 0, wouldCreate = 0;
-        List<String> unparsed = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-
-        for (Map.Entry<String, Object> entry : specs.entrySet()) {
-            String key = entry.getKey();
-            Object raw = entry.getValue();
-            if (key == null || key.isBlank() || raw == null || String.valueOf(raw).isBlank()) continue;
-
-            SpecDefinition def = specRepo.findByOrganisationIdAndJsonName(orgId, key).orElse(null);
-            if (def == null) {
-                wouldCreate++;
-                // The definition it would get carries no family, so the value would stay as it is.
-                def = SpecDefinition.builder().jsonName(key).dataType(inferDataType(raw)).build();
-            }
-            if (!seen.add(def.getJsonName())) continue;
-
-            Classification c = classify(raw, def);
-            switch (c.shape()) {
-                case SCALAR -> scalars++;
-                case RANGE -> ranges++;
-                case TEXT -> {
-                    texts++;
-                    if (c.wanted()) unparsed.add(key + "=" + raw);
-                }
-            }
-        }
-        return new SyncResult(scalars, ranges, texts, wouldCreate, unparsed);
-    }
-
-    /**
-     * {@link #sync} for a part loaded by id, inside this method's own transaction — the entry point
-     * the bulk backfill uses.
-     *
-     * <p>The backfill has no request and therefore no open-session-in-view, so a {@code Part} handed
-     * across a loop boundary is detached and its lazy {@code organisation} cannot be read. Loading
-     * inside the transaction avoids that, and gives each part its own commit, so an interrupted run
-     * leaves every part it reached correct rather than rolling the lot back.
-     */
-    @Transactional
-    public SyncResult syncById(Long partId) {
-        return partRepo.findById(partId).map(this::syncLoaded).orElseGet(SyncResult::empty);
-    }
-
-    /** {@link #preview} for a part loaded by id. Writes nothing; see the warning on {@code preview}. */
-    @Transactional(readOnly = true)
-    public SyncResult previewById(Long partId) {
-        return partRepo.findById(partId).map(this::previewLoaded).orElseGet(SyncResult::empty);
-    }
-
-    /**
-     * A part's specs as the {@code jsonName -> value} map every caller already expects — the read
-     * side of the flip (step 4). {@code PartDTO.specs} is assembled from here instead of from the
-     * JSONB.
-     *
-     * <p><b>The map is deliberately shaped exactly like the JSONB it replaces</b>, so flipping the
-     * source changes nothing a client can see: a numeric row yields the bare base-unit number (not a
-     * rendering), a range yields the Partsbox {@code "min..max"} form it arrived as, and text passes
-     * through. Rendering stays where it already lives — {@code units.ts} on the way to the screen —
-     * because the edit widgets bind to the stored base number and would break on {@code "4k7"}.
+     * <p>It is also what a caller merges against: an update that changes one spec needs the part's
+     * current values, and this is where they now live.
      */
     @Transactional(readOnly = true)
     public Map<String, Object> specsOf(Long partId) {

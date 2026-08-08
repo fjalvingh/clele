@@ -50,6 +50,7 @@ public class PartCategorizationService {
     private final PartRepository partRepository;
     private final CategoryRepository categoryRepository;
     private final CurrentOrganisationService currentOrganisationService;
+    private final PartSpecValueService partSpecValueService;
     private final RestTemplate ollamaRestTemplate;
     private final ObjectMapper objectMapper;
     private final PlatformTransactionManager txManager;
@@ -266,9 +267,10 @@ public class PartCategorizationService {
         if (part.getManufacturer() != null) sb.append("\nManufacturer: ").append(part.getManufacturer());
         if (part.getDescription() != null) sb.append("\nDescription: ").append(part.getDescription());
         if (part.getFootprint() != null) sb.append("\nPackage: ").append(part.getFootprint());
-        if (part.getSpecs() != null && !part.getSpecs().isEmpty()) {
+        Map<String, Object> specs = partSpecValueService.specsOf(part.getId());
+        if (!specs.isEmpty()) {
             sb.append("\nSpecs: ");
-            part.getSpecs().forEach((k, v) -> sb.append(k).append('=').append(v).append("; "));
+            specs.forEach((k, v) -> sb.append(k).append('=').append(v).append("; "));
         }
         return sb.toString();
     }

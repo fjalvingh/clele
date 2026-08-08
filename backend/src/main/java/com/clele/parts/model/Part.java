@@ -56,10 +56,6 @@ public class Part {
     @Column(name = "datasheet_url", columnDefinition = "TEXT")
     private String datasheetUrl;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "jsonb")
-    private Map<String, Object> specs;
-
     /**
      * The part's textual spec values run together — the search projection the Parts free-text index
      * covers, maintained by {@code PartSpecValueService.sync} and never set by hand.

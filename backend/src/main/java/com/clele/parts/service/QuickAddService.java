@@ -128,7 +128,6 @@ public class QuickAddService {
         part.setPersonalNumber(request.isPersonalNumber());
         part.setFootprint(request.getFootprint());
         part.setDatasheetUrl(request.getDatasheetUrl());
-        part.setSpecs(specDefinitionService.canonicalizeKeys(request.getSpecs()));
         if (request.getCategoryId() != null) {
             Category category = categoryRepository
                     .findByIdAndOrganisationId(request.getCategoryId(), currentOrganisationService.currentId())
@@ -140,8 +139,8 @@ public class QuickAddService {
         }
         part.setCreatedBy(currentUserService.current());
         Part saved = partRepository.save(part);
-        // Mirror the specs into the typed part_spec_value rows, as every intake path does.
-        partSpecValueService.sync(saved);
+        // The specs live only in the typed rows, so this is where they are actually stored.
+        partSpecValueService.sync(saved, specDefinitionService.canonicalizeKeys(request.getSpecs()));
         return saved;
     }
 }

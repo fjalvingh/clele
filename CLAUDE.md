@@ -237,8 +237,8 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   - V50 adds **`part_spec_value`** — typed spec values replacing the loose `part.specs` JSONB — plus
     `spec_definition.unit_family`. One row per (part, spec definition) holding exactly one of
     `value_num` / `value_min`+`value_max` / `value_text`, enforced by a CHECK; NUMERIC rather than
-    `double precision` so one column serves both `=` and ranges. **The JSONB is still authoritative
-    for reads** — this is the dual-write step (see Typed Spec Values below)
+    `double precision` so one column serves both `=` and ranges. Shipped as a dual-write, with the
+    JSONB still authoritative; V53 later dropped it (see Typed Spec Values below)
   - V51 assigns **unit families** to the spec definitions — 189 of 209 NUMBER fields and the 18 TEXT
     fields that hold measurements, per organisation, by hand (a regex over `json_name` gets
     `naturalthermalresistance`, `inductancetolerance` and `numberofresistors` wrong). It also fixes
@@ -250,8 +250,14 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     `idx_part_search_fts` over `description || details || spec_text`. It is a *search projection*,
     not a stored rendering — an expression index cannot reach into `part_spec_value`, and V43's
     single concatenated vector is load-bearing (see Typed Spec Values below)
+  - V53 **drops `part.specs`** — the end of the migration, and the only irreversible step.
+    ⚠️ It carries its own data migration rather than trusting the backfill CLI to have run: Flyway
+    applies V50–V53 in one go on an older installation, so the column would be dropped in the same
+    breath as the table replacing it. See the migration's header — it also creates the missing
+    `spec_definition` rows first, without which the values whose key has no definition are silently
+    dropped by the join
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V53** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V54** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover
@@ -928,19 +934,19 @@ configuration, never by code**. Package `com.clele.parts.mail`:
 
 ## Typed Spec Values (in progress — dual-write)
 
-`part.specs` is a loose JSONB map, which cannot answer the query a parts database exists for:
-"Vds ≥ 60 V", "resistance = 4.7 kΩ". Measured on the catalogue — ~1,500 of its strings are Partsbox
+`part.specs` **was** a loose JSONB map, which could not answer the query a parts database exists
+for: "Vds ≥ 60 V", "resistance = 4.7 kΩ". Measured on the catalogue before the change — ~1,500 of its strings are Partsbox
 ranges (`4.5..null`) that convert-to-number has to *refuse*, ~400 are unit-bearing strings where
 `100nF`, `0.1uF` and `1e-7` are three unrelated values, and 11,384 are bare numbers invisible even to
 the full-text index. **`part_spec_value` (V50) replaces it with typed rows.** Design note and the
 full migration plan: `SPECS-REWRITE.md`.
 
-**Where this currently stands: steps 1–5 of 6 — parametric search is live.**
+**Complete.** `part.specs` is gone; the typed rows are the storage.
 `PartDTO.specs`, the sparse-specs count and the Parts free-text search all come from
-`part_spec_value`. **The JSONB is still written**, deliberately: the plan had step 4 stop writing it,
-but that would make this step irreversible, and the point of no return belongs at step 6 where the
-column is dropped. Keeping the write costs one column and leaves a live fallback. Still to come:
-dropping `part.specs` (step 6).
+`part_spec_value`, and **`PartSpecValueService.sync(part, specs)` is the only way a spec value is
+written** — it takes the map as an argument rather than reading it off the entity, which is what let
+the column go. A caller that needs the part's current values to merge against reads them back with
+`specsOf`.
 
 **The flip was verified equivalent, not assumed.** Against a copy of the real catalogue: the spec key
 set is identical for **all 1,102 parts**; the sparse count is identical (335); and over 12 search
@@ -1031,38 +1037,16 @@ value), mirrored in the URL so a search is bookmarkable.
   loaded only while the create modal is open and is scoped to the chosen category, while searching
   must offer every field whatever category a part is in.
 
-### The backfill CLI
+### Upgrading an installation
 
-`imports/SpecValueBackfillRunner` + `service/SpecValueBackfillService`, active only under the
-**`specvalues`** profile (`application-specvalues.yml` sets `web-application-type: none`, so it runs
-and exits). It fills the rows from the existing JSONB through the same `PartSpecValueService` the
-intake paths use, and reports the values that *should* have parsed and did not, grouped by distinct
-value the way convert-to-number's dry run groups its failures.
+The rows are filled by **V53 itself**, so an upgrade from any older version just works. The
+`specvalues` backfill CLI that carried the data during development is gone with the column it read.
 
-```
-cd backend
-# preview (default — writes nothing):
-mvn21 spring-boot:run -Dspring-boot.run.profiles=specvalues
-# backfill:
-mvn21 spring-boot:run -Dspring-boot.run.profiles=specvalues \
-  -Dspring-boot.run.arguments=--specvalues.dry-run=false
-```
-Options: `--specvalues.dry-run` (default true), `--specvalues.limit` (0 = all), `--specvalues.report`
-(CSV path). Measured on the development catalogue: 1,102 parts / 21,719 values in ~15 s.
-
-- **Each part is synced in its own transaction** (`PartSpecValueService.syncById`), and the runner
-  iterates a *projection* (`PartRepository.findAllForSpecBackfill`) rather than entities. That is not
-  tidiness: a CLI profile has no request and therefore **no open-session-in-view**, so a `Part` held
-  across the loop is detached and its lazy `organisation` throws on first read. This was found by
-  running it, not by reading it.
-- ⚠️ **The dry run must never touch a managed row.** `PartSpecValueService.preview` deliberately does
-  not load a `PartSpecValue` or create a definition, because mutating a managed entity in a "dry run"
-  is enough for dirty checking to flush it — and `@Transactional(readOnly = true)` does not save you
-  while `open-in-view` is on. Same trap `ProjectBomImportService.preview` documents, avoided here by
-  not touching the rows at all rather than by detaching. The evidence it works: a preview reported
-  "7 definitions would be created" twice, and the backfill then created 7.
-- **Re-runnable rather than resumable** — `sync` is idempotent and touches no network, so a second
-  full pass costs seconds and converges on the same rows.
+⚠️ **V53's SQL fallback is deliberately less capable than the Java classifier was**, and the
+difference is documented in the migration: it cannot parse `"150 ns"` against a unit family, does
+not know RKM, and does not recognise the `A ~ B` / `A to B` range spellings. Measured over the
+development catalogue that is **15 values out of 21,719** — they land as text rather than as typed
+numbers, which is visible and correctable, not lost.
 
 ### RKM code (`4k7`, `100R`, `2n2`) and the prefix window
 

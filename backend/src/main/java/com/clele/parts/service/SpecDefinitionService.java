@@ -115,14 +115,16 @@ public class SpecDefinitionService {
                     "Nothing to merge: no source spec other than the target");
         }
 
-        // Re-key every part value from a source key onto the target key.
+        // Re-key every part value from a source key onto the target key. The values live in
+        // part_spec_value, so each part's map is read back, re-keyed and written through the same
+        // sync every other path uses — the source's own rows then go with it through the
+        // spec_definition FK cascade when the source is deleted below.
         Set<String> sourceKeys = sources.stream()
                 .map(SpecDefinition::getJsonName)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        List<Part> changed = new ArrayList<>();
         for (Part part : partRepository.findByOrganisationId(organisation.getId())) {
-            Map<String, Object> specs = part.getSpecs();
-            if (specs == null || specs.isEmpty()) continue;
+            Map<String, Object> specs =
+                    new LinkedHashMap<>(partSpecValueService.specsOf(part.getId()));
             boolean touched = false;
             for (String key : sourceKeys) {
                 if (!specs.containsKey(key)) continue;
@@ -134,12 +136,8 @@ public class SpecDefinitionService {
                     specs.put(target.getJsonName(), value);
                 }
             }
-            if (touched) changed.add(part);
+            if (touched) partSpecValueService.sync(part, specs);
         }
-        partRepository.saveAll(changed);
-        // The re-keyed values must reach the typed rows too. The sources' own rows go with them
-        // through the spec_definition FK cascade when the source is deleted below.
-        changed.forEach(partSpecValueService::sync);
 
         // The sources' names — and the aliases they already held — carry over to the target.
         for (SpecDefinition source : sources) {
@@ -225,11 +223,12 @@ public class SpecDefinitionService {
             existing.put(def.getJsonName(), def);
         }
 
-        // Accumulate stats for every distinct spec key across all parts.
+        // Accumulate stats for every distinct spec key across all parts. Values come from
+        // part_spec_value in one query rather than a JSONB column per part.
         Map<String, SpecStats> stats = new LinkedHashMap<>();
-        for (Part part : partRepository.findByOrganisationId(organisation.getId())) {
-            Map<String, Object> specs = part.getSpecs();
-            if (specs == null) continue;
+        List<Long> partIds = partRepository.findByOrganisationId(organisation.getId()).stream()
+                .map(Part::getId).collect(Collectors.toList());
+        for (Map<String, Object> specs : partSpecValueService.specsOf(partIds).values()) {
             for (Map.Entry<String, Object> e : specs.entrySet()) {
                 Object value = e.getValue();
                 if (value == null) continue;
@@ -297,8 +296,7 @@ public class SpecDefinitionService {
         List<Part> matched = new ArrayList<>();
         List<String> rawValues = new ArrayList<>();
         for (Part part : parts) {
-            Map<String, Object> specs = part.getSpecs();
-            if (specs == null || !specs.containsKey(jsonName)) continue;
+            Map<String, Object> specs = partSpecValueService.specsOf(part.getId());
             Object value = specs.get(jsonName);
             if (value == null) continue;
             String str = String.valueOf(value);
@@ -346,16 +344,20 @@ public class SpecDefinitionService {
                     "Cannot convert: " + failures.size() + " value(s) still fail to parse");
         }
 
-        resolved.forEach((part, base) -> part.getSpecs().put(jsonName, base));
-        partRepository.saveAll(resolved.keySet());
-
+        // The definition changes type first, because the same string classifies differently once it
+        // is a NUMBER with a unit — the sync below must see the new definition, not the old one.
         def.setDataType("NUMBER");
         def.setUnit(unit);
         def.setMetricPrefix(req.isMetricPrefix());
         def.setOptions(null);
-        specRepo.save(def);
-        // Re-sync after the definition changed type: the same string classifies differently now.
-        resolved.keySet().forEach(partSpecValueService::sync);
+        specRepo.saveAndFlush(def);
+
+        resolved.forEach((part, base) -> {
+            Map<String, Object> specs =
+                    new LinkedHashMap<>(partSpecValueService.specsOf(part.getId()));
+            specs.put(jsonName, base);
+            partSpecValueService.sync(part, specs);
+        });
 
         return ConvertToNumberResult.builder()
                 .total(matched.size())

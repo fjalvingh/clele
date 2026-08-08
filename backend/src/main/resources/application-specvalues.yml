@@ -1,5 +1,0 @@
-# Activated by the 'specvalues' profile: run the spec-value backfill as a CLI tool and exit instead
-# of starting the web server. See SpecValueBackfillRunner for the options.
-spring:
-  main:
-    web-application-type: none

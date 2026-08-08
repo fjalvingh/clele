@@ -129,10 +129,10 @@ public class PartsboxImportService {
             part.setCreatedBy(importUser);
             part.setOrganisation(organisation);
             partRepository.save(part);
-            // Mirror the imported specs into the typed rows, as every other intake path does.
-            // Unknown keys become TEXT definitions here, which is how the importer's vocabulary
-            // has always entered the catalogue -- previously via a later "rescan from parts".
-            partSpecValueService.sync(part);
+            // The specs live only in the typed rows. Unknown keys become TEXT definitions here,
+            // which is how the importer's vocabulary has always entered the catalogue -- previously
+            // via a later "rescan from parts".
+            partSpecValueService.sync(part, buildSpecs(members));
             partCount++;
 
             List<String> images = collectImageUrls(members);
@@ -261,11 +261,16 @@ public class PartsboxImportService {
         part.setFootprint(pick(members, m -> str(m, "part/footprint")));
         part.setOctopartId(pick(members, m -> str(m, "linked/octopart-id")));
         part.setDatasheetUrl(pick(members, this::firstDatasheet));
-        part.setSpecs(pick(members, this::extractSpecs));
         return part;
     }
 
     /** Octopart specs map: each value is {v: x} or {minv,maxv}. Flatten to name -> display value. */
+    /** The merged spec map for a group of duplicate Partsbox records — the input to the row sync. */
+    private Map<String, Object> buildSpecs(List<Map<String, Object>> members) {
+        Map<String, Object> specs = pick(members, this::extractSpecs);
+        return specs == null ? Map.of() : specs;
+    }
+
     private Map<String, Object> extractSpecs(Map<String, Object> member) {
         Object specs = octo(member) == null ? null : octo(member).get("specs");
         if (!(specs instanceof Map<?, ?> specMap) || specMap.isEmpty()) {
