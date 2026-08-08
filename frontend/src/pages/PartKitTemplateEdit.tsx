@@ -132,7 +132,7 @@ const emptyForm = (): PartKitTemplateRequest => ({
   name: '',
   notes: '',
   partNumberTemplate: '',
-  personalNumber: false,
+  personalNumber: true,
   manufacturerTemplate: '',
   descriptionTemplate: '',
   detailsTemplate: '',
