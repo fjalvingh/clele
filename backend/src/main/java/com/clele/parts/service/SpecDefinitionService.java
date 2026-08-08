@@ -43,6 +43,7 @@ public class SpecDefinitionService {
     private final SpecDefinitionRepository specRepo;
     private final SpecAliasRepository aliasRepo;
     private final SpecGroupService specGroupService;
+    private final PartSpecValueService partSpecValueService;
     private final CategoryRepository categoryRepository;
     private final PartRepository partRepository;
     private final CurrentOrganisationService currentOrganisationService;
@@ -136,6 +137,9 @@ public class SpecDefinitionService {
             if (touched) changed.add(part);
         }
         partRepository.saveAll(changed);
+        // The re-keyed values must reach the typed rows too. The sources' own rows go with them
+        // through the spec_definition FK cascade when the source is deleted below.
+        changed.forEach(partSpecValueService::sync);
 
         // The sources' names — and the aliases they already held — carry over to the target.
         for (SpecDefinition source : sources) {
@@ -350,6 +354,8 @@ public class SpecDefinitionService {
         def.setMetricPrefix(req.isMetricPrefix());
         def.setOptions(null);
         specRepo.save(def);
+        // Re-sync after the definition changed type: the same string classifies differently now.
+        resolved.keySet().forEach(partSpecValueService::sync);
 
         return ConvertToNumberResult.builder()
                 .total(matched.size())

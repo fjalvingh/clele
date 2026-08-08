@@ -68,6 +68,7 @@ public class PartKitTemplateService {
     private final CurrentUserService currentUserService;
     private final StockMovementService stockMovementService;
     private final SpecDefinitionService specDefinitionService;
+    private final PartSpecValueService partSpecValueService;
     private final TagService tagService;
 
     // ------------------------------------------------------------------
@@ -174,6 +175,7 @@ public class PartKitTemplateService {
             boolean isNew = existing.isEmpty();
             if (isNew) {
                 part = partRepository.save(buildPart(template, v, partNumber));
+                partSpecValueService.sync(part);
                 for (PartAttachment image : images) {
                     partAttachmentService.link(part.getId(), image);
                 }

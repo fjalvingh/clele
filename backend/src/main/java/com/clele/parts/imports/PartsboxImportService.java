@@ -59,6 +59,7 @@ public class PartsboxImportService {
     private final PartAttachmentRepository partAttachmentRepository;
     private final PartAttachmentLinkRepository partAttachmentLinkRepository;
     private final PartAttachmentService partAttachmentService;
+    private final com.clele.parts.service.PartSpecValueService partSpecValueService;
     private final PlatformTransactionManager txManager;
 
     public record ImportSummary(int parts, int movements, int stockEntries, int mergedNames,
@@ -128,6 +129,10 @@ public class PartsboxImportService {
             part.setCreatedBy(importUser);
             part.setOrganisation(organisation);
             partRepository.save(part);
+            // Mirror the imported specs into the typed rows, as every other intake path does.
+            // Unknown keys become TEXT definitions here, which is how the importer's vocabulary
+            // has always entered the catalogue -- previously via a later "rescan from parts".
+            partSpecValueService.sync(part);
             partCount++;
 
             List<String> images = collectImageUrls(members);

@@ -37,6 +37,7 @@ public class QuickAddService {
     private final StockMovementService stockMovementService;
     private final TagService tagService;
     private final SpecDefinitionService specDefinitionService;
+    private final PartSpecValueService partSpecValueService;
     private final PartAttachmentService partAttachmentService;
     private final PartAttachmentLinkRepository partAttachmentLinkRepository;
 
@@ -138,6 +139,9 @@ public class QuickAddService {
             part.getTags().addAll(tagService.resolveOrCreate(request.getTags()));
         }
         part.setCreatedBy(currentUserService.current());
-        return partRepository.save(part);
+        Part saved = partRepository.save(part);
+        // Mirror the specs into the typed part_spec_value rows, as every intake path does.
+        partSpecValueService.sync(saved);
+        return saved;
     }
 }

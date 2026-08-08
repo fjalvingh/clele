@@ -233,8 +233,13 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     exactly one owner, and a column that is sometimes a part and sometimes a template is a column
     every query has to remember to filter. No `organisation_id`: it reaches one through
     `template_id` (see Part Kit Templates below)
+  - V50 adds **`part_spec_value`** — typed spec values replacing the loose `part.specs` JSONB — plus
+    `spec_definition.unit_family`. One row per (part, spec definition) holding exactly one of
+    `value_num` / `value_min`+`value_max` / `value_text`, enforced by a CHECK; NUMERIC rather than
+    `double precision` so one column serves both `=` and ranges. **The JSONB is still authoritative
+    for reads** — this is the dual-write step (see Typed Spec Values below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V50** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V51** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover
@@ -908,6 +913,71 @@ configuration, never by code**. Package `com.clele.parts.mail`:
   `mailersend.api-key` (`MAILERSEND_API_KEY`) / `mailersend.base-url`. SMTP still takes
   `MAIL_HOST`/`MAIL_PORT`/`MAIL_USERNAME`/`MAIL_PASSWORD` under `spring.mail.*`.
   MailerSend requires the `from` address to be on a domain verified in the MailerSend account.
+
+## Typed Spec Values (in progress — dual-write)
+
+`part.specs` is a loose JSONB map, which cannot answer the query a parts database exists for:
+"Vds ≥ 60 V", "resistance = 4.7 kΩ". Measured on the catalogue — ~1,500 of its strings are Partsbox
+ranges (`4.5..null`) that convert-to-number has to *refuse*, ~400 are unit-bearing strings where
+`100nF`, `0.1uF` and `1e-7` are three unrelated values, and 11,384 are bare numbers invisible even to
+the full-text index. **`part_spec_value` (V50) replaces it with typed rows.** Design note and the
+full migration plan: `SPECS-REWRITE.md`.
+
+**Where this currently stands: step 1 of 6 — dual-write.** Rows are written on every intake path;
+**the JSONB is still what every read uses**. Nothing user-visible has changed, and a bug in the new
+path cannot lose data because the rows are derived and rebuildable. Still to come: unit-family
+assignment, the bulk backfill, flipping reads, the parametric search UI, and finally dropping
+`part.specs`.
+
+- **`PartSpecValueService.sync(part)` is the single write path** and takes the part's
+  *already-resolved* map, making the rows match it exactly. It deliberately does not reimplement
+  `specsMode` MERGE/REPLACE — `resolveSpecs` has already applied that, so copying its outcome is
+  simpler and self-correcting. Being idempotent is what lets one method serve both the intake paths
+  and the coming backfill. Wired into `PartService.saveAndSync` (create / update / applyOctopart /
+  applyAiLookup), `QuickAddService`, `PartKitTemplateService`, the Partsbox importer, and the two
+  bulk paths in `SpecDefinitionService` (merge, convert-to-number) that rewrite `part.specs`.
+- **Classification, in order**: a range string (`"3..16"`) → `value_min`/`value_max`; a JSON number →
+  `value_num` *whatever the family*, since nothing is converted and so no magnitude can be got wrong;
+  a string with a unit family → parsed to the base SI unit; anything else → `value_text`. A refusal
+  is an ordinary outcome, not an error — it is how a value in a unit nobody declared declines to
+  become a wrong number. BOOLEAN is text (`"true"`/`"false"`): filtered by equality, never by range.
+- **An unknown key auto-creates a definition** at write time, since a row needs a
+  `spec_definition_id` (the JSONB could hold a loose key indefinitely). The type is inferred from
+  the one value in hand — weaker than `rescanFromParts`, which sees every value of a key at once and
+  can spot a SELECT, which is why a rescan still earns its place. **No unit family is ever guessed.**
+- **`spec_definition.unit_family`** (a `UnitFamily` code, mirroring the `CcUnits` families) is what
+  licenses parsing at all. **Null means never parse** — the safe default, and deliberately not a gap
+  to fill in for tidiness. Note the name is not the family: `naturalthermalresistance` is °C/W not Ω,
+  `inductancetolerance` is a percentage, `numberofresistors` is a count.
+
+### RKM code (`4k7`, `100R`, `2n2`) and the prefix window
+
+The decimal point is the least reliable character in electronics, so IEC 60062 puts the multiplier
+letter in its place. `MetricUnitParser` accepts it (infix `4k7`/`4R7`/`2n2`, trailing `47k`/`100n`)
+and `MetricUnitFormatter` produces it for resistance, capacitance and inductance;
+everything else keeps `9 mA`. Together they are an exact inverse pair, which is why **no rendering is
+ever stored** — the component cache stores a `display` because it is a read-only snapshot of someone
+else's parse, whereas here we do the parsing.
+
+- ⚠️ **Each family has a prefix window, and it binds the renderer as well as the parser.** Resistance
+  refuses a bare `m µ n p`, capacitance and inductance a bare `k M G T` — `4m7` and `4M7` differ by
+  nine orders of magnitude and one shift key with no unit symbol to make the mistake visible. It has
+  to bind rendering too: `draintosourceresistance` really holds `0.0087`, and an unrestricted
+  engineering renderer would print `8m7`, which the parser is then required to refuse. Outside the
+  window the decimal point stays and the marker suffixes: `0.0087R`, which parses back exactly.
+- ⚠️ **The window binds the *bare letter* only** — `"15 mΩ"` parses normally. Where the symbol is
+  written out the reader and the parser see the same thing, and both the component cache and the
+  datasheet extractor emit that form for the sub-ohm values (RDS(on), ESR, DCR) that are ordinary
+  here. Milliohm *resistors* are rare; milliohm *resistance values* are not.
+- ⚠️ **`R` is a resistance marker only.** On an SMD inductor `4R7` conventionally means 4.7 **µH**,
+  with the µ implied by the component class rather than written — reading that implication is the
+  same class of error as taking 4 KB for 4000, so `R` in an inductance field does not parse.
+- ⚠️ **Case is load-bearing**; `PREFIX_EXP` is case-sensitive with `K` as a kilo alias (also the usual
+  RKM spelling). Do not "clean this up" into a case-insensitive match.
+- **Three files must stay in step**: `MetricUnitParser`, `MetricUnitFormatter` and
+  `frontend/src/utils/units.ts` (`UNIT_FAMILIES`, `formatFamilyValue`, `parseFamilyValue`).
+  `MetricUnitParserTest` pins the example table on the Java side; the frontend has no test runner, so
+  the TS side was verified by running the same table through it.
 
 ## Spec Groups & Aliases
 

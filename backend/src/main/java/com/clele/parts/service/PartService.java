@@ -41,6 +41,7 @@ public class PartService {
     private final CurrentOrganisationService currentOrganisationService;
     private final TagService tagService;
     private final SpecDefinitionService specDefinitionService;
+    private final PartSpecValueService partSpecValueService;
 
     /**
      * Search the catalogue. Everything but {@code sort} is an optional filter, combined with AND:
@@ -189,7 +190,7 @@ public class PartService {
         part.setOrganisation(currentOrganisationService.current());
         part = buildPartFromRequest(part, request);
         part.setCreatedBy(currentUserService.current());
-        return toDTO(partRepository.save(part));
+        return toDTO(saveAndSync(part));
     }
 
     @Transactional
@@ -200,7 +201,7 @@ public class PartService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Part number already exists: " + request.getPartNumber());
         }
-        return toDTO(partRepository.save(buildPartFromRequest(part, request)));
+        return toDTO(saveAndSync(buildPartFromRequest(part, request)));
     }
 
     /**
@@ -229,7 +230,7 @@ public class PartService {
         if (request.getFootprint() != null) part.setFootprint(request.getFootprint());
         if (request.getDatasheetUrl() != null) part.setDatasheetUrl(request.getDatasheetUrl());
 
-        return toDTO(partRepository.save(part));
+        return toDTO(saveAndSync(part));
     }
 
     /**
@@ -260,7 +261,7 @@ public class PartService {
         if (request.getFootprint() != null) part.setFootprint(request.getFootprint());
         if (request.getDatasheetUrl() != null) part.setDatasheetUrl(request.getDatasheetUrl());
 
-        return toDTO(partRepository.save(part));
+        return toDTO(saveAndSync(part));
     }
 
     @Transactional
@@ -308,6 +309,21 @@ public class PartService {
      */
     public long countSparseSpecs() {
         return partRepository.countSparseSpecs(currentOrganisationService.currentId());
+    }
+
+    /**
+     * Save the part and mirror its specs into the typed {@code part_spec_value} rows.
+     *
+     * <p>Every path that writes specs goes through here, so the rows cannot fall behind the JSONB.
+     * The save comes first because the rows are keyed on the part's id, which a new part does not
+     * have until then. While the JSONB is still the read source this is a pure dual-write: nothing
+     * user-visible depends on the rows yet, and a bug in the new path cannot lose data because
+     * syncing again rebuilds them from the map.
+     */
+    private Part saveAndSync(Part part) {
+        Part saved = partRepository.save(part);
+        partSpecValueService.sync(saved);
+        return saved;
     }
 
     private Part buildPartFromRequest(Part part, PartRequest request) {

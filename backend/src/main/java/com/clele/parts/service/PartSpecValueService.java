@@ -1,0 +1,262 @@
+package com.clele.parts.service;
+
+import com.clele.parts.model.*;
+import com.clele.parts.repository.PartSpecValueRepository;
+import com.clele.parts.repository.SpecDefinitionRepository;
+import com.clele.parts.repository.SpecGroupRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.util.*;
+
+/**
+ * Writes a part's specs into the typed {@code part_spec_value} rows.
+ *
+ * <h2>Sync, not merge</h2>
+ *
+ * The single entry point {@link #sync(Part)} takes the part's <em>already-resolved</em> spec map and
+ * makes the rows match it exactly. It deliberately does not reimplement
+ * {@code PartRequest.specsMode} MERGE/REPLACE: by the time a part is saved, {@code resolveSpecs} has
+ * already applied that, so the map is authoritative and copying its outcome is both simpler and
+ * self-correcting. Sync is idempotent, which is what lets the same method serve the intake paths and
+ * the bulk backfill.
+ *
+ * <p>While the JSONB remains the read source (migration step 1), a bug here cannot lose data — the
+ * rows are derived and can be rebuilt by syncing every part again.
+ *
+ * <h2>How a value is classified</h2>
+ *
+ * <ol>
+ *   <li><b>A range string</b> — {@code "3..16"}, {@code "4.5..null"} — becomes {@code value_min}/
+ *       {@code value_max}, either bound open. These are the ~1,500 Partsbox ranges that are dead as
+ *       numbers today: convert-to-number has to refuse them, and no query can reach inside them.</li>
+ *   <li><b>A JSON number</b> is stored as {@code value_num} <em>whatever the family</em>. No
+ *       conversion happens, so there is no magnitude to get wrong — the number is already in
+ *       whatever unit the field means, and comparing it with its siblings is exactly as valid as it
+ *       was in the JSONB. This is what keeps the catalogue's 11,384 bare numbers numeric.</li>
+ *   <li><b>A string with a unit family</b> is parsed by {@link MetricUnitParser} into the family's
+ *       base SI unit — {@code "100nF"}, {@code "0.1 uF"} and {@code "1e-7"} all land on the same
+ *       number, where as strings they are three unrelated values.</li>
+ *   <li><b>Anything else</b> — no family, or a string the family refused — stays {@code value_text}.
+ *       Nothing was extracted from it, so nothing can drift. A refusal is an ordinary outcome, not
+ *       an error: it is how {@code 4m7} in a resistance field, or a value in a unit nobody declared,
+ *       declines to become a wrong number.</li>
+ * </ol>
+ *
+ * <p>BOOLEAN definitions are text ({@code "true"}/{@code "false"}) — filtered by equality, never by
+ * range, so they need no numeric column.
+ */
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class PartSpecValueService {
+
+    private final PartSpecValueRepository valueRepo;
+    private final SpecDefinitionRepository specRepo;
+    private final SpecGroupRepository groupRepo;
+
+    private static final String DEFAULT_GROUP_NAME = "Technical";
+
+    /** What one sync did, for the backfill report. */
+    public record SyncResult(int scalars, int ranges, int texts, int definitionsCreated,
+                             List<String> unparsed) {
+        public int total() {
+            return scalars + ranges + texts;
+        }
+    }
+
+    /**
+     * Make {@code part}'s typed rows match its spec map. The part must already be persisted — the
+     * rows are keyed on its id.
+     */
+    @Transactional
+    public SyncResult sync(Part part) {
+        Map<String, Object> specs = part.getSpecs() == null ? Map.of() : part.getSpecs();
+        Long orgId = part.getOrganisation().getId();
+
+        Map<Long, PartSpecValue> existing = new HashMap<>();
+        for (PartSpecValue v : valueRepo.findByPartId(part.getId())) {
+            existing.put(v.getSpecDefinition().getId(), v);
+        }
+
+        int scalars = 0, ranges = 0, texts = 0, created = 0;
+        List<String> unparsed = new ArrayList<>();
+        Set<Long> seen = new HashSet<>();
+        List<PartSpecValue> toSave = new ArrayList<>();
+
+        for (Map.Entry<String, Object> entry : specs.entrySet()) {
+            String key = entry.getKey();
+            Object raw = entry.getValue();
+            if (key == null || key.isBlank() || raw == null || String.valueOf(raw).isBlank()) continue;
+
+            SpecDefinition def = specRepo.findByOrganisationIdAndJsonName(orgId, key).orElse(null);
+            if (def == null) {
+                def = createDefinition(part.getOrganisation(), key, raw);
+                created++;
+            }
+            if (!seen.add(def.getId())) continue;   // two aliases of one spec on the same part
+
+            PartSpecValue row = existing.get(def.getId());
+            if (row == null) row = PartSpecValue.text(part, def, null);
+
+            Classification c = classify(raw, def);
+            switch (c.shape()) {
+                case SCALAR -> {
+                    row.setScalar(c.num());
+                    scalars++;
+                }
+                case RANGE -> {
+                    row.setRange(c.min(), c.max());
+                    ranges++;
+                }
+                case TEXT -> {
+                    row.setText(String.valueOf(raw).trim());
+                    texts++;
+                    if (c.wanted()) unparsed.add(key + "=" + raw);
+                }
+            }
+            toSave.add(row);
+        }
+
+        // Keys the part no longer carries lose their row: the map is authoritative.
+        List<PartSpecValue> stale = existing.entrySet().stream()
+                .filter(e -> !seen.contains(e.getKey()))
+                .map(Map.Entry::getValue)
+                .toList();
+
+        if (!stale.isEmpty()) valueRepo.deleteAll(stale);
+        if (!toSave.isEmpty()) valueRepo.saveAll(toSave);
+
+        return new SyncResult(scalars, ranges, texts, created, unparsed);
+    }
+
+    /** Drop a part's rows outright — for the paths that delete a part's specs wholesale. */
+    @Transactional
+    public void deleteForPart(Long partId) {
+        valueRepo.deleteByPartId(partId);
+    }
+
+    private enum Shape { SCALAR, RANGE, TEXT }
+
+    /**
+     * @param wanted true when this value <em>should</em> have parsed — a string against a field that
+     *               declares a family — and did not. That is the residue worth eyeballing; a value
+     *               with no family was never a candidate and is not a failure.
+     */
+    private record Classification(Shape shape, BigDecimal num, BigDecimal min, BigDecimal max,
+                                  boolean wanted) {
+        static Classification scalar(BigDecimal v) { return new Classification(Shape.SCALAR, v, null, null, false); }
+        static Classification range(BigDecimal lo, BigDecimal hi) { return new Classification(Shape.RANGE, null, lo, hi, false); }
+        static Classification text(boolean wanted) { return new Classification(Shape.TEXT, null, null, null, wanted); }
+    }
+
+    private Classification classify(Object raw, SpecDefinition def) {
+        if ("BOOLEAN".equals(def.getDataType())) return Classification.text(false);
+
+        // A JSON number needs no parsing and no family: nothing is converted, so nothing can be
+        // wrong about its magnitude that was not already wrong in the JSONB.
+        if (raw instanceof Number n) {
+            return Classification.scalar(new BigDecimal(n.toString()));
+        }
+
+        String s = String.valueOf(raw).trim();
+        Optional<UnitFamily> family = def.family();
+
+        if (isRange(s)) {
+            String[] bounds = s.split("\\.\\.", 2);
+            BigDecimal lo = parseBound(bounds[0], family);
+            BigDecimal hi = parseBound(bounds[1], family);
+            if (lo != null || hi != null) return Classification.range(lo, hi);
+            return Classification.text(family.isPresent());
+        }
+
+        if (family.isPresent()) {
+            Optional<String> parsed = MetricUnitParser.parseToBase(s, family.get());
+            if (parsed.isPresent()) return Classification.scalar(new BigDecimal(parsed.get()));
+            return Classification.text(true);
+        }
+
+        // No family: a bare numeric string is still a number, and storing it as one loses nothing.
+        BigDecimal plain = plainNumber(s);
+        return plain != null ? Classification.scalar(plain) : Classification.text(false);
+    }
+
+    /** A Partsbox range: two bounds separated by "..", either of which may be the word "null". */
+    private static boolean isRange(String s) {
+        return s.contains("..");
+    }
+
+    /** One bound of a range; null when open ("null") or unparseable. */
+    private static BigDecimal parseBound(String bound, Optional<UnitFamily> family) {
+        String b = bound.trim();
+        if (b.isEmpty() || b.equalsIgnoreCase("null")) return null;
+        if (family.isPresent()) {
+            return MetricUnitParser.parseToBase(b, family.get()).map(BigDecimal::new).orElse(null);
+        }
+        return plainNumber(b);
+    }
+
+    private static BigDecimal plainNumber(String s) {
+        try {
+            return new BigDecimal(s.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * A key no definition covers becomes one, in the organisation's default group.
+     *
+     * <p>The JSONB could hold a loose key indefinitely and let "rescan from parts" promote it later;
+     * a row table needs a {@code spec_definition_id}, so the promotion happens at write time instead.
+     * That is a small change in practice — only 7 keys in the whole catalogue currently lack a
+     * definition — and the existing merge / alias / convert-to-number tooling is still the cleanup
+     * path for whatever a source invents.
+     *
+     * <p>The type is inferred from the one value in hand, which is all this path has: a boolean
+     * gives BOOLEAN, a number NUMBER, anything else TEXT. That is deliberately weaker than
+     * {@code rescanFromParts}, which sees every value of a key at once and can spot a SELECT — and
+     * it is why a rescan still earns its place. Getting it roughly right matters because the type
+     * decides how the <em>next</em> value of that key is classified. No unit family is guessed:
+     * an over-eager family is how a 4 KB memory becomes 4000.
+     *
+     * <p>The group is resolved from the <b>part's</b> organisation rather than through
+     * {@code SpecGroupService.defaultGroup()}, which reads the request-scoped current organisation:
+     * this method has to work from the bulk backfill too, where there is no request.
+     */
+    private SpecDefinition createDefinition(Organisation organisation, String jsonName, Object sample) {
+        SpecDefinition def = SpecDefinition.builder()
+                .organisation(organisation)
+                .jsonName(jsonName)
+                .name(SpecNameHumanizer.humanize(jsonName))
+                .dataType(inferDataType(sample))
+                .displayOrder(0)
+                .group(defaultGroupFor(organisation))
+                .build();
+        log.debug("auto-created spec definition {} for organisation {}", jsonName, organisation.getId());
+        return specRepo.save(def);
+    }
+
+    private static String inferDataType(Object sample) {
+        if (sample instanceof Boolean) return "BOOLEAN";
+        if (sample instanceof Number) return "NUMBER";
+        String s = String.valueOf(sample).trim();
+        if ("true".equalsIgnoreCase(s) || "false".equalsIgnoreCase(s)) return "BOOLEAN";
+        return plainNumber(s) != null ? "NUMBER" : "TEXT";
+    }
+
+    private SpecGroup defaultGroupFor(Organisation organisation) {
+        Long orgId = organisation.getId();
+        return groupRepo.findByOrganisationIdAndNameIgnoreCase(orgId, DEFAULT_GROUP_NAME)
+                .or(() -> groupRepo.findByOrganisationIdOrderByDisplayOrderAscNameAsc(orgId)
+                        .stream().findFirst())
+                .orElseGet(() -> groupRepo.save(SpecGroup.builder()
+                        .organisation(organisation)
+                        .name(DEFAULT_GROUP_NAME)
+                        .displayOrder(0)
+                        .build()));
+    }
+}
