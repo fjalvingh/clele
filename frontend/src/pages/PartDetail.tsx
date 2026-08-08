@@ -1349,37 +1349,27 @@ export default function PartDetailPage() {
                   </button>
                 )}
                 {/* OctoPart enrichment — only when the part has no link yet */}
-                {canEdit && !part.octopartId && (
-                  user?.hasOctopartCredentials ? (
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={openOctopart}
-                        disabled={octoUsage != null && octoUsage.remaining <= 0}
-                        title={
-                          octoUsage != null && octoUsage.remaining <= 0
-                            ? 'Monthly OctoPart request limit reached'
-                            : 'Look this part up on OctoPart'
-                        }
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
-                      >
-                        {SearchIcon}
-                        Search OctoPart
-                      </button>
-                      {octoUsage != null && (
-                        <span className="text-xs text-gray-400">
-                          {octoUsage.remaining} left this month
-                        </span>
-                      )}
-                    </div>
-                  ) : (
-                    <Link
-                      to="/profile"
-                      className="text-xs text-blue-600 hover:underline"
-                      title="Set your OctoPart credentials to enable lookups"
+                {canEdit && !part.octopartId && user?.hasOctopartCredentials && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={openOctopart}
+                      disabled={octoUsage != null && octoUsage.remaining <= 0}
+                      title={
+                        octoUsage != null && octoUsage.remaining <= 0
+                          ? 'Monthly OctoPart request limit reached'
+                          : 'Look this part up on OctoPart'
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
                     >
-                      Set OctoPart credentials
-                    </Link>
-                  )
+                      {SearchIcon}
+                      Search OctoPart
+                    </button>
+                    {octoUsage != null && (
+                      <span className="text-xs text-gray-400">
+                        {octoUsage.remaining} left this month
+                      </span>
+                    )}
+                  </div>
                 )}
                 {canEdit && (
                   <button
