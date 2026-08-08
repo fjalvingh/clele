@@ -154,7 +154,9 @@ export default function PartKitTemplateEditPage() {
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const valueInputRef = useRef<HTMLInputElement>(null);
+  /** Non-fatal feedback about the last paste — duplicates skipped, not a failure. */
+  const [notice, setNotice] = useState<string | null>(null);
+  const valueInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     getCategoryTree().then(setCategoryTree).catch(() => {});
@@ -237,20 +239,41 @@ export default function PartKitTemplateEditPage() {
     });
   };
 
-  const addValue = () => {
-    const v = valueInput.trim();
-    if (!v) return;
-    // A value entered twice would generate the same part twice — flag it rather than adding it.
-    if (values.includes(v)) {
-      setError(`"${v}" is already in the list`);
-      return;
+  /**
+   * Add everything in the box — one value per line, so a column pasted out of a spreadsheet or a
+   * supplier's kit contents lands in one go. A duplicate is skipped rather than refused: pasting
+   * thirty values of which one is already listed is not an error worth losing the other 29 over.
+   */
+  const addValues = () => {
+    const incoming = valueInput
+      .split('\n')
+      .map((v) => v.trim())
+      .filter((v) => v !== '');
+    if (incoming.length === 0) return;
+
+    const skipped: string[] = [];
+    const added: string[] = [];
+    const seen = new Set(values);
+    for (const v of incoming) {
+      if (seen.has(v)) skipped.push(v);
+      else {
+        seen.add(v);
+        added.push(v);
+      }
     }
-    setValues((prev) => [...prev, v]);
+    if (added.length > 0) setValues((prev) => [...prev, ...added]);
     setValueInput('');
-    setError(null);
+    setNotice(
+      skipped.length === 0
+        ? null
+        : `Already in the list, skipped: ${skipped.join(', ')}`
+    );
   };
 
-  const removeValue = (v: string) => setValues((prev) => prev.filter((x) => x !== v));
+  const removeValue = (v: string) => {
+    setValues((prev) => prev.filter((x) => x !== v));
+    setNotice(null);
+  };
 
   const missingPlaceholder = !(form.partNumberTemplate ?? '').includes(PLACEHOLDER);
 
@@ -482,33 +505,40 @@ export default function PartKitTemplateEditPage() {
             Values <span className="text-sm font-normal text-gray-400">({values.length})</span>
           </h2>
           <p className="mb-4 text-sm text-gray-500">
-            One part per value. Type a value and press Enter.
+            One part per value. Type a value and press Enter, or paste a whole list — one value per
+            line.
           </p>
 
           <div className="flex gap-2">
-            <input
+            <textarea
               ref={valueInputRef}
-              type="text"
+              rows={3}
               value={valueInput}
               onChange={(e) => setValueInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                // Enter adds; Shift+Enter is how you type a second line by hand. A paste carries
+                // its own newlines and needs neither.
+                if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  addValue();
+                  addValues();
                 }
               }}
-              placeholder="e.g. 10k"
-              className="block flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder={'e.g. 10k\n4k7\n1M'}
+              className="block flex-1 rounded-md border border-gray-300 px-3 py-2 font-mono text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <button
               type="button"
-              onClick={addValue}
+              onClick={addValues}
               disabled={!valueInput.trim()}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+              className="self-start rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
             >
               Add
             </button>
           </div>
+
+          {notice && (
+            <p className="mt-2 text-xs text-amber-600">{notice}</p>
+          )}
 
           {values.length === 0 ? (
             <p className="mt-4 text-xs text-gray-400">

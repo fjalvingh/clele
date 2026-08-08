@@ -671,9 +671,13 @@ values. "Generate parts" expands the two into real parts with stock. Package: `P
   parts** per row — a dialog asking quantity per value, location (pre-selected from the user's
   last-used) and an optional unit price, which then reports per value which part was created and
   which already existed. `pages/PartKitTemplateEdit.tsx` (`/part-kits/new`, `/part-kits/:id`) is the
-  two-section editor: the part template on the left, and on the right the value list, where a value
-  is added by typing it and pressing Enter and removed with its × — **never edited**, since editing
-  one would silently orphan the part a previous run generated from it. A preview of what the first
+  two-section editor: the part template on the left, and on the right the value list, where values
+  are added through a small textarea — Enter adds, Shift+Enter is a newline, and a pasted list is
+  split **one value per line**, since a kit's contents are normally copied out of a spreadsheet or
+  a supplier's page rather than typed — and removed with their × but **never edited**, since editing
+  one would silently orphan the part a previous run generated from it. A duplicate in a paste is
+  skipped with a note naming it, not refused: losing the other twenty-nine to one repeat would be
+  the worse failure. A preview of what the first
   value produces sits under the list.
 
 ## Stock Model
