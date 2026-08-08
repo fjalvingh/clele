@@ -1,14 +1,18 @@
 package com.clele.parts.service;
 
+import com.clele.parts.dto.PartCreateRequest;
 import com.clele.parts.dto.PartDTO;
 import com.clele.parts.dto.PartRequest;
 import com.clele.parts.dto.SpecsMode;
 import com.clele.parts.model.AttachmentType;
 import com.clele.parts.model.Category;
+import com.clele.parts.model.Location;
+import com.clele.parts.model.MovementType;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.SpecDefinition;
 import com.clele.parts.model.Tag;
 import com.clele.parts.repository.CategoryRepository;
+import com.clele.parts.repository.LocationRepository;
 import com.clele.parts.repository.PartAttachmentLinkRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.repository.StockEntryRepository;
@@ -37,7 +41,9 @@ public class PartService {
 
     private final PartRepository partRepository;
     private final CategoryRepository categoryRepository;
+    private final LocationRepository locationRepository;
     private final StockEntryRepository stockEntryRepository;
+    private final StockMovementService stockMovementService;
     private final PartAttachmentLinkRepository partAttachmentLinkRepository;
     private final PartAttachmentService partAttachmentService;
     private final CurrentUserService currentUserService;
@@ -274,8 +280,16 @@ public class PartService {
                 .orElseThrow(() -> new EntityNotFoundException("Part not found: " + id));
     }
 
+    /**
+     * Create a part, and open its stock when the request carries a quantity.
+     *
+     * <p>The stock block is optional; a quantity without a location is rejected rather than stocked
+     * somewhere chosen for the user. Both happen in one transaction, so a bad location leaves no
+     * half-created part behind — the same reasoning as Quick Add, which is the other path that
+     * creates a part and its stock together.
+     */
     @Transactional
-    public PartDTO create(PartRequest request) {
+    public PartDTO create(PartCreateRequest request) {
         Long organisationId = currentOrganisationService.currentId();
         if (partRepository.existsByOrganisationIdAndPartNumber(organisationId, request.getPartNumber())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -287,7 +301,33 @@ public class PartService {
         Map<String, Object> specs = resolveSpecs(part, request);
         part = buildPartFromRequest(part, request);
         part.setCreatedBy(currentUserService.current());
-        return toDTO(saveAndSync(part, specs));
+        part = saveAndSync(part, specs);
+        addInitialStock(part, request);
+        return toDTO(part);
+    }
+
+    /**
+     * Give a newly created part its opening stock, if the create request asked for any.
+     *
+     * <p>Routed through {@link StockMovementService#apply} like every other on-hand change, so the
+     * {@code INITIAL} movement and the aggregate stay in step, and the location is remembered as
+     * the user's last-used one exactly as Quick Add does.
+     */
+    private void addInitialStock(Part part, PartCreateRequest request) {
+        if (request.getQuantity() == null) {
+            return;
+        }
+        if (request.getLocationId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A location is required when a quantity is given");
+        }
+        Location location = locationRepository
+                .findByIdAndOrganisationId(request.getLocationId(), currentOrganisationService.currentId())
+                .orElseThrow(() -> new EntityNotFoundException("Location not found: " + request.getLocationId()));
+
+        stockEntryRepository.save(stockMovementService.apply(part, location, request.getQuantity(),
+                request.getUnitPrice(), null, MovementType.INITIAL));
+        currentUserService.rememberLastLocation(location);
     }
 
     @Transactional

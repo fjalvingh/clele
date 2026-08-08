@@ -49,6 +49,7 @@ import type {
   PartKitTemplate,
   PartKitTemplateRequest,
   PartKitUndoResult,
+  PartCreateRequest,
   PartRequest,
   PartSearchResult,
   Project,
@@ -140,7 +141,7 @@ export const getPartStock = (id: number) =>
 export const getPartMovements = (id: number) =>
   client.get<StockMovement[]>(`/parts/${id}/movements`).then((r) => r.data);
 
-export const createPart = (data: PartRequest) =>
+export const createPart = (data: PartCreateRequest) =>
   client.post<Part>('/parts', data).then((r) => r.data);
 
 export const updatePart = (id: number, data: PartRequest) =>

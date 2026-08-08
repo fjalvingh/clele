@@ -1,5 +1,6 @@
 package com.clele.parts.controller;
 
+import com.clele.parts.dto.PartCreateRequest;
 import com.clele.parts.dto.PartDTO;
 import com.clele.parts.dto.PartRequest;
 import com.clele.parts.dto.StockEntryDTO;
@@ -73,7 +74,7 @@ public class PartController {
     @PostMapping
     @Operation(summary = "Create a new part")
     @PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
-    public ResponseEntity<PartDTO> create(@Valid @RequestBody PartRequest request) {
+    public ResponseEntity<PartDTO> create(@Valid @RequestBody PartCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(partService.create(request));
     }
 

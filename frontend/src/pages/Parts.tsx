@@ -13,6 +13,7 @@ import type {
   CategoryTree,
   Location,
   Part,
+  PartCreateRequest,
   PartFilters,
   PartRequest,
   SpecDefinition,
@@ -21,6 +22,7 @@ import type {
 import { SPARSE_SPEC_THRESHOLD, SPEC_OP_LABELS } from '../api/types';
 import { unitFamily } from '../utils/units';
 import { useAuth } from '../auth/AuthContext';
+import { useSettings } from '../settings/SettingsContext';
 import Badge from '../components/Badge';
 import CategoryPicker from '../components/CategoryPicker';
 import DataTable from '../components/DataTable';
@@ -42,6 +44,19 @@ const emptyForm = (): PartRequest => ({
   categoryId: null,
   tags: [],
 });
+
+/**
+ * The opening-stock block of the New Part dialog. Everything is optional, but an amount without a
+ * location is refused (client-side and again server-side) — stock is held somewhere or not at all.
+ * Kept as strings so a half-typed number is what the user sees, and parsed once on save.
+ */
+interface StockForm {
+  quantity: string;
+  locationId: string;
+  unitPrice: string;
+}
+
+const emptyStock = (): StockForm => ({ quantity: '', locationId: '', unitPrice: '' });
 
 // Split "64 KB" → ["64", "KB"] given units list; falls back to [value, first unit]
 function parseMultiUnit(value: string, units: string[]): [string, string] {
@@ -267,7 +282,8 @@ const hasAdvanced = (c: Criteria) =>
   );
 
 export default function PartsPage() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user, refresh } = useAuth();
+  const { settings } = useSettings();
   const canEdit = hasPermission('PARTS_EDIT');
   const navigate = useNavigate();
   // Search criteria are mirrored in the URL query string so navigating into a part and back
@@ -285,6 +301,7 @@ export default function PartsPage() {
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<PartRequest>(emptyForm());
+  const [stock, setStock] = useState<StockForm>(emptyStock());
   const [specValues, setSpecValues] = useState<Record<string, string>>({});
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
   // Every spec field in the organisation, for the parametric search conditions. Deliberately not
@@ -367,6 +384,15 @@ export default function PartsPage() {
   const openCreate = () => {
     const f = emptyForm();
     setForm(f);
+    // Pre-select the location this user last added stock to, as the other stock pickers do — it is
+    // ignored anyway unless they type an amount.
+    setStock({
+      ...emptyStock(),
+      locationId:
+        user?.lastLocationId && locations.some((l) => l.id === user.lastLocationId)
+          ? String(user.lastLocationId)
+          : '',
+    });
     setSpecValues({});
     setSpecDefs([]);
     setFormError(null);
@@ -383,10 +409,21 @@ export default function PartsPage() {
     for (const [key, value] of Object.entries(specValues)) {
       if (value !== undefined && value !== '') filteredSpecs[key] = value;
     }
-    const payload: PartRequest = { ...form, specs: filteredSpecs };
+    const withStock = stock.quantity.trim() !== '';
+    const payload: PartCreateRequest = {
+      ...form,
+      specs: filteredSpecs,
+      // Only sent when an amount was typed; the part is then created and stocked in one call, so a
+      // rejected location cannot leave a part behind with no stock.
+      quantity: withStock ? Number(stock.quantity) : undefined,
+      locationId: withStock ? Number(stock.locationId) : undefined,
+      unitPrice: withStock && stock.unitPrice.trim() !== '' ? Number(stock.unitPrice) : undefined,
+    };
     try {
       await createPart(payload);
       setModalOpen(false);
+      // Adding stock moves the user's last-used location, which the pickers read off the session.
+      if (withStock) await refresh();
       if (hasCriteria(criteria)) loadParts(criteria);
     } catch (e: unknown) {
       setFormError((e as Error).message);
@@ -394,6 +431,9 @@ export default function PartsPage() {
       setSaving(false);
     }
   };
+
+  // An amount with nowhere to put it is the one combination the dialog refuses.
+  const stockIncomplete = stock.quantity.trim() !== '' && !stock.locationId;
 
   const columns: Column<Part>[] = [
     {
@@ -817,6 +857,60 @@ export default function PartsPage() {
             onChange={(tags) => setForm({ ...form, tags })}
           />
 
+          {/* Opening stock — optional, but an amount needs a location to be in. */}
+          <div className="mb-4 mt-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+            <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              Stock <span className="font-normal text-gray-400">(optional)</span>
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Amount
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={stock.quantity}
+                  onChange={(e) => setStock({ ...stock, quantity: e.target.value })}
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Location{stock.quantity.trim() !== '' ? ' *' : ''}
+                </label>
+                <select
+                  value={stock.locationId}
+                  onChange={(e) => setStock({ ...stock, locationId: e.target.value })}
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">— Select —</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>{l.breadcrumb}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Price each ({settings.currencySymbol})
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={stock.unitPrice}
+                  onChange={(e) => setStock({ ...stock, unitPrice: e.target.value })}
+                  className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            {stockIncomplete && (
+              <p className="mt-2 text-xs text-red-600">
+                Pick a location for the amount entered.
+              </p>
+            )}
+          </div>
+
           {/* Dynamic spec fields */}
           {specDefs.length > 0 ? (
             <div className="mt-2">
@@ -848,7 +942,7 @@ export default function PartsPage() {
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !form.partNumber.trim()}
+            disabled={saving || !form.partNumber.trim() || stockIncomplete}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}

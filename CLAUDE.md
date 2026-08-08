@@ -805,7 +805,9 @@ one can be taken back whole** (`PartKitGenerationService`, `POST /{id}/generatio
   aggregate in the same transaction, checks the location is in the current organisation, and rejects changes that would drive
   stock negative. All manual paths route through it: `StockEntryService.create` (delta `+qty`,
   `INITIAL`), `update` (delta `new−old`, `ADJUST`; a price-only edit writes no movement),
-  `delete` (delta `−qty`, `ADJUST`, then drops the row); `QuickAddService` (delta `+qty`, `INITIAL`).
+  `delete` (delta `−qty`, `ADJUST`, then drops the row); `QuickAddService` (delta `+qty`, `INITIAL`);
+  and `PartService.create` when the New Part dialog carried an opening amount (delta `+qty`,
+  `INITIAL`, in the same transaction as the part — see *Creating a part with its stock* below).
 - **Part detail stock operations** are the explicit user-facing verbs (no "Edit" — adjusting an
   absolute quantity was unclear): `StockEntryService.addStock` (delta `+qty`, `PURCHASE`, find-or-
   create, also (re)sets the price), `takeStock` (delta `−qty`, `CONSUME`), and `move`
@@ -818,6 +820,26 @@ one can be taken back whole** (`PartKitGenerationService`, `POST /{id}/generatio
 - The Partsbox importer keeps its own dated-movement loop (movements tagged `IMPORT`, entry = Σ) — it
   was already consistent. `POST /api/stock/reconcile` (`PARTS_EDIT`) realigns every aggregate to its
   ledger and returns `{corrected: n}` — a verification/safety-net hook (expect 0 in steady state).
+
+### Creating a part with its stock
+
+The **New Part** dialog (Parts screen) carries an amount, a location and a per-item price under the
+part's own fields, so a part that was *bought* rather than merely catalogued does not have to be
+created and then stocked in a second step. All three are optional; the block is skipped entirely
+when no amount is given, and an amount **requires** a location (a price never is — how many are on
+hand is often known when what they cost is not). Enforced both places: the Save button refuses the
+incomplete combination, and `PartService.create` answers it 400.
+
+- **`PartCreateRequest extends PartRequest`, deliberately not three more nullable fields on the
+  base.** `PUT /parts/{id}` takes the base type and therefore *cannot* carry stock at all, rather
+  than carrying it and silently ignoring it — creating stock and editing a part are different acts.
+- **One transaction**, so a bad location leaves no part behind with no stock (verified: a quantity
+  with no/unknown location rolls the part back). Stock goes through `StockMovementService.apply`
+  like every other on-hand change, writing the `INITIAL` movement, and the location is remembered
+  as the user's last-used one — which is why the SPA calls `useAuth().refresh()` after a create
+  that carried stock, exactly as Quick Add does.
+- The dialog **pre-selects the last-used location** but leaves the amount blank, so the common
+  "just catalogue it" case is still one field shorter than before.
 
 ## Stock Thresholds
 
@@ -1815,7 +1837,10 @@ and would need to become display-only.
   `DELETE /admin/users/{id}/organisations/{organisationId}` — membership;
   `PUT /admin/users/{id}/organisations/{organisationId}/permissions` `{permissions}` — permissions
   in one named organisation. All `GLOBAL_ADMIN` (see All Users below)
-- `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`)
+- `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`). `POST` takes
+  `PartCreateRequest` — the part's fields plus an optional opening `quantity`/`locationId`/
+  `unitPrice`, created in one transaction (see *Creating a part with its stock*); `PUT` takes the
+  plain `PartRequest` and cannot carry stock
   - `GET /parts?search=&categoryId=&sort=&personalNumber=&manufacturer=&locationId=&sparseSpecs=&tags=` — search
     runs in the DB: `search` matches name / part_number (case-insensitive substring) + description
     **plus `details` and the textual spec values** (PostgreSQL full-text,

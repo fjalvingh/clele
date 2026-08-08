@@ -144,6 +144,22 @@ export interface PartRequest {
 }
 
 /**
+ * Creating a part, optionally with its opening stock — the New Part dialog asks for an amount, a
+ * location and a per-item price alongside the part's own fields.
+ *
+ * Deliberately separate from `PartRequest`, which is what an edit sends: the update endpoint takes
+ * the base shape and cannot carry stock at all, rather than accepting it and ignoring it.
+ *
+ * All three are optional and skipped entirely when `quantity` is null/undefined. When a quantity is
+ * given, `locationId` is required (the server rejects it otherwise) while the price stays optional.
+ */
+export interface PartCreateRequest extends PartRequest {
+  locationId?: number | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+}
+
+/**
  * The Parts screen's advanced search filters (the collapsible panel under the search bar). Every
  * field is optional; omitted ones are not filtered on. A part must carry *all* of `tags`.
  */
