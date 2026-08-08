@@ -34,6 +34,21 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, Lo
             """, nativeQuery = true)
     int sumQuantity(Long partId, Long locationId);
 
+    /**
+     * The id of the newest movement of a part, over every location.
+     *
+     * <p>Used by the kit-generation undo: the movement a run wrote must still be the last thing that
+     * happened to its part, or the stock has moved on and the run is no longer reversible. Comparing
+     * ids rather than timestamps is deliberate — two movements inside the same run share a
+     * {@code moved_at} to the microsecond.
+     */
+    @Query("SELECT MAX(m.id) FROM StockMovement m WHERE m.part.id = :partId")
+    Long findLatestIdByPartId(Long partId);
+
+    long countByPartId(Long partId);
+
+    long countByPartIdAndLocationId(Long partId, Long locationId);
+
     /** True if any movement references this location as source or destination. */
     @Query("SELECT COUNT(m) > 0 FROM StockMovement m WHERE m.location.id = :locationId OR (m.targetLocation IS NOT NULL AND m.targetLocation.id = :locationId)")
     boolean existsByLocationId(Long locationId);

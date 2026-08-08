@@ -256,8 +256,15 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     breath as the table replacing it. See the migration's header — it also creates the missing
     `spec_definition` rows first, without which the values whose key has no definition are silently
     dropped by the join
+  - V54 makes **generating a kit undoable**: `part_kit_generation` (one row per run of "Generate
+    parts" — what was asked for, and what it did) + `part_kit_generation_item` (one per value,
+    naming the part, whether the run *created* it, and the movement it wrote). Each item also
+    records `quantity_before` / `unit_price_before`, the stock entry's state immediately before the
+    run, which is the whole undo contract. The FKs to `part` and `stock_movement` are **ON DELETE
+    SET NULL, deliberately not CASCADE** — a part deleted by another route must leave the record
+    visibly incomplete, since that is exactly when undoing is refused (see Undoing a generation)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V54** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V55** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover
@@ -745,6 +752,47 @@ values. "Generate parts" expands the two into real parts with stock. Package: `P
   skipped with a note naming it, not refused: losing the other twenty-nine to one repeat would be
   the worse failure. A preview of what the first
   value produces sits under the list.
+
+### Undoing a generation
+
+Generating is the one action in this app that creates dozens of rows from a single click, and
+getting the quantity or the location wrong used to mean deleting thirty parts by hand — with nothing
+in the catalogue saying which parts had come from the run. **Every run is now recorded** (V54,
+`PartKitGeneration` + `PartKitGenerationItem`, written by `generate` itself) and **the most recent
+one can be taken back whole** (`PartKitGenerationService`, `POST /{id}/generations/{genId}/undo`).
+
+- **Undo is not a general reversal — it is the narrow claim that nothing has happened since**, and
+  every condition is checked before anything is deleted. A refusal is a 409 naming its reason, and
+  the same reason rides along with each run in `GET /{id}/generations` so the disabled button can
+  say why. A greyed-out control that will not explain itself is indistinguishable from a broken one.
+  - **Only the kit's newest run.** Undoing an earlier one would leave the later runs standing on
+    parts and stock it had just removed.
+  - **The stock is still exactly as the run left it**, per line: the movement it wrote is still the
+    last thing that happened to that part *anywhere*, and the entry still holds `quantityBefore +
+    quantityAdded`. Note this makes a consume-then-restock refuse even though the numbers match —
+    a compensating movement is still a later movement, and treating the two as equivalent is how an
+    undo silently reverses somebody else's correction.
+  - **No part it created is used in a project** — `project_part`, `project_stock` or a matched
+    `project_bom_line`. Those are decisions made about the part after it existed.
+  - **Nothing it made has vanished by another route**, which the `ON DELETE SET NULL` FKs surface.
+- **Parts the run *found* are never deleted** — they existed before it and must outlive it; only the
+  stock it added comes off them. Edits to a generated part are deliberately **not** checked: the
+  test the design commits to is about stock and project use.
+- ⚠️ **`unit_price_before` is recorded at generate time because the weighted-average cost is not
+  invertible.** `StockMovementService` recomputes the WAC on every add; there is no arithmetic that
+  recovers the previous figure afterwards once other movements exist. Verified against a live
+  instance: an entry at `108 @ 0.93` became `118 @ 0.86` and came back to `108 @ 0.93` exactly.
+- **The undo reverses the `stock_movement` rows, not `generation.location`** — a location merge
+  re-points movements, and the header's pointer would not follow. The header's location is display.
+- **A kit template's images survive an undo.** The generated part links to the same
+  `part_attachment` row the template holds, and `deleteOrphans` counts a kit template as a user of
+  the content — sweeping on part links alone would delete exactly the picture the kit hands out.
+- **Deleting the template deletes its history** (`ON DELETE CASCADE`), so those runs can no longer
+  be undone. The delete confirmation says so.
+- **Frontend**: a **History** button per row on `pages/PartKitTemplates.tsx` opens a modal listing
+  the runs newest-first — when, by whom, quantity/price/location, the created/existing/units
+  counts, an expandable per-value table, and **Undo** on the newest (replaced by its blocked reason
+  otherwise). The confirmation spells out how many parts will be deleted and how many kept.
 
 ## Stock Model
 
@@ -1720,7 +1768,8 @@ and would need to become display-only.
   BOM Import & Matching above)
 - **Part kits**: define a pack bought as a set — a resistor kit, a capacitor assortment — as one
   part template plus the list of values it varies over (including the photos every part gets), then
-  generate every part with its stock in one action (see Part Kit Templates above)
+  generate every part with its stock in one action — and take that run back again while nothing it
+  made has been touched (see Part Kit Templates above)
 - **Component cache**: a local snapshot of a distributor catalogue, consulted when adding a part
   before any web/AI lookup and available on Part Detail as "Look up in cache" — free, offline and
   instant (see Component Cache above)
@@ -1828,7 +1877,9 @@ and would need to become display-only.
   `{quantityPerValue, locationId, unitPrice?}` creates or finds one part per value and adds stock
   to each, returning per value which it was; `GET /{id}/images` / `POST /{id}/images` (multipart) /
   `GET /{id}/images/{attachmentId}` / `DELETE /{id}/images/{attachmentId}` are the photos every
-  generated part is given
+  generated part is given; `GET /{id}/generations` lists the past runs, each saying whether it can
+  still be undone and — when it cannot — why, and `POST /{id}/generations/{generationId}/undo`
+  takes one back (the newest only, 409 with the reason otherwise — see Undoing a generation)
 - **Project BOM import** (`/projects/{projectId}/bom`, all `PARTS_EDIT` — see BOM Import above):
   `GET` returns the imported BOM with every line and its match, or **204** when none has been
   imported (the normal starting state, not an error); `POST /import` (multipart `file` + optional

@@ -1048,8 +1048,47 @@ export interface PartKitGenerateResultLine {
 }
 
 export interface PartKitGenerateResult {
+  /** The recorded run — what the history lists, and what an undo takes back. */
+  generationId: number;
   partsCreated: number;
   partsFound: number;
   stockAdded: number;
   lines: PartKitGenerateResultLine[];
+}
+
+// Generation history. Every run of "Generate parts" is recorded so the most recent one can be
+// undone — see the backend's PartKitGenerationService for exactly when it can.
+
+export interface PartKitGenerationLine {
+  value: string;
+  /** Null when the part has since been deleted by some other route. */
+  partId?: number | null;
+  partNumber?: string;
+  created: boolean;
+  quantityAdded: number;
+}
+
+export interface PartKitGeneration {
+  id: number;
+  generatedAt: string;
+  generatedByName?: string;
+  quantityPerValue: number;
+  unitPrice?: number | null;
+  locationId?: number | null;
+  locationBreadcrumb?: string;
+  partsCreated: number;
+  partsFound: number;
+  stockAdded: number;
+  undoable: boolean;
+  /** Why not, in the user's terms — null when it can be undone. */
+  undoBlockedReason?: string | null;
+  lines: PartKitGenerationLine[];
+}
+
+export interface PartKitUndoResult {
+  generationId: number;
+  partsDeleted: number;
+  partsKept: number;
+  stockRemoved: number;
+  deletedPartNumbers: string[];
 }

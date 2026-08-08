@@ -13,4 +13,7 @@ public interface ProjectStockRepository extends JpaRepository<ProjectStock, Long
 
     @Query("SELECT COALESCE(SUM(ps.quantity), 0) FROM ProjectStock ps WHERE ps.project.id = :projectId AND ps.part.id = :partId")
     int sumQuantityByProjectIdAndPartId(Long projectId, Long partId);
+
+    /** Has this part been pulled into any project? Asked before a kit-generation undo deletes it. */
+    boolean existsByPartId(Long partId);
 }

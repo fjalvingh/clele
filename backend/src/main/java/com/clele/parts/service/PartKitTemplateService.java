@@ -9,12 +9,16 @@ import com.clele.parts.model.Location;
 import com.clele.parts.model.MovementType;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.PartAttachment;
+import com.clele.parts.model.PartKitGeneration;
+import com.clele.parts.model.PartKitGenerationItem;
 import com.clele.parts.model.PartKitTemplate;
 import com.clele.parts.model.PartKitTemplateAttachment;
 import com.clele.parts.model.PartKitTemplateValue;
 import com.clele.parts.model.StockEntry;
+import com.clele.parts.model.StockMovement;
 import com.clele.parts.repository.CategoryRepository;
 import com.clele.parts.repository.LocationRepository;
+import com.clele.parts.repository.PartKitGenerationRepository;
 import com.clele.parts.repository.PartKitTemplateAttachmentRepository;
 import com.clele.parts.repository.PartKitTemplateRepository;
 import com.clele.parts.repository.PartRepository;
@@ -26,6 +30,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -59,6 +65,7 @@ public class PartKitTemplateService {
 
     private final PartKitTemplateRepository templateRepository;
     private final PartKitTemplateAttachmentRepository kitAttachmentRepository;
+    private final PartKitGenerationRepository generationRepository;
     private final PartAttachmentService partAttachmentService;
     private final PartRepository partRepository;
     private final CategoryRepository categoryRepository;
@@ -157,9 +164,22 @@ public class PartKitTemplateService {
         List<PartAttachment> images = kitAttachmentRepository.findByTemplateId(template.getId())
                 .stream().map(PartKitTemplateAttachment::getAttachment).toList();
 
+        // The run's record, so it can be taken back. Saved first: the items point at it, and it is
+        // written whatever the run turns out to have done — a run that only restocked existing parts
+        // is still a run, and undoing it still takes that stock off.
+        PartKitGeneration generation = generationRepository.save(PartKitGeneration.builder()
+                .template(template)
+                .location(location)
+                .quantityPerValue(request.getQuantityPerValue() == null ? 0 : request.getQuantityPerValue())
+                .unitPrice(request.getUnitPrice())
+                .generatedBy(currentUserService.current())
+                .generatedAt(LocalDateTime.now())
+                .build());
+
         int created = 0;
         int found = 0;
         int stockAdded = 0;
+        int order = 0;
         List<PartKitGenerateResultDTO.Line> lines = new ArrayList<>();
 
         for (PartKitTemplateValue value : template.getValues()) {
@@ -189,15 +209,38 @@ public class PartKitTemplateService {
             }
 
             int qty = request.getQuantityPerValue() == null ? 0 : request.getQuantityPerValue();
+            StockMovement movement = null;
+            Integer quantityBefore = null;
+            BigDecimal priceBefore = null;
             if (qty > 0) {
+                // Read the entry as it stands *before* the add: undoing restores exactly this, and
+                // the weighted-average price the add is about to recalculate cannot be recovered
+                // afterwards. A null means there was no entry here at all, which undo also restores.
+                StockEntry before = stockEntryRepository
+                        .findByPartIdAndLocationId(part.getId(), location.getId()).orElse(null);
+                if (before != null) {
+                    quantityBefore = before.getQuantity();
+                    priceBefore = before.getUnitPrice();
+                }
                 // A part born here gets INITIAL; one that was already in the catalogue is being
                 // restocked, which is a PURCHASE. Same distinction the manual paths draw.
-                StockEntry entry = stockMovementService.apply(part, location, qty,
+                movement = stockMovementService.applyMovement(part, location, qty,
                         request.getUnitPrice(), "Generated from kit template: " + template.getName(),
                         isNew ? MovementType.INITIAL : MovementType.PURCHASE);
-                stockEntryRepository.save(entry);
                 stockAdded += qty;
             }
+
+            generation.getItems().add(PartKitGenerationItem.builder()
+                    .generation(generation)
+                    .value(v)
+                    .displayOrder(order++)
+                    .part(part)
+                    .partCreated(isNew)
+                    .quantityAdded(qty)
+                    .movement(movement)
+                    .quantityBefore(quantityBefore)
+                    .unitPriceBefore(priceBefore)
+                    .build());
 
             lines.add(PartKitGenerateResultDTO.Line.builder()
                     .value(v)
@@ -212,10 +255,16 @@ public class PartKitTemplateService {
             currentUserService.rememberLastLocation(location);
         }
 
-        log.info("Kit template {} generated {} new / {} existing parts, {} units at location {}",
-                template.getId(), created, found, stockAdded, location.getId());
+        generation.setPartsCreated(created);
+        generation.setPartsFound(found);
+        generation.setStockAdded(stockAdded);
+        generationRepository.save(generation);
+
+        log.info("Kit template {} generated {} new / {} existing parts, {} units at location {} (run {})",
+                template.getId(), created, found, stockAdded, location.getId(), generation.getId());
 
         return PartKitGenerateResultDTO.builder()
+                .generationId(generation.getId())
                 .partsCreated(created)
                 .partsFound(found)
                 .stockAdded(stockAdded)

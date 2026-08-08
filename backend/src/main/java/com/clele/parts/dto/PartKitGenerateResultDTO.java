@@ -14,6 +14,8 @@ import java.util.List;
 @AllArgsConstructor
 public class PartKitGenerateResultDTO {
 
+    /** The recorded run this was — what the history lists and what an undo takes back. */
+    private Long generationId;
     private int partsCreated;
     private int partsFound;
     private int stockAdded;

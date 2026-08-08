@@ -13,6 +13,9 @@ public interface ProjectPartRepository extends JpaRepository<ProjectPart, Long> 
 
     boolean existsByProjectIdAndPartId(Long projectId, Long partId);
 
+    /** Is this part on any project's BOM? Asked before a kit-generation undo deletes it. */
+    boolean existsByPartId(Long partId);
+
     int countByProjectId(Long projectId);
 
     void deleteByProjectId(Long projectId);

@@ -24,4 +24,7 @@ public interface ProjectBomLineRepository extends JpaRepository<ProjectBomLine, 
     List<ProjectBomLine> findByBomIdOrderByLineNo(Long bomId);
 
     int countByBomId(Long bomId);
+
+    /** Is this part matched to any imported BOM line? Asked before a kit-generation undo deletes it. */
+    boolean existsByPartId(Long partId);
 }

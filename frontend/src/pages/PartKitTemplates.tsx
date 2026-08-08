@@ -4,11 +4,247 @@ import {
   deletePartKitTemplate,
   generatePartsFromKit,
   getMyLocations,
+  getPartKitGenerations,
   getPartKitTemplates,
+  undoPartKitGeneration,
 } from '../api';
-import type { Location, PartKitGenerateResult, PartKitTemplate } from '../api/types';
+import type {
+  Location,
+  PartKitGeneration,
+  PartKitGenerateResult,
+  PartKitTemplate,
+  PartKitUndoResult,
+} from '../api/types';
 import { useAuth } from '../auth/AuthContext';
+import { useSettings } from '../settings/SettingsContext';
 import Modal from '../components/Modal';
+
+const formatWhen = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+/**
+ * The kit's generation history, and Undo on the most recent run.
+ *
+ * <p>Generating makes dozens of parts and stock movements from one click; this is the way back. Only
+ * the newest run can be taken back, and only while nothing it made has been touched — the backend
+ * decides that and sends the reason with each run, which is what the disabled button explains.
+ */
+function HistoryModal({
+  template,
+  onClose,
+  onChanged,
+}: {
+  template: PartKitTemplate;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const { formatMoney } = useSettings();
+  const [runs, setRuns] = useState<PartKitGeneration[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const [confirming, setConfirming] = useState<PartKitGeneration | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [undone, setUndone] = useState<PartKitUndoResult | null>(null);
+
+  const load = () => {
+    getPartKitGenerations(template.id)
+      .then((r) => {
+        setRuns(r);
+        setExpanded(r.length > 0 ? r[0].id : null);
+      })
+      .catch((e: Error) => setError(e.message));
+  };
+
+  useEffect(load, [template.id]);
+
+  const runUndo = async (run: PartKitGeneration) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await undoPartKitGeneration(template.id, run.id);
+      setUndone(result);
+      setConfirming(null);
+      load();
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+      setConfirming(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open onClose={onClose} title={`Generation history — ${template.name}`} wide>
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-500/10 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {undone && (
+        <div className="mb-4 rounded-lg border border-green-200 bg-green-500/10 px-4 py-3 text-sm text-green-700">
+          Undone: {undone.partsDeleted} part{undone.partsDeleted === 1 ? '' : 's'} deleted,{' '}
+          {undone.partsKept} kept, {undone.stockRemoved} unit
+          {undone.stockRemoved === 1 ? '' : 's'} of stock removed.
+        </div>
+      )}
+
+      {runs === null ? (
+        <div className="py-8 text-center text-sm text-gray-400">Loading…</div>
+      ) : runs.length === 0 ? (
+        <p className="py-8 text-center text-sm text-gray-500">
+          This kit has not been generated yet.
+        </p>
+      ) : (
+        <div className="max-h-[28rem] space-y-3 overflow-y-auto">
+          {runs.map((run) => (
+            <div key={run.id} className="rounded-lg border border-gray-200">
+              <div className="flex flex-wrap items-start justify-between gap-3 p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">
+                    {formatWhen(run.generatedAt)}
+                    {run.generatedByName && (
+                      <span className="ml-2 font-normal text-gray-500">by {run.generatedByName}</span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {run.quantityPerValue} per value
+                    {run.unitPrice != null && <> · {formatMoney(run.unitPrice)} each</>}
+                    {run.locationBreadcrumb && <> · {run.locationBreadcrumb}</>}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-600">
+                    <span className="font-medium">{run.partsCreated}</span> created,{' '}
+                    <span className="font-medium">{run.partsFound}</span> existing,{' '}
+                    <span className="font-medium">{run.stockAdded}</span> units
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setExpanded(expanded === run.id ? null : run.id)}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50"
+                  >
+                    {expanded === run.id ? 'Hide parts' : `Show ${run.lines.length} parts`}
+                  </button>
+                  {run.undoable ? (
+                    <button
+                      onClick={() => setConfirming(run)}
+                      className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
+                    >
+                      Undo
+                    </button>
+                  ) : (
+                    <span
+                      title={run.undoBlockedReason ?? undefined}
+                      className="max-w-[16rem] truncate rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-400"
+                    >
+                      {run.undoBlockedReason ?? 'Cannot be undone'}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {expanded === run.id && (
+                <div className="overflow-x-auto border-t border-gray-200">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Value</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Part</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Result</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Added</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {run.lines.map((l) => (
+                        <tr key={l.value}>
+                          <td className="px-3 py-2 font-mono text-gray-700">{l.value}</td>
+                          <td className="px-3 py-2">
+                            {l.partId ? (
+                              <Link
+                                to={`/parts/${l.partId}`}
+                                target="_blank"
+                                className="font-mono text-blue-600 hover:underline"
+                              >
+                                {l.partNumber}
+                              </Link>
+                            ) : (
+                              <span className="text-xs italic text-gray-400">deleted since</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`rounded px-2 py-0.5 text-xs ${
+                                l.created
+                                  ? 'bg-green-500/15 text-green-700'
+                                  : 'bg-gray-500/15 text-gray-600'
+                              }`}
+                            >
+                              {l.created ? 'created' : 'existing'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right text-gray-700">{l.quantityAdded}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex justify-end pt-5">
+        <button
+          onClick={onClose}
+          className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+        >
+          Close
+        </button>
+      </div>
+
+      {confirming && (
+        <Modal open onClose={() => setConfirming(null)} title="Undo this generation?">
+          <p className="text-sm text-gray-700">
+            This removes <span className="font-medium">{confirming.stockAdded}</span> unit
+            {confirming.stockAdded === 1 ? '' : 's'} of stock and deletes the{' '}
+            <span className="font-medium">{confirming.partsCreated}</span> part
+            {confirming.partsCreated === 1 ? '' : 's'} this run created.
+          </p>
+          {confirming.partsFound > 0 && (
+            <p className="mt-2 text-sm text-gray-500">
+              The {confirming.partsFound} part{confirming.partsFound === 1 ? '' : 's'} that already
+              existed {confirming.partsFound === 1 ? 'is' : 'are'} kept — only the stock this run
+              added comes off {confirming.partsFound === 1 ? 'it' : 'them'}.
+            </p>
+          )}
+          <div className="flex justify-end gap-3 pt-5">
+            <button
+              onClick={() => setConfirming(null)}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => runUndo(confirming)}
+              disabled={busy}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {busy ? 'Undoing…' : 'Undo generation'}
+            </button>
+          </div>
+        </Modal>
+      )}
+    </Modal>
+  );
+}
 
 /** The "Generate parts" dialog: how many of each value came in the pack, and where they go. */
 function GenerateModal({
@@ -183,6 +419,7 @@ export default function PartKitTemplatesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState<PartKitTemplate | null>(null);
+  const [history, setHistory] = useState<PartKitTemplate | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<PartKitTemplate | null>(null);
 
   const load = () => {
@@ -286,6 +523,13 @@ export default function PartKitTemplatesPage() {
                         Generate parts
                       </button>
                       <button
+                        onClick={() => setHistory(t)}
+                        title="Past generations of this kit, and undo the last one"
+                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50"
+                      >
+                        History
+                      </button>
+                      <button
                         onClick={() => navigate(`/part-kits/${t.id}`)}
                         className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs hover:bg-gray-50"
                       >
@@ -316,11 +560,20 @@ export default function PartKitTemplatesPage() {
         />
       )}
 
+      {history && (
+        <HistoryModal
+          template={history}
+          onClose={() => setHistory(null)}
+          onChanged={load}
+        />
+      )}
+
       {deleteConfirm && (
         <Modal open onClose={() => setDeleteConfirm(null)} title="Delete kit template">
           <p className="text-sm text-gray-700">
             Delete <span className="font-medium">{deleteConfirm.name}</span>? The parts it has
-            already generated are not touched.
+            already generated are not touched — but its generation history goes with it, so those
+            runs can no longer be undone.
           </p>
           <div className="flex justify-end gap-3 pt-5">
             <button

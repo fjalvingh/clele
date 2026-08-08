@@ -2,10 +2,13 @@ package com.clele.parts.controller;
 
 import com.clele.parts.dto.PartKitGenerateRequest;
 import com.clele.parts.dto.PartKitGenerateResultDTO;
+import com.clele.parts.dto.PartKitGenerationDTO;
+import com.clele.parts.dto.PartKitUndoResultDTO;
 import com.clele.parts.dto.PartKitTemplateDTO;
 import com.clele.parts.dto.PartAttachmentDTO;
 import com.clele.parts.dto.PartKitTemplateRequest;
 import com.clele.parts.service.PartAttachmentService.AttachmentContent;
+import com.clele.parts.service.PartKitGenerationService;
 import com.clele.parts.service.PartKitTemplateImageService;
 import com.clele.parts.service.PartKitTemplateService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,6 +36,7 @@ public class PartKitTemplateController {
 
     private final PartKitTemplateService service;
     private final PartKitTemplateImageService imageService;
+    private final PartKitGenerationService generationService;
 
     @GetMapping
     @Operation(summary = "List the current organisation's kit templates")
@@ -106,5 +110,24 @@ public class PartKitTemplateController {
     public PartKitGenerateResultDTO generate(@PathVariable Long id,
                                              @Valid @RequestBody PartKitGenerateRequest request) {
         return service.generate(id, request);
+    }
+
+    // ── Generation history and undo ───────────────────────────────────────────
+    //
+    // Generating makes dozens of rows from one click, so every run is recorded and the most recent
+    // one can be taken back whole — see PartKitGenerationService for what "undoable" means.
+
+    @GetMapping("/{id}/generations")
+    @Operation(summary = "Past runs of this kit, newest first, each saying whether it can be undone")
+    public List<PartKitGenerationDTO> generations(@PathVariable Long id) {
+        return generationService.findByTemplate(id);
+    }
+
+    @PostMapping("/{id}/generations/{generationId}/undo")
+    @Operation(summary = "Take back a generation run: remove its stock and delete the parts it created",
+            description = "Only the kit's most recent run, and only while nothing it made has been "
+                    + "touched — otherwise 409 with the reason.")
+    public PartKitUndoResultDTO undo(@PathVariable Long id, @PathVariable Long generationId) {
+        return generationService.undo(id, generationId);
     }
 }

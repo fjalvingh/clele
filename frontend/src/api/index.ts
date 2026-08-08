@@ -45,8 +45,10 @@ import type {
   PartFilters,
   PartKitGenerateRequest,
   PartKitGenerateResult,
+  PartKitGeneration,
   PartKitTemplate,
   PartKitTemplateRequest,
+  PartKitUndoResult,
   PartRequest,
   PartSearchResult,
   Project,
@@ -636,6 +638,18 @@ export const deletePartKitTemplate = (id: number) =>
 export const generatePartsFromKit = (id: number, data: PartKitGenerateRequest) =>
   client
     .post<PartKitGenerateResult>(`/part-kit-templates/${id}/generate`, data)
+    .then((r) => r.data);
+
+// The kit's generation history. Each run says whether it can still be undone and, when it cannot,
+// why — a disabled Undo with no reason reads as a bug.
+export const getPartKitGenerations = (id: number) =>
+  client
+    .get<PartKitGeneration[]>(`/part-kit-templates/${id}/generations`)
+    .then((r) => r.data);
+
+export const undoPartKitGeneration = (id: number, generationId: number) =>
+  client
+    .post<PartKitUndoResult>(`/part-kit-templates/${id}/generations/${generationId}/undo`)
     .then((r) => r.data);
 
 // A kit template's images: the photos every part it generates is given. Same store as a part's own

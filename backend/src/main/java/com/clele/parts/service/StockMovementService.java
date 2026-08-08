@@ -54,6 +54,18 @@ public class StockMovementService {
     }
 
     /**
+     * Same as {@link #apply} but returns the ledger row rather than the aggregate, for callers that
+     * must be able to point back at the exact movement they wrote — the kit-generation record, whose
+     * undo reverses that one row. The stock entry is saved either way.
+     */
+    @Transactional
+    public StockMovement applyMovement(Part part, Location location, int deltaQty,
+                                       BigDecimal unitPrice, String comments, MovementType type) {
+        requireCurrentOrganisation(location);
+        return applyInternal(part, location, deltaQty, unitPrice, comments, type, null).getFirst();
+    }
+
+    /**
      * Project-aware apply: same as {@link #apply} but sets {@code movement.project} so the ledger
      * row links directly to the project by FK. Returns the saved movement (for storing its id in
      * {@code project_stock}).
