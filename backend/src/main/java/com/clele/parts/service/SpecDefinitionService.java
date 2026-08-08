@@ -472,6 +472,11 @@ public class SpecDefinitionService {
         spec.setDataType(request.getDataType() != null ? request.getDataType() : "TEXT");
         spec.setUnit(request.getUnit());
         spec.setMetricPrefix(request.isMetricPrefix());
+        // Blank means "no family", i.e. never parse this field's values — an empty string would be
+        // an unknown code, which UnitFamily.byCode resolves to nothing anyway, but storing null says
+        // it deliberately.
+        spec.setUnitFamily(request.getUnitFamily() == null || request.getUnitFamily().isBlank()
+                ? null : request.getUnitFamily().trim());
         spec.setDisplayOrder(request.getDisplayOrder());
         spec.setGroup(request.getGroupId() != null
                 ? specGroupService.requireGroup(request.getGroupId())
@@ -544,6 +549,7 @@ public class SpecDefinitionService {
                 .dataType(spec.getDataType())
                 .unit(spec.getUnit())
                 .metricPrefix(spec.isMetricPrefix())
+                .unitFamily(spec.getUnitFamily())
                 .options(options.isEmpty() ? null : options)
                 .displayOrder(spec.getDisplayOrder())
                 .groupId(spec.getGroup() != null ? spec.getGroup().getId() : null)

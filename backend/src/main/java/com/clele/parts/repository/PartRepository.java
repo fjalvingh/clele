@@ -56,7 +56,7 @@ public interface PartRepository extends JpaRepository<Part, Long> {
                    OR p.part_number ILIKE '%' || :term || '%'
                    OR (to_tsvector('english', coalesce(p.description, ''))
                        || to_tsvector('english', coalesce(p.details, ''))
-                       || jsonb_to_tsvector('english', coalesce(p.specs, '{}'), '["string"]'))
+                       || to_tsvector('english', coalesce(p.spec_text, '')))
                       @@ websearch_to_tsquery('english', :term))
               AND (:categoryId IS NULL OR p.category_id IN (
                    WITH RECURSIVE subtree AS (
@@ -79,7 +79,7 @@ public interface PartRepository extends JpaRepository<Part, Long> {
                          )
                          SELECT id FROM loctree)))
               AND (:sparseSpecs IS NULL OR :sparseSpecs = FALSE
-                   OR (SELECT count(*) FROM jsonb_object_keys(coalesce(p.specs, '{}'))) < 5)
+                   OR (SELECT count(*) FROM part_spec_value v WHERE v.part_id = p.id) < 5)
             ORDER BY p.part_number
             """, nativeQuery = true)
     List<Part> search(@Param("orgId") Long organisationId,
@@ -91,23 +91,20 @@ public interface PartRepository extends JpaRepository<Part, Long> {
                       @Param("sparseSpecs") Boolean sparseSpecs);
 
     /**
-     * How many parts in the organisation carry fewer than {@link #SPARSE_SPEC_THRESHOLD} spec keys —
+     * How many parts in the organisation carry fewer than {@link #SPARSE_SPEC_THRESHOLD} spec values —
      * the "parts missing specs" figure on the dashboard.
      *
-     * <p>{@code coalesce} is load-bearing: {@code jsonb_object_keys} errors on a NULL input, and a
-     * part that has never been through a lookup has {@code specs IS NULL}, which is exactly the
-     * population being counted.
-     *
-     * <p>Note the missing cast on {@code '{}'}: writing PostgreSQL's {@code '{}'::jsonb} here fails
-     * at runtime, because Hibernate reads the {@code :} of {@code ::} as the start of a named
-     * parameter and mangles the SQL ("syntax error at or near \":\""). No cast is needed anyway —
-     * {@code p.specs} is jsonb, so coalesce coerces the literal. Use {@code cast(x as jsonb)} if an
-     * explicit cast is ever unavoidable.
+     * <p>Counts {@code part_spec_value} rows rather than JSONB keys (step 4 of the typed spec value
+     * migration). A part with no specs at all has no rows, and {@code count(*)} of nothing is 0, so
+     * the population being counted needs no {@code coalesce} guard the way {@code jsonb_object_keys}
+     * did — that function errors on NULL, and a part that has never been through a lookup has
+     * {@code specs IS NULL}. {@code part_id} is the leading column of the primary key, so this is an
+     * index-only scan.
      */
     @Query(value = """
             SELECT count(*) FROM part p
             WHERE p.organisation_id = :orgId
-              AND (SELECT count(*) FROM jsonb_object_keys(coalesce(p.specs, '{}'))) < 5
+              AND (SELECT count(*) FROM part_spec_value v WHERE v.part_id = p.id) < 5
             """, nativeQuery = true)
     long countSparseSpecs(@Param("orgId") Long organisationId);
 

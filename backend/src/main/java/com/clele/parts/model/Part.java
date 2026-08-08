@@ -60,6 +60,18 @@ public class Part {
     @Column(columnDefinition = "jsonb")
     private Map<String, Object> specs;
 
+    /**
+     * The part's textual spec values run together — the search projection the Parts free-text index
+     * covers, maintained by {@code PartSpecValueService.sync} and never set by hand.
+     *
+     * <p>It exists because V43's single concatenated tsvector is load-bearing (a tsquery ANDs its
+     * terms, so "transistor sot-23" must find both in one vector) and an expression index cannot
+     * reach into {@code part_spec_value}. This is a search projection, not a stored rendering: drift
+     * costs a missed hit, not a wrong number on screen, and the same write path rebuilds it.
+     */
+    @Column(name = "spec_text", columnDefinition = "TEXT")
+    private String specText;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id")
     private Category category;

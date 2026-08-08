@@ -2,10 +2,16 @@
 
 Working note, 2026-08-08. Design agreed in conversation.
 
-**Status: steps 1–3 of the migration plan are built** (2026-08-08) — V50 + the RKM parser/formatter
-pair + the dual-write funnel, V51's unit families, and the backfill CLI. The JSONB is still
-authoritative for reads; nothing user-visible has changed. Steps 4–6 (flip reads, parametric search
-UI, drop `part.specs`) are still open. What landed:
+**Status: steps 1–4 of the migration plan are built** (2026-08-08) — V50 + the RKM parser/formatter
+pair + the dual-write funnel, V51's unit families, the backfill CLI, and V52's read flip. The rows
+are now what everything reads. Steps 5–6 (parametric search UI, drop `part.specs`) are still open.
+
+⚠️ **Deviation from the plan below: step 4 does NOT stop writing the JSONB.** Doing so would make
+this step irreversible — any part edited afterwards would leave stale JSONB behind — while the plan
+itself puts the point of no return at step 6. Keeping the write costs one column and leaves a live
+fallback right up to the drop, which is also what made the equivalence check below possible.
+
+What landed:
 
 | | |
 |---|---|
@@ -17,13 +23,13 @@ UI, drop `part.specs`) are still open. What landed:
 | `model/PartSpecValue` + repository | composite-key entity; the shape mutators are the only way in |
 | `service/PartSpecValueService` | `sync(part)` — the single write path, idempotent |
 | wiring | `PartService.saveAndSync`, QuickAdd, kit generation, Partsbox import, spec merge + convert-to-number |
-
 | `V51__spec_unit_families.sql` | families for 189/209 NUMBER + 18/43 TEXT definitions, by hand |
 | `SpecValueBackfillService` + `Runner` | the `specvalues` CLI profile — preview by default, per-part transactions, residue report |
+| `V52__part_spec_text_search.sql` | `part.spec_text` + the rebuilt FTS index; reads flipped in `PartService` / `PartRepository` |
 
-Verified end to end against a scratch database built from V1→V51: every classification branch lands
+Verified end to end against a scratch database built from V1→V52: every classification branch lands
 in the right shape, MERGE leaves untouched keys alone, REPLACE removes their rows, and the row count
-matches the JSONB key count. 126 backend tests green.
+matches the JSONB key count. 128 backend tests green.
 
 **Measured by the real backfill** (development catalogue, 1,102 parts, 21,719 values, ~15 s):
 **13,265 (61%) are numerically queryable** — 11,773 scalars plus **1,492 ranges that were entirely
@@ -38,6 +44,24 @@ WHERE sd.json_name='resistance' AND v.value_num BETWEEN 1000 AND 10000
 -- parts whose supply-voltage RANGE covers 3.3 V
 WHERE coalesce(v.value_min,'-Infinity') <= 3.3 AND coalesce(v.value_max,'Infinity') >= 3.3
 ```
+
+**Step 4 was verified equivalent rather than assumed.** Against a copy of the real catalogue: the
+spec key set is identical for all 1,102 parts, the sparse count is identical (335), and across
+12 search terms × 1,102 parts exactly **one** (part, term) pair changed — `"16 mhz"` stopped matching
+a 2.2 MHz op-amp whose supply-voltage range happened to end at 16, an accidental hit from tokenising
+`"4..16"`. Of 21,719 values, 34 render differently and all are intended (whitespace normalised,
+plain-vs-scientific notation, a human range parsed, a unit string parsed to base).
+
+Two more things the step turned up:
+
+- **`"0805"` was being read as the number 805.** An imperial case code in a family-less field: the
+  fallback converted any numeric-looking string, which destroyed the value *and* dropped it out of
+  the free-text search. Conversion is now allowed only when the number can reproduce the string
+  exactly, compared against the value as it is read back (so `"1.50"` also stays text).
+- **The FTS needed a materialised column.** V43's single concatenated tsvector is load-bearing (a
+  tsquery ANDs its terms), and an expression index cannot reach into another table. `part.spec_text`
+  keeps both the semantics and the index; a correlated subquery would have kept the semantics and
+  lost the index, which is fine at 1,102 parts and not at ten times that.
 
 Three things learned in step 2 that were not in the original design:
 

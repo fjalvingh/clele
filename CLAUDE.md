@@ -194,6 +194,7 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   - V43 brings `part.details` and `part.specs` into the Parts free-text search: it drops V9's
     description-only index and creates `idx_part_search_fts`, a GIN index over the **concatenation**
     `to_tsvector(description) || to_tsvector(details) || jsonb_to_tsvector(specs, '["string"]')`
+    (the jsonb term replaced by `part.spec_text` in V52)
     (see Parts search below)
   - V44 adds **BOM import**: `project_bom` (one per project — unique `project_id` — holding the
     uploaded file, its column mapping and who imported it) + `project_bom_line` (one row per line
@@ -244,8 +245,13 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     `currenttransferratio`, which was declared in amperes and rendered "1.6 kA" for a 1600% opto.
     20 NUMBER fields are deliberately left family-less — see the migration's header for the measured
     reason on each
+  - V52 moves the Parts free-text search off `part.specs`: adds **`part.spec_text`** (the textual
+    spec values run together, maintained by `PartSpecValueService.sync`) and rebuilds
+    `idx_part_search_fts` over `description || details || spec_text`. It is a *search projection*,
+    not a stored rendering — an expression index cannot reach into `part_spec_value`, and V43's
+    single concatenated vector is load-bearing (see Typed Spec Values below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V52** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V53** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover
@@ -929,11 +935,34 @@ ranges (`4.5..null`) that convert-to-number has to *refuse*, ~400 are unit-beari
 the full-text index. **`part_spec_value` (V50) replaces it with typed rows.** Design note and the
 full migration plan: `SPECS-REWRITE.md`.
 
-**Where this currently stands: steps 1–3 of 6 — dual-write, families assigned, backfill built.** Rows
-are written on every intake path and the backlog can be filled from the JSONB on demand; **the JSONB
-is still what every read uses**. Nothing user-visible has changed, and a bug in the new path cannot
-lose data because the rows are derived and rebuildable. Still to come: flipping reads, the
+**Where this currently stands: steps 1–4 of 6 — the rows are now what everything reads.**
+`PartDTO.specs`, the sparse-specs count and the Parts free-text search all come from
+`part_spec_value`. **The JSONB is still written**, deliberately: the plan had step 4 stop writing it,
+but that would make this step irreversible, and the point of no return belongs at step 6 where the
+column is dropped. Keeping the write costs one column and leaves a live fallback. Still to come: the
 parametric search UI, and dropping `part.specs`.
+
+**The flip was verified equivalent, not assumed.** Against a copy of the real catalogue: the spec key
+set is identical for **all 1,102 parts**; the sparse count is identical (335); and over 12 search
+terms × 1,102 parts exactly **one** (part, term) pair changed — `"16 mhz"` stopped matching a 2.2 MHz
+op-amp whose *supply-voltage range* happened to end at 16. That was an accidental hit from tokenising
+`"4..16"`, and dropping it is the same rule V43 already applied to JSON numbers. Of 21,719 values, 34
+render differently and every one is intended: whitespace normalised, plain-vs-scientific notation, a
+human range (`-20°C to +70°C`) parsed into `-20..70`, or a unit string (`150 ns`) parsed to its base
+unit.
+
+- **`PartDTO.specs` is shaped exactly like the JSONB it replaces** (`PartSpecValueService.specsOf`):
+  a numeric row yields the bare base-unit number, a range the Partsbox `"min..max"` form, text passes
+  through. It deliberately does **not** render — the edit widgets bind to the stored base number and
+  would break on `"4k7"`. Rendering stays in `units.ts` on the way to the screen.
+- **List paths batch it.** `PartService.specsFor(parts)` loads one map for the whole page;
+  `toDTO(Part)` alone runs a query per call, so a search result mapped through it would be a query
+  per row.
+- ⚠️ **A numeric-looking string becomes a number only when the round trip is lossless**
+  (`PartSpecValueService.numericIfLossless`). `"0805"` is an imperial case code in a family-less
+  field: read as 805 it lost both its value and its place in the free-text search, so searching
+  "0805" stopped finding the part. The comparison is against the value **as it will be read back**
+  (trailing zeros stripped), or `"1.50"` would count as lossless and come back as `1.5`.
 
 Measured coverage once V51's families are in place — **12,872 of 21,719 values (59%) become
 numerically queryable**: 11,384 bare numbers, plus 1,492 ranges that were entirely dead before (no
@@ -1728,7 +1757,7 @@ and would need to become display-only.
 - `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`)
   - `GET /parts?search=&categoryId=&sort=&personalNumber=&manufacturer=&locationId=&sparseSpecs=&tags=` — search
     runs in the DB: `search` matches name / part_number (case-insensitive substring) + description
-    **plus `details` and the string values in `part.specs`** (PostgreSQL full-text,
+    **plus `details` and the textual spec values** (PostgreSQL full-text,
     `websearch_to_tsquery`, over the single concatenated vector indexed by V43 — so "sot-23" or
     "0805" finds a part by its package, and a multi-term query may draw one term from the
     description and another from the specs); `categoryId` matches the category **and all

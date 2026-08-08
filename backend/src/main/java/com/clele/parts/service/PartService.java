@@ -75,8 +75,9 @@ public class PartService {
         }
         Map<Long, Long> stockByPart = stockByOrganisation(parts);
         Map<Long, Long> thumbnailByPart = thumbnailsFor(parts);
+        Map<Long, Map<String, Object>> specsByPart = specsFor(parts);
         return parts.stream()
-                .map(p -> toDTOWithStock(p, stockByPart, thumbnailByPart))
+                .map(p -> toDTOWithStock(p, stockByPart, thumbnailByPart, specsByPart))
                 .sorted(comparator)
                 .collect(Collectors.toList());
     }
@@ -93,6 +94,17 @@ public class PartService {
         partAttachmentLinkRepository.findIdsByPartIdsAndType(ids, AttachmentType.PHOTO)
                 .forEach(row -> result.putIfAbsent((Long) row[0], (Long) row[1]));
         return result;
+    }
+
+    /**
+     * Spec maps for the listed parts, in one query. The single-part {@link #toDTO(Part)} would
+     * otherwise run one per row, which for a search result is the difference between one query and
+     * a hundred.
+     */
+    private Map<Long, Map<String, Object>> specsFor(List<Part> parts) {
+        if (parts.isEmpty()) return Map.of();
+        return partSpecValueService.specsOf(
+                parts.stream().map(Part::getId).collect(Collectors.toList()));
     }
 
     /**
@@ -121,14 +133,16 @@ public class PartService {
         }
         Map<Long, Long> stockByPart = stockByOrganisation(parts);
         Map<Long, Long> thumbnailByPart = thumbnailsFor(parts);
+        Map<Long, Map<String, Object>> specsByPart = specsFor(parts);
         return parts.stream()
-                .map(p -> toDTOWithStock(p, stockByPart, thumbnailByPart))
+                .map(p -> toDTOWithStock(p, stockByPart, thumbnailByPart, specsByPart))
                 .collect(Collectors.toList());
     }
 
     private PartDTO toDTOWithStock(Part part, Map<Long, Long> stockByPart,
-                                   Map<Long, Long> thumbnailByPart) {
-        PartDTO dto = toDTO(part);
+                                   Map<Long, Long> thumbnailByPart,
+                                   Map<Long, Map<String, Object>> specsByPart) {
+        PartDTO dto = toDTO(part, specsByPart.getOrDefault(part.getId(), Map.of()));
         dto.setTotalQuantity(stockByPart.getOrDefault(part.getId(), 0L));
         dto.setThumbnailId(thumbnailByPart.get(part.getId()));
         return dto;
@@ -159,8 +173,9 @@ public class PartService {
         List<Part> parts = partRepository.fuzzyByPartNumber(currentOrganisationService.currentId(), term);
         Map<Long, Long> stockByPart = stockByOrganisation(parts);
         Map<Long, Long> thumbnailByPart = thumbnailsFor(parts);
+        Map<Long, Map<String, Object>> specsByPart = specsFor(parts);
         return parts.stream()
-                .map(p -> toDTOWithStock(p, stockByPart, thumbnailByPart))
+                .map(p -> toDTOWithStock(p, stockByPart, thumbnailByPart, specsByPart))
                 .collect(Collectors.toList());
     }
 
@@ -391,7 +406,16 @@ public class PartService {
         return String.join(" > ", parts);
     }
 
+    /**
+     * Single-part mapping. Specs come from {@code part_spec_value} (step 4 of the typed spec value
+     * migration), which costs one extra query — use {@link #toDTO(Part, Map)} with a pre-loaded map
+     * for anything mapping a list, or a page of results becomes a query per row.
+     */
     public PartDTO toDTO(Part part) {
+        return toDTO(part, partSpecValueService.specsOf(part.getId()));
+    }
+
+    public PartDTO toDTO(Part part, Map<String, Object> specs) {
         return PartDTO.builder()
                 .id(part.getId())
                 .partNumber(part.getPartNumber())
@@ -403,7 +427,7 @@ public class PartService {
                 .octopartId(part.getOctopartId())
                 .personalNumber(part.isPersonalNumber())
                 .datasheetUrl(part.getDatasheetUrl())
-                .specs(part.getSpecs())
+                .specs(specs)
                 .categoryId(part.getCategory() != null ? part.getCategory().getId() : null)
                 .categoryName(part.getCategory() != null ? part.getCategory().getName() : null)
                 .categoryBreadcrumb(buildBreadcrumb(part.getCategory()))

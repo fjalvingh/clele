@@ -25,6 +25,9 @@ public class SpecDefinitionRequest {
     /** NUMBER with a single base SI unit: render/edit the value with metric prefixes. */
     private boolean metricPrefix;
 
+    /** UnitFamily code, or null/blank for "never parse this field's values". */
+    private String unitFamily;
+
     private List<String> options;
 
     private int displayOrder;

@@ -140,7 +140,25 @@ public class PartSpecValueService {
         if (!stale.isEmpty()) valueRepo.deleteAll(stale);
         if (!toSave.isEmpty()) valueRepo.saveAll(toSave);
 
+        // The search projection the Parts free-text index covers. Written here because this is the
+        // only path that writes a spec value, so it cannot fall behind the rows it summarises.
+        part.setSpecText(specTextOf(toSave));
+
         return new SyncResult(scalars, ranges, texts, created, unparsed);
+    }
+
+    /**
+     * The textual spec values run together, for {@code part.spec_text}. Only text rows contribute:
+     * a parsed number is stored in its base SI unit (a 7.62 mm width is {@code 0.00762}, a 33 ns
+     * delay {@code 0.000000033}), which tokenises into strings nobody will ever type and would only
+     * bloat the index — the same rule V43 applied when it indexed only the JSONB's string values.
+     */
+    private static String specTextOf(List<PartSpecValue> rows) {
+        String joined = rows.stream()
+                .map(PartSpecValue::getValueText)
+                .filter(v -> v != null && !v.isBlank())
+                .collect(java.util.stream.Collectors.joining(" "));
+        return joined.isEmpty() ? null : joined;
     }
 
     /**
@@ -216,6 +234,60 @@ public class PartSpecValueService {
         return partRepo.findById(partId).map(this::previewLoaded).orElseGet(SyncResult::empty);
     }
 
+    /**
+     * A part's specs as the {@code jsonName -> value} map every caller already expects — the read
+     * side of the flip (step 4). {@code PartDTO.specs} is assembled from here instead of from the
+     * JSONB.
+     *
+     * <p><b>The map is deliberately shaped exactly like the JSONB it replaces</b>, so flipping the
+     * source changes nothing a client can see: a numeric row yields the bare base-unit number (not a
+     * rendering), a range yields the Partsbox {@code "min..max"} form it arrived as, and text passes
+     * through. Rendering stays where it already lives — {@code units.ts} on the way to the screen —
+     * because the edit widgets bind to the stored base number and would break on {@code "4k7"}.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> specsOf(Long partId) {
+        return toMap(valueRepo.findByPartId(partId));
+    }
+
+    /**
+     * The same for many parts at once, so a search result costs one query rather than one per part.
+     * Parts with no spec values are simply absent from the result.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, Map<String, Object>> specsOf(Collection<Long> partIds) {
+        if (partIds.isEmpty()) return Map.of();
+        Map<Long, List<PartSpecValue>> byPart = new LinkedHashMap<>();
+        for (PartSpecValue v : valueRepo.findByPartIdIn(partIds)) {
+            byPart.computeIfAbsent(v.getPart().getId(), k -> new ArrayList<>()).add(v);
+        }
+        Map<Long, Map<String, Object>> result = new LinkedHashMap<>();
+        byPart.forEach((partId, rows) -> result.put(partId, toMap(rows)));
+        return result;
+    }
+
+    private static Map<String, Object> toMap(List<PartSpecValue> rows) {
+        Map<String, Object> specs = new LinkedHashMap<>();
+        rows.stream()
+                .sorted(Comparator.comparing(v -> v.getSpecDefinition().getJsonName()))
+                .forEach(v -> specs.put(v.getSpecDefinition().getJsonName(), valueOf(v)));
+        return specs;
+    }
+
+    /** One row as the JSONB would have held it. */
+    private static Object valueOf(PartSpecValue v) {
+        if (v.getValueNum() != null) return v.getValueNum().stripTrailingZeros();
+        if (v.isRange()) {
+            return bound(v.getValueMin()) + ".." + bound(v.getValueMax());
+        }
+        return v.getValueText();
+    }
+
+    /** An open bound is written "null", which is the form Partsbox sent and the parser reads back. */
+    private static String bound(BigDecimal b) {
+        return b == null ? "null" : b.stripTrailingZeros().toPlainString();
+    }
+
     /** Drop a part's rows outright — for the paths that delete a part's specs wholesale. */
     @Transactional
     public void deleteForPart(Long partId) {
@@ -262,8 +334,16 @@ public class PartSpecValueService {
             return Classification.text(true);
         }
 
-        // No family: a bare numeric string is still a number, and storing it as one loses nothing.
-        BigDecimal plain = plainNumber(s);
+        // No family: a numeric-looking string may be a number, or may be a code that happens to be
+        // digits. Convert only when the conversion is LOSSLESS -- when the canonical rendering of the
+        // parsed number is the original string, character for character.
+        //
+        // ⚠️ "0805" is why. It is an imperial case code stored in a family-less field, and reading it
+        // as the number 805 both destroys the value and drops it out of the free-text search, so
+        // searching "0805" stopped finding the part. The same applies to date codes, ordering suffixes
+        // and anything else whose leading zero is meaning rather than formatting. If the string cannot
+        // be reproduced from the number, we did not understand it and must not extract it.
+        BigDecimal plain = numericIfLossless(s);
         return plain != null ? Classification.scalar(plain) : Classification.text(false);
     }
 
@@ -299,6 +379,24 @@ public class PartSpecValueService {
             return MetricUnitParser.parseToBase(b, family.get()).map(BigDecimal::new).orElse(null);
         }
         return plainNumber(b);
+    }
+
+    /**
+     * The string as a number, but only when the number can reproduce the string exactly — package
+     * private so the rule can be pinned by test.
+     *
+     * <p>⚠️ "0805" is why this is not simply {@code new BigDecimal(s)}. It is an imperial case code
+     * living in a field with no unit family; read as 805 it loses both its value and its place in
+     * the free-text search, so searching "0805" stopped finding the part. Date codes, ordering
+     * suffixes and anything else whose leading zero is meaning rather than formatting behave the
+     * same way. If the number cannot reproduce the string, we did not understand the string.
+     */
+    static BigDecimal numericIfLossless(String s) {
+        BigDecimal plain = plainNumber(s);
+        // Compared against the value as it will be READ BACK — valueOf strips trailing zeros, so
+        // "1.50" would return as "1.5". Comparing the unstripped form instead would call that
+        // lossless and quietly change the value the user sees.
+        return plain != null && plain.stripTrailingZeros().toPlainString().equals(s) ? plain : null;
     }
 
     private static BigDecimal plainNumber(String s) {
@@ -347,7 +445,8 @@ public class PartSpecValueService {
         if (sample instanceof Number) return "NUMBER";
         String s = MetricUnitParser.normalizeSpaces(String.valueOf(sample));
         if ("true".equalsIgnoreCase(s) || "false".equalsIgnoreCase(s)) return "BOOLEAN";
-        return plainNumber(s) != null ? "NUMBER" : "TEXT";
+        // Same losslessness rule as classify: "0805" is a code, not the number 805.
+        return numericIfLossless(s) != null ? "NUMBER" : "TEXT";
     }
 
     private SpecGroup defaultGroupFor(Organisation organisation) {

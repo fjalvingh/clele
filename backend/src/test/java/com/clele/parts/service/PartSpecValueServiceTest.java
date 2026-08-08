@@ -52,6 +52,22 @@ class PartSpecValueServiceTest {
     }
 
     @Test
+    @DisplayName("a numeric-looking string converts only when the round trip is lossless")
+    void losslessNumericStrings() {
+        // "0805" is an imperial case code in a family-less field. Read as the number 805 it loses
+        // both its value and its place in the free-text search, so searching "0805" stops finding
+        // the part — which is exactly what happened before this rule.
+        assertThat(PartSpecValueService.numericIfLossless("0805")).isNull();
+        assertThat(PartSpecValueService.numericIfLossless("007")).isNull();
+        assertThat(PartSpecValueService.numericIfLossless("1.50")).isNull();
+        assertThat(PartSpecValueService.numericIfLossless("2012")).isNotNull();
+        assertThat(PartSpecValueService.numericIfLossless("4700")).isNotNull();
+        assertThat(PartSpecValueService.numericIfLossless("0.4")).isNotNull();
+        assertThat(PartSpecValueService.numericIfLossless("-1.26")).isNotNull();
+        assertThat(PartSpecValueService.numericIfLossless("X7R")).isNull();
+    }
+
+    @Test
     void plainValuesAreNotRanges() {
         assertThat(PartSpecValueService.splitRange("4700")).isNull();
         assertThat(PartSpecValueService.splitRange("X7R")).isNull();

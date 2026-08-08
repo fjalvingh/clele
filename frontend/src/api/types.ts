@@ -21,6 +21,10 @@ export interface SpecDefinition {
   dataType: string; // TEXT | NUMBER | BOOLEAN | SELECT
   unit?: string;
   metricPrefix?: boolean; // NUMBER + single unit: scale value with metric prefixes
+  // What the field measures (a UnitFamily code, see utils/units.ts UNIT_FAMILIES), or absent.
+  // This is what lets a stored base-unit number be rendered back into the form people write
+  // (0.00000015 -> "150 ns") without the definition declaring a unit of its own.
+  unitFamily?: string;
   options?: string[];
   displayOrder: number;
   groupId: number;
@@ -34,6 +38,7 @@ export interface SpecDefinitionRequest {
   dataType: string;
   unit?: string;
   metricPrefix?: boolean;
+  unitFamily?: string;
   options?: string[];
   displayOrder: number;
   groupId?: number;
