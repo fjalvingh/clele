@@ -227,8 +227,14 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     `part.datasheet_url` is left alone — it is still the canonical link, and re-fetching it is what
     "Download from URL" and the re-sourcing tool are for. PHOTO rows are not judged (ImageIO
     validated them on the way in) and neither are ATTACHMENTs, which are whatever the user says
+  - V49 adds `part_kit_template_attachment(template_id, attachment_id, display_order)`: the images a
+    kit template hands to every part it generates. The same shape as `part_attachment_link` and
+    deliberately a second table rather than a nullable `template_id` on that one — a link belongs to
+    exactly one owner, and a column that is sometimes a part and sometimes a template is a column
+    every query has to remember to filter. No `organisation_id`: it reaches one through
+    `template_id` (see Part Kit Templates below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V49** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V50** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover
@@ -684,6 +690,18 @@ values. "Generate parts" expands the two into real parts with stock. Package: `P
   means a delete-then-insert of the same value inside one transaction can hit the constraint before
   the delete is flushed. Blanks and duplicates are dropped server-side, so the stored order cannot
   disagree with what the user saw.
+- **A template carries images, and every part it generates is given them** (V49,
+  `PartKitTemplateImageService`, `/api/part-kit-templates/{id}/images`). A kit's parts look alike —
+  thirty resistor values differ in a printed number, not in a photograph — so the picture is chosen
+  once. It is **linked, never copied**: each generated part points at the same `part_attachment`
+  row, which is what the shared-attachment model (V46) was for. Uploads go through
+  `PartAttachmentService.storeContent`, so a picture the organisation already holds is reused
+  rather than stored again, and `description` records the kit name as its origin.
+  - Images go **only to the parts the run creates**, the same rule every other field follows: a
+    template says how a part is born. Removing an image from the template likewise leaves the parts
+    already generated holding theirs.
+  - Capped at 5, matching the per-part photo cap — a template that offered more could not apply
+    them all.
 - Specs land through `SpecDefinitionService.canonicalizeKeys` and tags through
   `TagService.resolveOrCreate`, exactly as every other intake path — a tag may hold `${value}` too.
 - ⚠️ **Do not spell the placeholder in a migration.** `${…}` is Flyway's own placeholder syntax and
@@ -692,7 +710,11 @@ values. "Generate parts" expands the two into real parts with stock. Package: `P
   parts** per row — a dialog asking quantity per value, location (pre-selected from the user's
   last-used) and an optional unit price, which then reports per value which part was created and
   which already existed. `pages/PartKitTemplateEdit.tsx` (`/part-kits/new`, `/part-kits/:id`) is the
-  two-section editor: the part template on the left, and on the right the value list, where values
+  two-section editor. The part template on the left gains an **Images** block — thumbnails with a
+  per-image ×, an upload button and **Find image**, the same web-image search Part Detail uses
+  (extracted into `components/FindImageModal`, which both screens now share). Images are stored
+  against the template, so on `/part-kits/new` the block says to save the kit first. On the right is
+  the value list, where values
   are added through a small textarea — Enter adds, Shift+Enter is a newline, and a pasted list is
   split **one value per line**, since a kit's contents are normally copied out of a spreadsheet or
   a supplier's page rather than typed — and removed with their × but **never edited**, since editing
@@ -1041,6 +1063,11 @@ matches no definition collecting in a trailing "Other" section.
     `deleteAllForPart`; the bulk paths that delete parts straight through the database (a
     `deleteByUser` cleanup) rely on the link's `ON DELETE CASCADE` and must call `deleteOrphans()`
     afterwards, since the DB cannot know whether the content survived on another part.
+  - ⚠️ **"Unused" means no part *and* no kit template.** A kit template's images normally have no
+    part behind them at all until the kit is generated, so both `deleteOrphans` and the last-link
+    check (`deleteIfUnused`) look at `part_kit_template_attachment` too — sweeping on part links
+    alone deletes exactly the pictures a kit was set up to hand out. Deleting a kit template runs
+    the sweep for the same reason.
 - **`PartAttachmentController`** (`/api/parts/{partId}/attachments`): `GET` (optional `?type=`),
   `GET /{id}` serves bytes with the stored content-type (photos render inline with a 7-day cache;
   datasheets/attachments add `Content-Disposition: attachment; filename=…`), `POST` (multipart
@@ -1516,8 +1543,8 @@ and would need to become display-only.
   hits match themselves, and re-uploading a revised export merges rather than starting over (see
   BOM Import & Matching above)
 - **Part kits**: define a pack bought as a set — a resistor kit, a capacitor assortment — as one
-  part template plus the list of values it varies over, then generate every part with its stock in
-  one action (see Part Kit Templates above)
+  part template plus the list of values it varies over (including the photos every part gets), then
+  generate every part with its stock in one action (see Part Kit Templates above)
 - **Component cache**: a local snapshot of a distributor catalogue, consulted when adding a part
   before any web/AI lookup and available on Part Detail as "Look up in cache" — free, offline and
   instant (see Component Cache above)
@@ -1622,7 +1649,9 @@ and would need to become display-only.
   `GET` / `GET /{id}` / `POST` / `PUT /{id}` (the whole template including its value list) /
   `DELETE /{id}` (the parts it generated are untouched); `POST /{id}/generate`
   `{quantityPerValue, locationId, unitPrice?}` creates or finds one part per value and adds stock
-  to each, returning per value which it was
+  to each, returning per value which it was; `GET /{id}/images` / `POST /{id}/images` (multipart) /
+  `GET /{id}/images/{attachmentId}` / `DELETE /{id}/images/{attachmentId}` are the photos every
+  generated part is given
 - **Project BOM import** (`/projects/{projectId}/bom`, all `PARTS_EDIT` — see BOM Import above):
   `GET` returns the imported BOM with every line and its match, or **204** when none has been
   imported (the normal starting state, not an error); `POST /import` (multipart `file` + optional

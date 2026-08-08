@@ -40,12 +40,17 @@ public interface PartAttachmentRepository extends JpaRepository<PartAttachment, 
                                                                AttachmentType type);
 
     /**
-     * Drop content no part links to any more. Deleting a part removes its links by DB cascade but
+     * Drop content nothing links to any more. Deleting a part removes its links by DB cascade but
      * cannot know whether the attachment survived elsewhere, so the sweep runs after any path that
      * removes parts or links in bulk.
+     *
+     * <p><b>Kit templates count as a user of the content.</b> A template's images normally have no
+     * part behind them at all until the kit is generated — sweeping on part links alone would
+     * delete exactly the pictures a kit was set up to hand out.
      */
     @Modifying
     @Query("delete from PartAttachment a where not exists "
-            + "(select 1 from PartAttachmentLink l where l.attachment = a)")
+            + "(select 1 from PartAttachmentLink l where l.attachment = a) and not exists "
+            + "(select 1 from PartKitTemplateAttachment k where k.attachment = a)")
     int deleteOrphans();
 }

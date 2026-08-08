@@ -870,7 +870,8 @@ export type AttachmentType = 'PHOTO' | 'DATASHEET' | 'ATTACHMENT';
 
 export interface PartAttachment {
   id: number;
-  partId: number;
+  /** Absent on a kit template's images — the same content, with no part behind it yet. */
+  partId?: number;
   type: AttachmentType;
   displayOrder: number;
   contentType?: string;

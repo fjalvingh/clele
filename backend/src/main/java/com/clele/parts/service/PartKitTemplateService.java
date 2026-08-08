@@ -8,11 +8,14 @@ import com.clele.parts.model.Category;
 import com.clele.parts.model.Location;
 import com.clele.parts.model.MovementType;
 import com.clele.parts.model.Part;
+import com.clele.parts.model.PartAttachment;
 import com.clele.parts.model.PartKitTemplate;
+import com.clele.parts.model.PartKitTemplateAttachment;
 import com.clele.parts.model.PartKitTemplateValue;
 import com.clele.parts.model.StockEntry;
 import com.clele.parts.repository.CategoryRepository;
 import com.clele.parts.repository.LocationRepository;
+import com.clele.parts.repository.PartKitTemplateAttachmentRepository;
 import com.clele.parts.repository.PartKitTemplateRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.repository.StockEntryRepository;
@@ -41,6 +44,10 @@ import java.util.Set;
  * already exist, not fail on the unique part number and not quietly overwrite a description someone
  * has since corrected by hand. The template describes how a part is <em>born</em>, not what it must
  * keep looking like.
+ *
+ * <p>That is why the template's <b>images go only to the parts it creates</b>. They are linked, not
+ * copied — every generated part points at the same {@code part_attachment} row the template does, so
+ * a kit of thirty values costs one photo (see {@link PartKitTemplateImageService}).
  */
 @Service
 @RequiredArgsConstructor
@@ -51,6 +58,8 @@ public class PartKitTemplateService {
     public static final String PLACEHOLDER = "${value}";
 
     private final PartKitTemplateRepository templateRepository;
+    private final PartKitTemplateAttachmentRepository kitAttachmentRepository;
+    private final PartAttachmentService partAttachmentService;
     private final PartRepository partRepository;
     private final CategoryRepository categoryRepository;
     private final LocationRepository locationRepository;
@@ -110,6 +119,11 @@ public class PartKitTemplateService {
     @Transactional
     public void delete(Long id) {
         templateRepository.delete(require(id));
+        // The template's image links go with it through the DB cascade, but an image that was only
+        // ever on the template — the kit was never generated, or the picture was replaced — would
+        // then be held by nothing at all. Content the generated parts still use is untouched.
+        templateRepository.flush();
+        partAttachmentService.deleteOrphans();
     }
 
     // ------------------------------------------------------------------
@@ -137,6 +151,11 @@ public class PartKitTemplateService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Location not found: " + request.getLocationId()));
 
+        // The pictures every generated part is given. They are linked, never copied: one
+        // part_attachment row ends up on all thirty resistor values.
+        List<PartAttachment> images = kitAttachmentRepository.findByTemplateId(template.getId())
+                .stream().map(PartKitTemplateAttachment::getAttachment).toList();
+
         int created = 0;
         int found = 0;
         int stockAdded = 0;
@@ -155,6 +174,9 @@ public class PartKitTemplateService {
             boolean isNew = existing.isEmpty();
             if (isNew) {
                 part = partRepository.save(buildPart(template, v, partNumber));
+                for (PartAttachment image : images) {
+                    partAttachmentService.link(part.getId(), image);
+                }
                 created++;
             } else {
                 part = existing.get();

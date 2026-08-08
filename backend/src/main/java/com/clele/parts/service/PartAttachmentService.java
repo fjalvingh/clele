@@ -2,11 +2,13 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.PartAttachmentDTO;
 import com.clele.parts.model.AttachmentType;
+import com.clele.parts.model.Organisation;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.PartAttachment;
 import com.clele.parts.model.PartAttachmentLink;
 import com.clele.parts.repository.PartAttachmentLinkRepository;
 import com.clele.parts.repository.PartAttachmentRepository;
+import com.clele.parts.repository.PartKitTemplateAttachmentRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.util.PdfBytes;
 import jakarta.persistence.EntityNotFoundException;
@@ -56,6 +58,7 @@ public class PartAttachmentService {
 
     private final PartAttachmentRepository partAttachmentRepository;
     private final PartAttachmentLinkRepository partAttachmentLinkRepository;
+    private final PartKitTemplateAttachmentRepository partKitTemplateAttachmentRepository;
     private final PartRepository partRepository;
 
     /**
@@ -77,10 +80,12 @@ public class PartAttachmentService {
 
     public PartAttachmentService(PartAttachmentRepository partAttachmentRepository,
                                  PartAttachmentLinkRepository partAttachmentLinkRepository,
+                                 PartKitTemplateAttachmentRepository partKitTemplateAttachmentRepository,
                                  PartRepository partRepository,
                                  @Qualifier("datasheetRestTemplate") RestTemplate restTemplate) {
         this.partAttachmentRepository = partAttachmentRepository;
         this.partAttachmentLinkRepository = partAttachmentLinkRepository;
+        this.partKitTemplateAttachmentRepository = partKitTemplateAttachmentRepository;
         this.partRepository = partRepository;
         this.restTemplate = restTemplate;
     }
@@ -181,51 +186,91 @@ public class PartAttachmentService {
     public PartAttachmentDTO store(Long partId, byte[] data, String contentType, String filename,
                                    AttachmentType type) {
         Part part = requirePart(partId);
-        String hash = md5(data);
+        PartAttachment held = findIdentical(part.getOrganisation().getId(), data, type);
 
+        if (held != null) {
+            // Already on this part: nothing to add, and re-linking would violate the unique key.
+            PartAttachmentLink existing = partAttachmentLinkRepository
+                    .findByPartIdAndAttachmentId(partId, held.getId()).orElse(null);
+            if (existing != null) {
+                return toDTO(existing, usageOf(held));
+            }
+            log.info("Reusing attachment {} ({}) for part {} — identical content already stored",
+                    held.getId(), type, partId);
+        }
+
+        PartAttachment attachment = (held != null) ? held
+                : createContent(part.getOrganisation(), data, contentType, filename, type,
+                        part.getPartNumber());
+        return toDTO(link(part, attachment), usageOf(attachment));
+    }
+
+    /**
+     * Store content with no part behind it yet — what a kit template's images are, since the parts
+     * they belong to do not exist until the kit is generated. Same de-duplication as
+     * {@link #store}: identical bytes already held by the organisation are returned as they are.
+     *
+     * <p>{@code description} names the origin, which for a template is the kit rather than a part
+     * number. That is the same promise the column makes everywhere — where this content came from,
+     * fixed at creation.
+     */
+    @Transactional
+    public PartAttachment storeContent(Organisation organisation, byte[] data, String contentType,
+                                       String filename, AttachmentType type, String description) {
+        PartAttachment held = findIdentical(organisation.getId(), data, type);
+        return held != null ? held
+                : createContent(organisation, data, contentType, filename, type, description);
+    }
+
+    /**
+     * Link content the caller already holds to a part, honouring the photo cap and the part's own
+     * ordering. Used when generating a kit, where every part gets the same pictures. A part already
+     * linked to it is left alone rather than failing on the unique key — generating the same kit
+     * twice must be a no-op for images, as it is for the part's fields.
+     */
+    @Transactional
+    public void link(Long partId, PartAttachment attachment) {
+        Part part = requirePart(partId);
+        if (partAttachmentLinkRepository.findByPartIdAndAttachmentId(partId, attachment.getId()).isPresent()) {
+            return;
+        }
+        link(part, attachment);
+    }
+
+    /** The bytes this organisation already holds, or null. */
+    private PartAttachment findIdentical(Long organisationId, byte[] data, AttachmentType type) {
         // The hash narrows it down; the bytes decide. An MD5 collision is unlikely and silently
         // serving another part's document would be the kind of wrong that never gets noticed.
-        PartAttachment attachment = partAttachmentRepository
-                .findByOrganisationIdAndMd5HashAndType(part.getOrganisation().getId(), hash, type)
+        return partAttachmentRepository
+                .findByOrganisationIdAndMd5HashAndType(organisationId, md5(data), type)
                 .stream()
                 .filter(a -> Arrays.equals(a.getData(), data))
                 .findFirst()
                 .orElse(null);
+    }
 
-        if (attachment != null) {
-            // Already on this part: nothing to add, and re-linking would violate the unique key.
-            PartAttachmentLink existing = partAttachmentLinkRepository
-                    .findByPartIdAndAttachmentId(partId, attachment.getId()).orElse(null);
-            if (existing != null) {
-                return toDTO(existing, usageOf(attachment));
-            }
+    private PartAttachment createContent(Organisation organisation, byte[] data, String contentType,
+                                         String filename, AttachmentType type, String description) {
+        return partAttachmentRepository.save(PartAttachment.builder()
+                .organisation(organisation)
+                .type(type)
+                .data(data)
+                .contentType(contentType)
+                .filename(filename)
+                .description(truncate(description, 255))
+                .md5Hash(md5(data))
+                .build());
+    }
+
+    private PartAttachmentLink link(Part part, PartAttachment attachment) {
+        if (attachment.getType() == AttachmentType.PHOTO) {
+            enforcePhotoLimit(part.getId());
         }
-
-        if (type == AttachmentType.PHOTO) {
-            enforcePhotoLimit(partId);
-        }
-
-        if (attachment == null) {
-            attachment = partAttachmentRepository.save(PartAttachment.builder()
-                    .organisation(part.getOrganisation())
-                    .type(type)
-                    .data(data)
-                    .contentType(contentType)
-                    .filename(filename)
-                    .description(truncate(part.getPartNumber(), 255))
-                    .md5Hash(hash)
-                    .build());
-        } else {
-            log.info("Reusing attachment {} ({}) for part {} — identical content already stored",
-                    attachment.getId(), type, partId);
-        }
-
-        PartAttachmentLink link = partAttachmentLinkRepository.save(PartAttachmentLink.builder()
+        return partAttachmentLinkRepository.save(PartAttachmentLink.builder()
                 .part(part)
                 .attachment(attachment)
-                .displayOrder(nextDisplayOrder(partId, type))
+                .displayOrder(nextDisplayOrder(part.getId(), attachment.getType()))
                 .build());
-        return toDTO(link, usageOf(attachment));
     }
 
     /** The one-entry count map {@link #toDTO} needs when a single attachment is being reported. */
@@ -249,9 +294,7 @@ public class PartAttachmentService {
 
         partAttachmentLinkRepository.delete(link);
         partAttachmentLinkRepository.flush();
-        if (partAttachmentLinkRepository.countByAttachmentId(attachment.getId()) == 0) {
-            partAttachmentRepository.delete(attachment);
-        }
+        deleteIfUnused(attachment);
 
         // Re-sequence display_order within the same type so it stays 0-based and contiguous.
         List<PartAttachmentLink> remaining = partAttachmentLinkRepository.findByPartIdAndType(partId, type);
@@ -273,7 +316,20 @@ public class PartAttachmentService {
         partAttachmentRepository.deleteOrphans();
     }
 
-    /** Drop content no part links to any more; returns how many rows went. */
+    /**
+     * Drop the content if nothing points at it any more — no part, and no kit template. A template's
+     * images have no part behind them until the kit is generated, so parts alone are not the whole
+     * picture.
+     */
+    @Transactional
+    public void deleteIfUnused(PartAttachment attachment) {
+        if (partAttachmentLinkRepository.countByAttachmentId(attachment.getId()) == 0
+                && partKitTemplateAttachmentRepository.countByAttachmentId(attachment.getId()) == 0) {
+            partAttachmentRepository.delete(attachment);
+        }
+    }
+
+    /** Drop content nothing links to any more; returns how many rows went. */
     @Transactional
     public int deleteOrphans() {
         return partAttachmentRepository.deleteOrphans();
@@ -346,7 +402,11 @@ public class PartAttachmentService {
         }
     }
 
-    private byte[] downloadAndConvertToPng(String url) {
+    /**
+     * Fetch an external image and normalize it to PNG. Public because a kit template's images take
+     * the same route without a part to hang them on.
+     */
+    public byte[] downloadAndConvertToPng(String url) {
         Downloaded d = download(url);
         try {
             BufferedImage image = ImageIO.read(new ByteArrayInputStream(d.bytes()));
@@ -363,7 +423,8 @@ public class PartAttachmentService {
         }
     }
 
-    private byte[] convertToPng(MultipartFile file) {
+    /** Normalize an uploaded image to PNG. Public for the same reason as {@link #downloadAndConvertToPng}. */
+    public byte[] convertToPng(MultipartFile file) {
         BufferedImage image;
         try {
             image = ImageIO.read(file.getInputStream());

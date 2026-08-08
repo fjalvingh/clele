@@ -636,3 +636,24 @@ export const generatePartsFromKit = (id: number, data: PartKitGenerateRequest) =
   client
     .post<PartKitGenerateResult>(`/part-kit-templates/${id}/generate`, data)
     .then((r) => r.data);
+
+// A kit template's images: the photos every part it generates is given. Same store as a part's own
+// photos — generating links the parts to these very rows rather than copying them.
+export const getPartKitImages = (id: number) =>
+  client.get<PartAttachment[]>(`/part-kit-templates/${id}/images`).then((r) => r.data);
+
+export const uploadPartKitImage = (id: number, file: File) => {
+  const form = new FormData();
+  form.append('file', file);
+  return client
+    .post<PartAttachment>(`/part-kit-templates/${id}/images`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    .then((r) => r.data);
+};
+
+export const deletePartKitImage = (id: number, attachmentId: number) =>
+  client.delete(`/part-kit-templates/${id}/images/${attachmentId}`);
+
+export const partKitImageUrl = (id: number, attachmentId: number) =>
+  `${import.meta.env.BASE_URL}api/part-kit-templates/${id}/images/${attachmentId}`;

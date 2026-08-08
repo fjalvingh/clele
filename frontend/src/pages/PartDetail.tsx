@@ -27,7 +27,6 @@ import {
   searchOctopart,
   searchPartDatasheets,
   searchPartsOnline,
-  searchPartImages,
   takeStock,
   updatePart,
   uploadPartAttachment,
@@ -41,7 +40,6 @@ import type {
   DatasheetExtraction,
   DatasheetSearchResponse,
   DatasheetSuggestion,
-  ImageSuggestion,
   Location,
   OctopartApplyRequest,
   OctopartResult,
@@ -61,6 +59,7 @@ import Badge from '../components/Badge';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
+import FindImageModal from '../components/FindImageModal';
 import Modal from '../components/Modal';
 import PartEditModal from '../components/PartEditModal';
 import PrintLabelModal from '../components/PrintLabelModal';
@@ -85,12 +84,6 @@ const emptyOpForm: StockOpForm = {
   unitPrice: null,
   comment: '',
 };
-
-// Proxy external images through our backend to avoid CORS / Cloudflare bot-protection issues.
-function displayUrl(img: { url: string; thumbnailUrl?: string }) {
-  const src = img.thumbnailUrl ?? img.url;
-  return `${import.meta.env.BASE_URL}api/image-proxy?url=${encodeURIComponent(src)}`;
-}
 
 // Button glyphs as inline SVG. Emoji (🔍 🏷️) render as empty boxes wherever the platform font
 // lacks them, so the project rule is SVG everywhere; `currentColor` inherits the button's colour.
@@ -274,15 +267,9 @@ export default function PartDetailPage() {
   const datasheetInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
 
-  // "Find image" modal — same image search/attach flow used by Quick Add.
+  // "Find image" — the search/pick/attach flow itself lives in components/FindImageModal, shared
+  // with the part kit editor, which needs exactly the same thing for a kit's photos.
   const [imageModalOpen, setImageModalOpen] = useState(false);
-  const [imageQuery, setImageQuery] = useState('');
-  const [imageSuggestions, setImageSuggestions] = useState<ImageSuggestion[]>([]);
-  const [imagesLoading, setImagesLoading] = useState(false);
-  const [selectedImageUrls, setSelectedImageUrls] = useState<Set<string>>(new Set());
-  const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set());
-  const [attaching, setAttaching] = useState(false);
-  const [attachError, setAttachError] = useState<string | null>(null);
 
   // "Find datasheet" modal — same search/pick pattern as "Find image", but attaches via URL.
   const [datasheetModalOpen, setDatasheetModalOpen] = useState(false);
@@ -957,76 +944,6 @@ export default function PartDetailPage() {
     }
   };
 
-  const runImageSearch = (q: string) => {
-    if (!q.trim()) return;
-    setImagesLoading(true);
-    setImageSuggestions([]);
-    setSelectedImageUrls(new Set());
-    setFailedImageUrls(new Set());
-    searchPartImages(q.trim())
-      .then(setImageSuggestions)
-      .catch(() => setImageSuggestions([]))
-      .finally(() => setImagesLoading(false));
-  };
-
-  const openFindImage = () => {
-    const q = part?.partNumber ?? '';
-    setImageQuery(q);
-    setAttachError(null);
-    setImageModalOpen(true);
-    runImageSearch(q);
-  };
-
-  const toggleImageSelect = (url: string) => {
-    setSelectedImageUrls((prev) => {
-      const next = new Set(prev);
-      if (next.has(url)) next.delete(url);
-      else next.add(url);
-      return next;
-    });
-  };
-
-  const handleAttachImages = async () => {
-    if (selectedImageUrls.size === 0) return;
-    setAttaching(true);
-    setAttachError(null);
-    // Fetch each selected image via the same-origin proxy, then upload as multipart (same approach
-    // as Quick Add) to sidestep CORS / tainted-canvas issues.
-    const errors: string[] = [];
-    let i = 0;
-    for (const originalUrl of selectedImageUrls) {
-      try {
-        const suggestion = imageSuggestions.find((s) => s.url === originalUrl);
-        const proxyUrl = suggestion
-          ? displayUrl(suggestion)
-          : `${import.meta.env.BASE_URL}api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
-        const resp = await fetch(proxyUrl);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const blob = await resp.blob();
-        const file = new File([blob], `image-${i}.png`, { type: blob.type || 'image/png' });
-        await uploadPartAttachment(partId, file, 'PHOTO');
-      } catch (err: unknown) {
-        errors.push((err as Error).message);
-      }
-      i++;
-    }
-    setAttaching(false);
-
-    await refreshAttachments();
-
-    if (errors.length > 0) {
-      const succeeded = selectedImageUrls.size - errors.length;
-      setAttachError(
-        `${errors.length} photo(s) failed to attach` +
-          (succeeded > 0 ? ` (${succeeded} succeeded)` : '') +
-          `: ${errors[0]}` +
-          (errors.length > 1 ? ` (and ${errors.length - 1} more)` : ''),
-      );
-      return;
-    }
-    setImageModalOpen(false);
-  };
-
   const runDatasheetSearch = (q: string, forceAi = false) => {
     if (!q.trim()) return;
     setDatasheetsLoading(true);
@@ -1289,7 +1206,7 @@ export default function PartDetailPage() {
             {/* Find image (whenever there's room for more photos) */}
             {canEdit && images.length < 5 && (
               <button
-                onClick={openFindImage}
+                onClick={() => setImageModalOpen(true)}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
               >
                 {SearchIcon}
@@ -2116,104 +2033,13 @@ export default function PartDetailPage() {
         )}
       </Modal>
 
-      {/* Find image modal */}
-      <Modal open={imageModalOpen} onClose={() => setImageModalOpen(false)} title="Find image">
-        <div className="mb-4 flex gap-2">
-          <input
-            type="text"
-            value={imageQuery}
-            onChange={(e) => setImageQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && runImageSearch(imageQuery)}
-            placeholder="e.g. LM317 voltage regulator"
-            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-          <button
-            onClick={() => runImageSearch(imageQuery)}
-            disabled={!imageQuery.trim() || imagesLoading}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            Search
-          </button>
-        </div>
-
-        <div className="min-h-[8rem]">
-          {imagesLoading ? (
-            <p className="text-sm text-gray-400">Searching for photos…</p>
-          ) : (
-            (() => {
-              const visible = imageSuggestions.filter((img) => !failedImageUrls.has(img.url));
-              if (visible.length === 0) {
-                return (
-                  <p className="text-sm text-gray-400">
-                    No photos found. Try a different search term.
-                  </p>
-                );
-              }
-              return (
-                <div className="grid grid-cols-3 gap-3">
-                  {imageSuggestions.map((img) => {
-                    if (failedImageUrls.has(img.url)) return null;
-                    const selected = selectedImageUrls.has(img.url);
-                    return (
-                      <button
-                        key={img.url}
-                        type="button"
-                        onClick={() => toggleImageSelect(img.url)}
-                        className={`relative overflow-hidden rounded-lg border-2 transition-all ${
-                          selected
-                            ? 'border-blue-500 ring-2 ring-blue-200'
-                            : 'border-gray-200 hover:border-gray-400'
-                        }`}
-                      >
-                        <img
-                          src={displayUrl(img)}
-                          alt={img.description ?? ''}
-                          className="h-24 w-full object-cover"
-                          onError={() =>
-                            setFailedImageUrls((prev) => new Set(prev).add(img.url))
-                          }
-                        />
-                        {selected && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-blue-500/20">
-                            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-bold text-white">
-                              ✓
-                            </span>
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })()
-          )}
-        </div>
-
-        {attachError && <p className="mt-3 text-sm text-red-600">{attachError}</p>}
-
-        <div className="mt-4 flex items-center justify-between">
-          <span className="text-xs text-blue-600">
-            {selectedImageUrls.size > 0
-              ? `${selectedImageUrls.size} selected`
-              : ''}
-          </span>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setImageModalOpen(false)}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleAttachImages}
-              disabled={attaching || selectedImageUrls.size === 0}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {attaching ? 'Attaching…' : 'Attach selected'}
-            </button>
-          </div>
-        </div>
-      </Modal>
+      <FindImageModal
+        open={imageModalOpen}
+        initialQuery={part.partNumber}
+        onClose={() => setImageModalOpen(false)}
+        onAttach={(file) => uploadPartAttachment(partId, file, 'PHOTO').then(() => undefined)}
+        onAttached={refreshAttachments}
+      />
 
       {/* Find datasheet modal */}
       <Modal open={datasheetModalOpen} onClose={() => setDatasheetModalOpen(false)} title="Find datasheet">

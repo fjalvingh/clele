@@ -2,21 +2,30 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   createPartKitTemplate,
+  deletePartKitImage,
   getCategoryTree,
+  getPartKitImages,
   getPartKitTemplate,
   getSpecDefinitions,
   getSpecGroups,
+  partKitImageUrl,
   updatePartKitTemplate,
+  uploadPartKitImage,
 } from '../api';
 import type {
   CategoryTree,
+  PartAttachment,
   PartKitTemplateRequest,
   SpecDefinition,
   SpecGroup,
 } from '../api/types';
 import CategoryPicker from '../components/CategoryPicker';
+import FindImageModal from '../components/FindImageModal';
 import FormField from '../components/FormField';
 import TagInput from '../components/TagInput';
+
+/** How many photos a template may carry — the same cap a part has, since that is where they land. */
+const MAX_IMAGES = 5;
 
 const PLACEHOLDER = '${value}';
 
@@ -158,6 +167,14 @@ export default function PartKitTemplateEditPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const valueInputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Images the template hands to every part it generates. They live server-side against the
+  // template, so there is nothing to attach them to until it has been saved once.
+  const [images, setImages] = useState<PartAttachment[]>([]);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [findImageOpen, setFindImageOpen] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     getCategoryTree().then(setCategoryTree).catch(() => {});
     getSpecDefinitions().then(setSpecDefs).catch(() => setSpecDefs([]));
@@ -190,6 +207,7 @@ export default function PartKitTemplateEditPage() {
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+    getPartKitImages(templateId).then(setImages).catch(() => setImages([]));
   }, [templateId]);
 
   const isShown = (key: string) =>
@@ -273,6 +291,40 @@ export default function PartKitTemplateEditPage() {
   const removeValue = (v: string) => {
     setValues((prev) => prev.filter((x) => x !== v));
     setNotice(null);
+  };
+
+  const refreshImages = () =>
+    templateId == null
+      ? Promise.resolve()
+      : getPartKitImages(templateId).then(setImages).catch(() => {});
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || templateId == null) return;
+    e.target.value = '';
+    setImageBusy(true);
+    setImageError(null);
+    try {
+      await uploadPartKitImage(templateId, file);
+      await refreshImages();
+    } catch (err: unknown) {
+      setImageError((err as Error).message);
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
+  const handleImageDelete = async (image: PartAttachment) => {
+    if (templateId == null) return;
+    // Only the template loses it: a generated part holds its own link to the same photo, and
+    // rewriting parts that already exist is exactly what a template does not do.
+    if (!confirm('Remove this image from the kit? Parts already generated keep theirs.')) return;
+    try {
+      await deletePartKitImage(templateId, image.id);
+      await refreshImages();
+    } catch (err: unknown) {
+      setImageError((err as Error).message);
+    }
   };
 
   const missingPlaceholder = !(form.partNumberTemplate ?? '').includes(PLACEHOLDER);
@@ -463,6 +515,82 @@ export default function PartKitTemplateEditPage() {
             onChange={(tags) => setForm({ ...form, tags })}
           />
 
+          {/* Images given to every generated part. Stored once and linked, so a kit of thirty
+              values costs one photo rather than thirty copies of the same picture. */}
+          <div className="mt-4">
+            <p className="mb-1 text-sm font-medium text-gray-700">Images</p>
+            <p className="mb-3 text-xs text-gray-400">
+              Every part this kit generates is given these photos. They are stored once and shared,
+              not copied per part. Parts that already exist keep the images they have.
+            </p>
+
+            {templateId == null ? (
+              <p className="rounded-md border border-dashed border-gray-300 px-3 py-2 text-xs text-gray-400">
+                Save the kit first — images are stored against the template.
+              </p>
+            ) : (
+              <>
+                {images.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {images.map((img) => (
+                      <div key={img.id} className="group relative">
+                        <img
+                          src={partKitImageUrl(templateId, img.id)}
+                          alt=""
+                          title={img.description ?? ''}
+                          className="h-20 w-20 rounded border border-gray-200 object-contain"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleImageDelete(img)}
+                          title="Remove from the kit"
+                          aria-label="Remove from the kit"
+                          className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs text-white"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {images.length < MAX_IMAGES && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFindImageOpen(true)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor"
+                           strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="11" cy="11" r="7" />
+                        <path d="m20 20-3.5-3.5" />
+                      </svg>
+                      Find image
+                    </button>
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleImageUpload}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={imageBusy}
+                      className="rounded-lg border border-dashed border-gray-300 px-3 py-1.5 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-50"
+                    >
+                      {imageBusy ? 'Uploading…' : `+ Add photo (${images.length}/${MAX_IMAGES})`}
+                    </button>
+                  </div>
+                )}
+
+                {imageError && <p className="mt-2 text-xs text-red-600">{imageError}</p>}
+              </>
+            )}
+          </div>
+
           <div className="mt-2">
             <p className="mb-1 text-sm font-medium text-gray-700">Specifications</p>
             <p className="mb-3 text-xs text-gray-400">
@@ -586,6 +714,16 @@ export default function PartKitTemplateEditPage() {
           )}
         </div>
       </div>
+
+      {templateId != null && (
+        <FindImageModal
+          open={findImageOpen}
+          initialQuery={form.name || form.partNumberTemplate.split(PLACEHOLDER).join('').trim()}
+          onClose={() => setFindImageOpen(false)}
+          onAttach={(file) => uploadPartKitImage(templateId, file).then(() => undefined)}
+          onAttached={refreshImages}
+        />
+      )}
     </div>
   );
 }
