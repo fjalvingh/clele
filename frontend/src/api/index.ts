@@ -43,6 +43,10 @@ import type {
   Part,
   PartAttachment,
   PartFilters,
+  PartKitGenerateRequest,
+  PartKitGenerateResult,
+  PartKitTemplate,
+  PartKitTemplateRequest,
   PartRequest,
   PartSearchResult,
   Project,
@@ -610,3 +614,25 @@ export const applyImportedBom = (projectId: number) =>
 
 export const deleteImportedBom = (projectId: number) =>
   client.delete(`/projects/${projectId}/bom`);
+
+// ── Part kit templates ────────────────────────────────────────────────────────
+
+export const getPartKitTemplates = () =>
+  client.get<PartKitTemplate[]>('/part-kit-templates').then((r) => r.data);
+
+export const getPartKitTemplate = (id: number) =>
+  client.get<PartKitTemplate>(`/part-kit-templates/${id}`).then((r) => r.data);
+
+export const createPartKitTemplate = (data: PartKitTemplateRequest) =>
+  client.post<PartKitTemplate>('/part-kit-templates', data).then((r) => r.data);
+
+export const updatePartKitTemplate = (id: number, data: PartKitTemplateRequest) =>
+  client.put<PartKitTemplate>(`/part-kit-templates/${id}`, data).then((r) => r.data);
+
+export const deletePartKitTemplate = (id: number) =>
+  client.delete(`/part-kit-templates/${id}`);
+
+export const generatePartsFromKit = (id: number, data: PartKitGenerateRequest) =>
+  client
+    .post<PartKitGenerateResult>(`/part-kit-templates/${id}/generate`, data)
+    .then((r) => r.data);

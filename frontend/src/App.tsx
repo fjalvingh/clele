@@ -12,6 +12,8 @@ import LoginPage from './pages/Login';
 import LowStockPage from './pages/LowStock';
 import PartDetailPage from './pages/PartDetail';
 import PartsPage from './pages/Parts';
+import PartKitTemplatesPage from './pages/PartKitTemplates';
+import PartKitTemplateEditPage from './pages/PartKitTemplateEdit';
 import ProfilePage from './pages/Profile';
 import BarcodeScannerPage from './pages/BarcodeScanner';
 import QuickAddPage from './pages/QuickAdd';
@@ -88,6 +90,22 @@ export default function App() {
             <Route path="specs/:groupId" element={<SpecGroupDetailPage />} />
             <Route path="locations" element={<LocationsPage />} />
             <Route path="low-stock" element={<LowStockPage />} />
+            <Route
+              path="part-kits"
+              element={
+                <RequirePermission permission="PARTS_EDIT">
+                  <PartKitTemplatesPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="part-kits/:id"
+              element={
+                <RequirePermission permission="PARTS_EDIT">
+                  <PartKitTemplateEditPage />
+                </RequirePermission>
+              }
+            />
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:id" element={<ProjectDetailPage />} />
             <Route path="projects/:id/bom" element={<ProjectBomPage />} />

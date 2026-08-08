@@ -77,6 +77,13 @@ const icons: Record<string, ReactNode> = {
     </svg>
   ),
   // Blueprint-style icon for project builds
+  // A tray of compartments — a kit of the same part in different values.
+  partKits: (
+    <svg {...icon}>
+      <rect x="3" y="5" width="18" height="14" rx="1.5" />
+      <path d="M9 5v14M15 5v14M3 12h18" />
+    </svg>
+  ),
   projects: (
     <svg {...icon}>
       <rect x="3" y="4" width="18" height="16" rx="1.5" />
@@ -121,6 +128,7 @@ const navItems: NavItem[] = [
   { to: '/specs', label: 'Spec Fields', icon: icons.specs },
   { to: '/locations', label: 'Locations', icon: icons.locations },
   { to: '/low-stock', label: 'Low Stock', icon: icons.lowStock },
+  { to: '/part-kits', label: 'Part Kits', icon: icons.partKits, permission: 'PARTS_EDIT' },
   { to: '/projects', label: 'Projects', icon: icons.projects, permission: 'PARTS_EDIT' },
   { to: '/users', label: 'Users', icon: icons.users, permission: 'ORG_ADMIN' },
   { to: '/all-users', label: 'All Users', icon: icons.allUsers, permission: 'GLOBAL_ADMIN' },

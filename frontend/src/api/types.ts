@@ -957,3 +957,68 @@ export interface Dashboard {
   totalStockValue: number;
   perLocation: LocationDashboard[];
 }
+
+// ── Part kit templates ────────────────────────────────────────────────────────
+// A pack of parts differing in one value (a resistor kit): the part fields once, with the
+// placeholder ${value} where the varying value belongs, plus the list of values.
+
+export interface PartKitTemplate {
+  id: number;
+  name: string;
+  notes?: string;
+  partNumberTemplate: string;
+  personalNumber: boolean;
+  manufacturerTemplate?: string;
+  descriptionTemplate?: string;
+  detailsTemplate?: string;
+  footprintTemplate?: string;
+  datasheetUrlTemplate?: string;
+  categoryId?: number | null;
+  categoryName?: string;
+  categoryBreadcrumb?: string;
+  /** Keyed by spec jsonName; every value is a template string. */
+  specs: Record<string, string>;
+  tags: string[];
+  values: string[];
+  createdByName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PartKitTemplateRequest {
+  name: string;
+  notes?: string;
+  partNumberTemplate: string;
+  personalNumber?: boolean;
+  manufacturerTemplate?: string;
+  descriptionTemplate?: string;
+  detailsTemplate?: string;
+  footprintTemplate?: string;
+  datasheetUrlTemplate?: string;
+  categoryId?: number | null;
+  specs?: Record<string, string>;
+  tags?: string[];
+  values?: string[];
+}
+
+export interface PartKitGenerateRequest {
+  quantityPerValue: number;
+  locationId: number;
+  unitPrice?: number | null;
+}
+
+export interface PartKitGenerateResultLine {
+  value: string;
+  partId: number;
+  partNumber: string;
+  /** True when this run created the part; false when it was already in the catalogue. */
+  created: boolean;
+  quantityAdded: number;
+}
+
+export interface PartKitGenerateResult {
+  partsCreated: number;
+  partsFound: number;
+  stockAdded: number;
+  lines: PartKitGenerateResultLine[];
+}

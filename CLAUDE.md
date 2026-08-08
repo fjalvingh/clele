@@ -201,8 +201,16 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
     match decision made about it), plus a trigram index on `part.mpn` so a BOM keyed on the
     manufacturer part number is fuzzy-matchable the way `part_number` has been since V15. Neither
     new table carries `organisation_id` — they reach it through `project_id` (see BOM Import below)
+  - V45 adds **part kit templates**: `part_kit_template` (per organisation, unique `name`, holding
+    every part field as a *text template* plus the specs JSONB) + `part_kit_template_value` (the
+    values it varies over, unique per template) + `part_kit_template_tag` (tag **names**, resolved
+    at generate time). Every column is TEXT because it holds a template, not a value (see Part Kit
+    Templates below)
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V45** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V46** (always check `db/migration/` for the real high-water mark before adding one)
+- ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
+  an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
+  the kit placeholder in prose rather than spelling it, and cost one failed boot to discover
 - Hibernate 6 + PostgreSQL: use plain `byte[]` with `columnDefinition = "bytea"` — do NOT use `@Lob` (maps to OID, which is wrong)
 - Hibernate 6 + PostgreSQL: a `@Column(length = N)` String validates against `varchar(N)` — use
   `VARCHAR(n)` (not `CHAR(n)`, which maps to `bpchar` and fails `ddl-auto: validate`) in migrations
@@ -623,6 +631,50 @@ what is pinned is the mechanism that prevents it.
   pre-fill its search). Project Detail gains an *Imported BOM* card above the existing BOM card.
   Row tints use translucent colours (`bg-purple-500/10`), never `bg-purple-50` — a fixed light
   colour sits on top of the row in dark mode and washes the text out.
+
+## Part Kit Templates
+
+Parts are often bought in bulk as a kit: thirty resistors that share manufacturer, footprint,
+tolerance and power rating and differ only in resistance. A **kit template** is the part form filled
+in once, with the placeholder `${value}` wherever the varying value belongs, plus the list of
+values. "Generate parts" expands the two into real parts with stock. Package: `PartKitTemplate` /
+`PartKitTemplateValue` + `PartKitTemplateService` + `PartKitTemplateController`
+(`/api/part-kit-templates`, class-level `PARTS_EDIT`).
+
+- **Every stored field is TEXT, including the ones the part types more strictly.** `"10k"` is not a
+  number and `"…/${value}.pdf"` is not a URL until it has been expanded, so the template columns
+  cannot carry the part's own types. The generated part is what gets them. The same reasoning drives
+  the UI: **the template editor renders every spec as a plain text input** whatever the definition's
+  `dataType` is — a number field or a dropdown could not accept a placeholder at all.
+- **The part number template must contain `${value}`** (400 otherwise, enforced in
+  `validate` and mirrored as a disabled Save in the editor). Part numbers are unique per
+  organisation, so a template whose part number does not vary would generate one part however many
+  values it lists, silently piling every value's stock onto it.
+- **Generating finds before it creates, and never rewrites a part it found.** A kit is bought more
+  than once: the second pack must add stock to the parts already there, not fail on the unique part
+  number and not overwrite a description someone has since corrected by hand. A template describes
+  how a part is *born*, not what it must keep looking like. A new part's stock is `INITIAL`, an
+  existing one's is `PURCHASE` — the same distinction the manual paths draw — and both movements
+  name the template in their comment.
+- The whole run is **one transaction**: a half-generated kit is worse than none, since nothing in
+  the parts list says which values were reached.
+- **Values are sent as the whole list**, and `applyValues` rewrites it by *reusing the rows that
+  survive* rather than clearing and re-adding. `orphanRemoval` plus the unique `(template_id, value)`
+  means a delete-then-insert of the same value inside one transaction can hit the constraint before
+  the delete is flushed. Blanks and duplicates are dropped server-side, so the stored order cannot
+  disagree with what the user saw.
+- Specs land through `SpecDefinitionService.canonicalizeKeys` and tags through
+  `TagService.resolveOrCreate`, exactly as every other intake path — a tag may hold `${value}` too.
+- ⚠️ **Do not spell the placeholder in a migration.** `${…}` is Flyway's own placeholder syntax and
+  an unknown name fails the migration, comments included.
+- **Frontend**: `pages/PartKitTemplates.tsx` (`/part-kits`) lists the templates with **Generate
+  parts** per row — a dialog asking quantity per value, location (pre-selected from the user's
+  last-used) and an optional unit price, which then reports per value which part was created and
+  which already existed. `pages/PartKitTemplateEdit.tsx` (`/part-kits/new`, `/part-kits/:id`) is the
+  two-section editor: the part template on the left, and on the right the value list, where a value
+  is added by typing it and pressing Enter and removed with its × — **never edited**, since editing
+  one would silently orphan the part a previous run generated from it. A preview of what the first
+  value produces sits under the list.
 
 ## Stock Model
 
@@ -1401,6 +1453,9 @@ and would need to become display-only.
   parts a few at a time over as long as it takes — the file and every decision are stored, exact
   hits match themselves, and re-uploading a revised export merges rather than starting over (see
   BOM Import & Matching above)
+- **Part kits**: define a pack bought as a set — a resistor kit, a capacitor assortment — as one
+  part template plus the list of values it varies over, then generate every part with its stock in
+  one action (see Part Kit Templates above)
 - **Component cache**: a local snapshot of a distributor catalogue, consulted when adding a part
   before any web/AI lookup and available on Part Detail as "Look up in cache" — free, offline and
   instant (see Component Cache above)
@@ -1501,6 +1556,11 @@ and would need to become display-only.
   `GET /stock-thresholds/low` — thresholds where subtree total < minimum (drives Low Stock page);
   `POST /stock-thresholds` → upsert (create or update) a threshold, 201; location must be a root
   (400 otherwise); `DELETE /stock-thresholds/{id}` → 204
+- **Part kit templates** (`/part-kit-templates`, all `PARTS_EDIT` — see Part Kit Templates above):
+  `GET` / `GET /{id}` / `POST` / `PUT /{id}` (the whole template including its value list) /
+  `DELETE /{id}` (the parts it generated are untouched); `POST /{id}/generate`
+  `{quantityPerValue, locationId, unitPrice?}` creates or finds one part per value and adds stock
+  to each, returning per value which it was
 - **Project BOM import** (`/projects/{projectId}/bom`, all `PARTS_EDIT` — see BOM Import above):
   `GET` returns the imported BOM with every line and its match, or **204** when none has been
   imported (the normal starting state, not an error); `POST /import` (multipart `file` + optional
