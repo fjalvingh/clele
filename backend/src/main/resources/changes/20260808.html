@@ -1,3 +1,38 @@
+<h4>Searching on specifications</h4>
+<p>
+  Until now the only way to find a part by what it <em>is</em> was to type a word and hope it
+  appeared somewhere in the text — which never worked for a number. <strong>More search
+  options</strong> on the Parts screen now has a <strong>Specifications</strong> section: pick a
+  field, pick a comparison, type a value. Resistance at least 1k. Supply voltage 3.3 V. Capacitance
+  exactly 100 nF. Add as many conditions as you like and a part has to satisfy all of them.
+</p>
+<p>
+  You can write the value the way you would write it anywhere else. <code>100nF</code>,
+  <code>0.1uF</code>, <code>1e-7</code> and <code>100n</code> are the same search, and
+  <code>4k7</code> works as well as <code>4700</code>. The search understands what the field
+  measures, so it does not matter which spelling the part was catalogued under.
+</p>
+<p>
+  Specifications recorded as a range are searched properly too. A part specified 2 V to 5.5 V is
+  found by asking for a supply voltage of 3.3 V, because 3.3 falls inside its range — you do not
+  have to know how the range was written down. A search is kept in the address bar, so it survives
+  going into a part and back, and can be bookmarked.
+</p>
+
+<h4>Specifications read the way they are written</h4>
+<p>
+  Values are stored in a single consistent unit behind the scenes, which is what makes the search
+  above possible, but that is no longer what you see. An access time now reads
+  <strong>150 ns</strong> rather than 0.00000015, a frequency <strong>5 MHz</strong>, a width
+  <strong>13.97 mm</strong>, and a temperature range <strong>-40 °C ~ 105 °C</strong>. Editing a
+  value works the same way, so what you type back is what you saw.
+</p>
+<p>
+  This applies to every field that records what it measures, not only the handful that used to
+  declare a unit. Fields where the unit genuinely is not known — memory sizes, case codes, part
+  counts — are left exactly as they were, because guessing at those would do more harm than good.
+</p>
+
 <h4>Part kits: enter a whole pack of parts at once</h4>
 <p>
   Parts are often bought in bulk as a kit — thirty resistors that share their manufacturer, package,
