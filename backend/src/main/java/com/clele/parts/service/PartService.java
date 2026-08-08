@@ -6,6 +6,7 @@ import com.clele.parts.dto.SpecsMode;
 import com.clele.parts.model.AttachmentType;
 import com.clele.parts.model.Category;
 import com.clele.parts.model.Part;
+import com.clele.parts.model.SpecDefinition;
 import com.clele.parts.model.Tag;
 import com.clele.parts.repository.CategoryRepository;
 import com.clele.parts.repository.PartAttachmentLinkRepository;
@@ -18,7 +19,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -42,6 +45,8 @@ public class PartService {
     private final TagService tagService;
     private final SpecDefinitionService specDefinitionService;
     private final PartSpecValueService partSpecValueService;
+    private final com.clele.parts.repository.PartSpecValueRepository partSpecValueRepository;
+    private final com.clele.parts.repository.SpecDefinitionRepository specDefinitionRepository;
 
     /**
      * Search the catalogue. Everything but {@code sort} is an optional filter, combined with AND:
@@ -55,12 +60,13 @@ public class PartService {
      */
     public List<PartDTO> search(String search, Long categoryId, String sort,
                                 Boolean personalNumber, String manufacturer, Long locationId,
-                                Boolean sparseSpecs, List<String> tags) {
+                                Boolean sparseSpecs, List<String> tags, List<String> specs) {
         String term = (search != null && !search.isBlank()) ? search.trim() : null;
         String maker = (manufacturer != null && !manufacturer.isBlank()) ? manufacturer.trim() : null;
         Comparator<PartDTO> comparator = comparatorFor(sort);
         List<Part> parts = partRepository.search(currentOrganisationService.currentId(), term,
                 categoryId, personalNumber, maker, locationId, sparseSpecs);
+        parts = applySpecCriteria(parts, specs);
         Set<String> wanted = (tags == null) ? Set.of() : tags.stream()
                 .filter(t -> t != null && !t.isBlank())
                 .map(t -> t.trim().toLowerCase())
@@ -94,6 +100,81 @@ public class PartService {
         partAttachmentLinkRepository.findIdsByPartIdsAndType(ids, AttachmentType.PHOTO)
                 .forEach(row -> result.putIfAbsent((Long) row[0], (Long) row[1]));
         return result;
+    }
+
+    /**
+     * Narrow the result set by parametric spec criteria — the query a parts database exists for
+     * ("Vds ≥ 60 V", "resistance = 4.7 kΩ"), and the reason the typed rows exist.
+     *
+     * <p>Each criterion is {@code jsonName:op:value} and runs as its own indexed query; the results
+     * are intersected, so criteria AND together the way the other filters do. This mirrors how tags
+     * are handled — the selective work happens in SQL, the combining in Java — rather than building
+     * the whole search as dynamic SQL for a filter most searches do not use.
+     *
+     * <p><b>The value is parsed against the spec's own unit family</b>, so a user may type
+     * {@code 4k7}, {@code 100nF} or {@code 3.3} and mean the same thing the catalogue stores. A
+     * value that will not parse as a number falls back to a text match, which is what makes
+     * {@code dielectric:eq:X7R} work through the same mechanism.
+     *
+     * <p>An unknown spec name or an unusable criterion matches <b>nothing</b> rather than being
+     * ignored: silently dropping a filter shows the user a longer list and lets them believe it was
+     * filtered.
+     */
+    private List<Part> applySpecCriteria(List<Part> parts, List<String> specs) {
+        if (specs == null || specs.isEmpty() || parts.isEmpty()) return parts;
+        Long orgId = currentOrganisationService.currentId();
+
+        for (String raw : specs) {
+            if (raw == null || raw.isBlank()) continue;
+            String[] bits = raw.split(":", 3);
+            if (bits.length < 2) return List.of();
+
+            String jsonName = bits[0].trim();
+            String op = bits[1].trim().toLowerCase();
+            String value = bits.length > 2 ? bits[2].trim() : "";
+
+            SpecDefinition def = specDefinitionRepository
+                    .findByOrganisationIdAndJsonName(orgId, jsonName).orElse(null);
+            if (def == null) return List.of();
+
+            Set<Long> matching = new HashSet<>(matchingPartIds(orgId, def, op, value));
+            parts = parts.stream().filter(p -> matching.contains(p.getId())).collect(Collectors.toList());
+            if (parts.isEmpty()) return parts;
+        }
+        return parts;
+    }
+
+    /** The part ids one criterion admits. */
+    private List<Long> matchingPartIds(Long orgId, SpecDefinition def, String op, String value) {
+        if ("any".equals(op)) {
+            return partSpecValueRepository.partIdsWithSpec(orgId, def.getJsonName());
+        }
+        if (value.isEmpty()) return List.of();
+
+        if ("contains".equals(op)) {
+            return partSpecValueRepository.partIdsMatchingText(orgId, def.getJsonName(), op, value);
+        }
+
+        // The value is written the way people write it — "4k7", "100nF", "3.3" — so it is parsed
+        // through the spec's own family, exactly as an incoming spec value would be.
+        BigDecimal num = def.family()
+                .flatMap(f -> MetricUnitParser.parseToBase(value, f))
+                .map(BigDecimal::new)
+                .orElseGet(() -> {
+                    try {
+                        return new BigDecimal(MetricUnitParser.normalizeSpaces(value));
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                });
+
+        if (num != null) {
+            return partSpecValueRepository.partIdsMatchingNumeric(orgId, def.getJsonName(), op, num);
+        }
+        // Not a number: only equality is meaningful, and it means the text.
+        return "eq".equals(op)
+                ? partSpecValueRepository.partIdsMatchingText(orgId, def.getJsonName(), "eq", value)
+                : List.of();
     }
 
     /**

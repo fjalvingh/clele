@@ -154,7 +154,26 @@ export interface PartFilters {
   /** Keep only parts carrying fewer than SPARSE_SPEC_THRESHOLD spec keys. */
   sparseSpecs?: boolean;
   tags?: string[];
+  /**
+   * Parametric spec criteria, each `jsonName:op:value`, ANDed together — "Vds >= 60 V" is
+   * `draintosourcevoltage_vdss_:gte:60`. The value is written the way people write it ("4k7",
+   * "100nF", "3.3") and parsed server-side against the spec's unit family.
+   */
+  specs?: string[];
 }
+
+/** The comparisons a spec criterion can make. */
+export type SpecOp = 'eq' | 'gte' | 'gt' | 'lte' | 'lt' | 'contains' | 'any';
+
+export const SPEC_OP_LABELS: Record<SpecOp, string> = {
+  eq: '=',
+  gte: '\u2265',
+  gt: '>',
+  lte: '\u2264',
+  lt: '<',
+  contains: 'contains',
+  any: 'has any value',
+};
 
 /**
  * A part with fewer than this many spec keys counts as "missing specs" — what the dashboard tile

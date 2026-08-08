@@ -121,6 +121,7 @@ export const getParts = (
   if (filters?.locationId !== undefined) params.locationId = filters.locationId;
   if (filters?.sparseSpecs) params.sparseSpecs = true;
   if (filters?.tags && filters.tags.length > 0) params.tags = filters.tags;
+  if (filters?.specs && filters.specs.length > 0) params.spec = filters.specs;
   // indexes:null → repeated `tags=a&tags=b` (Axios would otherwise emit `tags[]=`, which Spring
   // does not bind to a List<String>).
   return client

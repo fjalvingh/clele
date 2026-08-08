@@ -2,9 +2,9 @@
 
 Working note, 2026-08-08. Design agreed in conversation.
 
-**Status: steps 1–4 of the migration plan are built** (2026-08-08) — V50 + the RKM parser/formatter
-pair + the dual-write funnel, V51's unit families, the backfill CLI, and V52's read flip. The rows
-are now what everything reads. Steps 5–6 (parametric search UI, drop `part.specs`) are still open.
+**Status: steps 1–5 of the migration plan are built** (2026-08-08) — V50 + the RKM parser/formatter
+pair + the dual-write funnel, V51's unit families, the backfill CLI, V52's read flip, and the
+parametric search. Only step 6 (drop `part.specs`) remains.
 
 ⚠️ **Deviation from the plan below: step 4 does NOT stop writing the JSONB.** Doing so would make
 this step irreversible — any part edited afterwards would leave stale JSONB behind — while the plan
@@ -26,6 +26,8 @@ What landed:
 | `V51__spec_unit_families.sql` | families for 189/209 NUMBER + 18/43 TEXT definitions, by hand |
 | `SpecValueBackfillService` + `Runner` | the `specvalues` CLI profile — preview by default, per-part transactions, residue report |
 | `V52__part_spec_text_search.sql` | `part.spec_text` + the rebuilt FTS index; reads flipped in `PartService` / `PartRepository` |
+| parametric search | repeated `?spec=jsonName:op:value`, indexed per criterion; the Specifications block in the Parts panel |
+| family rendering | `formatSpecValue` renders by unit family, so `0.00000015` shows as `150 ns` |
 
 Verified end to end against a scratch database built from V1→V52: every classification branch lands
 in the right shape, MERGE leaves untouched keys alone, REPLACE removes their rows, and the row count
@@ -51,6 +53,20 @@ spec key set is identical for all 1,102 parts, the sparse count is identical (33
 a 2.2 MHz op-amp whose supply-voltage range happened to end at 16, an accidental hit from tokenising
 `"4..16"`. Of 21,719 values, 34 render differently and all are intended (whitespace normalised,
 plain-vs-scientific notation, a human range parsed, a unit string parsed to base).
+
+**Step 5 turned up the one defect that would have made the feature useless.** `capacitance = 100nF`
+found nothing: the value arrives from the JSONB as the double `1.0000000000000001e-7` and was stored
+verbatim. The design's reasoning for rejecting cc's `value_exact`/`value_num` split — "storing
+NUMERIC instead of double precision lets one column serve both `=` and ranges" — is only true if the
+number *arrives* exact, and ours do not. Values are now rounded to 12 significant digits on write,
+after which `100nF`, `0.1uF`, `1e-7` and `100n` are all one search. Verified live, along with
+`supplyvoltage:eq:3.3` (170 parts, by range containment), `Vds >= 60` (6) and
+`propagationdelay <= 10ns` (61).
+
+A second one only the browser could find: `formatSpecValue` is typed as taking a `string`, but a
+numeric spec now arrives as a JSON **number**, so `value.trim()` threw and blanked the whole Part
+Detail page. The build was clean — the types lied, because `part.specs` is a `Record<string,
+unknown>` the callers narrow by hand.
 
 Two more things the step turned up:
 

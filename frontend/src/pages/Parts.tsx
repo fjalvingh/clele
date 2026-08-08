@@ -6,6 +6,7 @@ import {
   getCategoryTree,
   getLocations,
   getParts,
+  getSpecDefinitions,
   getSpecsForCategory,
 } from '../api';
 import type {
@@ -15,8 +16,10 @@ import type {
   PartFilters,
   PartRequest,
   SpecDefinition,
+  SpecOp,
 } from '../api/types';
-import { SPARSE_SPEC_THRESHOLD } from '../api/types';
+import { SPARSE_SPEC_THRESHOLD, SPEC_OP_LABELS } from '../api/types';
+import { unitFamily } from '../utils/units';
 import { useAuth } from '../auth/AuthContext';
 import Badge from '../components/Badge';
 import CategoryPicker from '../components/CategoryPicker';
@@ -166,6 +169,23 @@ type SortKey = 'partNumber' | 'manufacturer';
 /** Tri-state for the "Personal product code" filter: unset means "don't filter on it". */
 type TriState = '' | 'yes' | 'no';
 
+/**
+ * One parametric spec condition, as the UI edits it. On the wire (and in the URL) it is the flat
+ * string `jsonName:op:value`, which is what both the API and a bookmarked link carry.
+ */
+interface SpecCriterion {
+  jsonName: string;
+  op: SpecOp;
+  value: string;
+}
+
+const parseSpecCriterion = (raw: string): SpecCriterion => {
+  const [jsonName = '', op = 'eq', ...rest] = raw.split(':');
+  return { jsonName, op: (op || 'eq') as SpecOp, value: rest.join(':') };
+};
+
+const specCriterionToString = (c: SpecCriterion) => `${c.jsonName}:${c.op}:${c.value}`;
+
 /** Everything the Parts search runs on. Mirrored in the URL so Back / reload restores the search. */
 interface Criteria {
   search: string;
@@ -176,6 +196,8 @@ interface Criteria {
   locationId?: number;
   sparseSpecs: boolean;
   tags: string[];
+  /** Parametric spec criteria, in the wire form `jsonName:op:value`. */
+  specs: string[];
 }
 
 const criteriaFromParams = (p: URLSearchParams): Criteria => ({
@@ -187,9 +209,12 @@ const criteriaFromParams = (p: URLSearchParams): Criteria => ({
   locationId: p.get('loc') ? Number(p.get('loc')) : undefined,
   sparseSpecs: p.get('sparse') === '1',
   tags: p.get('tags') ? p.get('tags')!.split(',').filter(Boolean) : [],
+  specs: p.getAll('spec').filter(Boolean),
 });
 
-const paramsFromCriteria = (c: Criteria): Record<string, string> => {
+// Returns URLSearchParams rather than a flat record: spec criteria are *repeated* `spec=` params
+// (the shape the API takes), and a Record can only hold one value per key.
+const paramsFromCriteria = (c: Criteria): URLSearchParams => {
   const params: Record<string, string> = {};
   if (c.search.trim()) params.q = c.search.trim();
   if (c.categoryId !== undefined) params.cat = String(c.categoryId);
@@ -199,7 +224,9 @@ const paramsFromCriteria = (c: Criteria): Record<string, string> => {
   if (c.locationId !== undefined) params.loc = String(c.locationId);
   if (c.sparseSpecs) params.sparse = '1';
   if (c.tags.length > 0) params.tags = c.tags.join(',');
-  return params;
+  const out = new URLSearchParams(params);
+  c.specs.forEach((sc) => out.append('spec', sc));
+  return out;
 };
 
 const filtersFromCriteria = (c: Criteria): PartFilters => ({
@@ -208,6 +235,7 @@ const filtersFromCriteria = (c: Criteria): PartFilters => ({
   locationId: c.locationId,
   sparseSpecs: c.sparseSpecs || undefined,
   tags: c.tags,
+  specs: c.specs,
 });
 
 /**
@@ -223,7 +251,8 @@ const hasCriteria = (c: Criteria) =>
       c.manufacturer.trim() ||
       c.locationId !== undefined ||
       c.sparseSpecs ||
-      c.tags.length > 0,
+      c.tags.length > 0 ||
+      c.specs.length > 0,
   );
 
 /** True when any of the *advanced* (panel) filters are in use — used to auto-open the panel. */
@@ -233,7 +262,8 @@ const hasAdvanced = (c: Criteria) =>
       c.manufacturer.trim() ||
       c.locationId !== undefined ||
       c.sparseSpecs ||
-      c.tags.length > 0,
+      c.tags.length > 0 ||
+      c.specs.length > 0,
   );
 
 export default function PartsPage() {
@@ -257,6 +287,10 @@ export default function PartsPage() {
   const [form, setForm] = useState<PartRequest>(emptyForm());
   const [specValues, setSpecValues] = useState<Record<string, string>>({});
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
+  // Every spec field in the organisation, for the parametric search conditions. Deliberately not
+  // `specDefs`, which is loaded only while the create modal is open and is scoped to the chosen
+  // category — searching must offer every field, whatever category the part is in.
+  const [searchSpecDefs, setSearchSpecDefs] = useState<SpecDefinition[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -277,10 +311,13 @@ export default function PartsPage() {
   // searches, so opening the page is fast even with a large catalogue.
   useEffect(() => {
     setLoading(true);
-    Promise.all([getCategoryTree(), getLocations()])
-      .then(([tree, locs]) => {
+    Promise.all([getCategoryTree(), getLocations(), getSpecDefinitions()])
+      .then(([tree, locs, defs]) => {
         setCategoryTree(tree);
         setLocations(locs);
+        setSearchSpecDefs(
+          [...defs].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
+        );
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -481,6 +518,7 @@ export default function PartsPage() {
                 manufacturer: '',
                 sparseSpecs: false,
                 tags: [],
+                specs: [],
               });
               setParts([]);
               setSearched(false);
@@ -515,6 +553,7 @@ export default function PartsPage() {
         </button>
 
         {advancedOpen && (
+          <>
           <div className="mt-2 grid grid-cols-1 gap-4 rounded-lg border border-gray-200 bg-gray-50 p-4 sm:grid-cols-2 lg:grid-cols-4 dark:border-gray-700 dark:bg-gray-800/50">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -594,6 +633,107 @@ export default function PartsPage() {
               </label>
             </div>
           </div>
+
+          {/* Parametric spec criteria — "Vds >= 60 V", "resistance = 4k7". This is the query a
+              parts database exists for, and what the typed part_spec_value rows were built for.
+              Criteria AND together, like every other filter here. */}
+          <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Specifications
+              </span>
+              <button
+                type="button"
+                onClick={() => setCriteria({ ...criteria, specs: [...criteria.specs, ':eq:'] })}
+                className="rounded-lg border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+              >
+                + Add condition
+              </button>
+            </div>
+
+            {criteria.specs.length === 0 ? (
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                Search on a specification value — e.g. resistance &ge; 1k, or dielectric = X7R.
+                Values may be written the way you would write them (<code>4k7</code>,{' '}
+                <code>100nF</code>), and a range like 4&hellip;16&nbsp;V matches when it covers the
+                value you ask for.
+              </p>
+            ) : (
+              <div className="mt-2 space-y-2">
+                {criteria.specs.map((raw, i) => {
+                  const c = parseSpecCriterion(raw);
+                  const def = searchSpecDefs.find((d) => d.jsonName === c.jsonName);
+                  const family = unitFamily(def?.unitFamily);
+                  const update = (next: Partial<SpecCriterion>) => {
+                    const merged = specCriterionToString({ ...c, ...next });
+                    setCriteria({
+                      ...criteria,
+                      specs: criteria.specs.map((v, j) => (j === i ? merged : v)),
+                    });
+                  };
+                  return (
+                    <div key={i} className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={c.jsonName}
+                        onChange={(e) => update({ jsonName: e.target.value })}
+                        className="min-w-0 flex-1 rounded-lg border border-gray-300 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:flex-none sm:w-64"
+                      >
+                        <option value="">— pick a field —</option>
+                        {searchSpecDefs.map((d) => (
+                          <option key={d.id} value={d.jsonName}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={c.op}
+                        onChange={(e) => update({ op: e.target.value as SpecOp })}
+                        className="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {(Object.keys(SPEC_OP_LABELS) as SpecOp[]).map((op) => (
+                          <option key={op} value={op}>
+                            {SPEC_OP_LABELS[op]}
+                          </option>
+                        ))}
+                      </select>
+                      {c.op !== 'any' && (
+                        <div className="relative min-w-0 flex-1 sm:w-40 sm:flex-none">
+                          <input
+                            value={c.value}
+                            onChange={(e) => update({ value: e.target.value })}
+                            placeholder={family ? `e.g. 4k7` : 'value'}
+                            className="block w-full rounded-lg border border-gray-300 px-2 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          {family?.baseUnit && (
+                            <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-gray-400">
+                              {family.baseUnit}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        title="Remove this condition"
+                        onClick={() =>
+                          setCriteria({
+                            ...criteria,
+                            specs: criteria.specs.filter((_, j) => j !== i),
+                          })
+                        }
+                        className="rounded-lg border border-gray-300 px-2 py-2 text-gray-500 hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                             className="h-4 w-4">
+                          <path d="M18 6 6 18M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          </>
         )}
       </form>
 

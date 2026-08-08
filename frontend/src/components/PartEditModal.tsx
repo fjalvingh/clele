@@ -6,6 +6,7 @@ import FormField from './FormField';
 import MetricNumberField from './MetricNumberField';
 import Modal from './Modal';
 import TagInput from './TagInput';
+import { unitFamily } from '../utils/units';
 
 function parseMultiUnit(value: string, units: string[]): [string, string] {
   for (const u of units) {
@@ -60,6 +61,24 @@ function SpecField({
   if (spec.dataType === 'NUMBER') {
     const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
     const isMulti = units.length > 1;
+    // A field that declares a unit family is stored in that family's base SI unit, so it edits with
+    // a mantissa + prefix exactly like one that declares `unit` + metricPrefix — otherwise the value
+    // reads "150 ns" on the detail page and is edited as 0.00000015, which is the same value and an
+    // unusable field. Scale-free families (°C, %, counts) take no prefix and keep the plain input.
+    const family = unitFamily(spec.unitFamily);
+    const scalableFamily = family && !(family.minExp === 0 && family.maxExp === 0) ? family : null;
+    if (!isMulti && !spec.metricPrefix && scalableFamily && !units[0]) {
+      return (
+        <MetricNumberField
+          label={spec.name}
+          unit={scalableFamily.baseUnit}
+          value={value}
+          onChange={onChange}
+          inputClassName="block flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          selectClassName="rounded-md border border-gray-300 px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
+      );
+    }
     if (!isMulti && spec.metricPrefix && units[0]) {
       return (
         <MetricNumberField

@@ -63,7 +63,7 @@ import FindImageModal from '../components/FindImageModal';
 import Modal from '../components/Modal';
 import PartEditModal from '../components/PartEditModal';
 import PrintLabelModal from '../components/PrintLabelModal';
-import { formatMetric } from '../utils/units';
+import { formatFamilyValue, formatMetric, unitFamily } from '../utils/units';
 import { parseAiSpecs } from '../utils/specs';
 
 // The three stock operations offered per location, plus the top-level "add".
@@ -113,9 +113,37 @@ const TagIcon = (
 );
 
 // Render a spec value as a display string for a table cell.
-function formatSpecValue(spec: SpecDefinition, value: string): string {
+//
+// Values are stored in the family's base SI unit, so a raw 0.00000015 is what the API returns for a
+// 150 ns access time. The unit family is what turns it back into the form people write — "150 ns",
+// "4k7", "100n" — and it does so for every field that declares one, whether or not that field also
+// declares a `unit` of its own. Before the family existed only the 96 definitions with an explicit
+// unit + metricPrefix rendered properly and everything else showed the bare base number.
+function formatSpecValue(spec: SpecDefinition, raw: string | number): string {
+  // ⚠️ Not necessarily a string. A numeric spec value arrives from the API as a JSON *number* (the
+  // typed rows return the base-unit value, not a rendering), and TypeScript cannot see that because
+  // part.specs is a Record<string, unknown> the callers narrow by hand. Coercing here is what keeps
+  // a stray .trim() from taking the whole page down.
+  const value = String(raw ?? '');
   if (spec.dataType === 'BOOLEAN') {
     return value === 'true' ? '✓' : '✗';
+  }
+  const family = unitFamily(spec.unitFamily);
+  if (family) {
+    // A stored range renders bound by bound, so "4..16" reads "4 V ~ 16 V" and an open bound stays
+    // open ("≤ 16 V") rather than printing the word "null" at the user.
+    const range = splitStoredRange(value);
+    if (range) {
+      const [lo, hi] = range;
+      const loText = lo == null ? null : formatFamilyValue(lo, spec.unitFamily);
+      const hiText = hi == null ? null : formatFamilyValue(hi, spec.unitFamily);
+      if (loText && hiText) return `${loText} ~ ${hiText}`;
+      if (hiText) return `≤ ${hiText}`;
+      if (loText) return `≥ ${loText}`;
+      return value;
+    }
+    if (value !== '' && !isNaN(Number(value))) return formatFamilyValue(value, spec.unitFamily);
+    return value;
   }
   if (spec.dataType === 'NUMBER') {
     const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
@@ -126,6 +154,15 @@ function formatSpecValue(spec: SpecDefinition, value: string): string {
     return units.length > 1 ? value : units[0] ? `${value} ${units[0]}` : value;
   }
   return value;
+}
+
+/** "4..16" / "null..125" as a pair of bounds, or null when the value is not a stored range. */
+function splitStoredRange(value: string): [string | null, string | null] | null {
+  const m = /^(-?[0-9.eE+]+|null)\.\.(-?[0-9.eE+]+|null)$/.exec(value.trim());
+  if (!m) return null;
+  const lo = m[1] === 'null' ? null : m[1];
+  const hi = m[2] === 'null' ? null : m[2];
+  return lo == null && hi == null ? null : [lo, hi];
 }
 
 // Real part columns that an OctoPart result can change. Each must be confirmed (per-field

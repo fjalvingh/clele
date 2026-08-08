@@ -935,12 +935,12 @@ ranges (`4.5..null`) that convert-to-number has to *refuse*, ~400 are unit-beari
 the full-text index. **`part_spec_value` (V50) replaces it with typed rows.** Design note and the
 full migration plan: `SPECS-REWRITE.md`.
 
-**Where this currently stands: steps 1–4 of 6 — the rows are now what everything reads.**
+**Where this currently stands: steps 1–5 of 6 — parametric search is live.**
 `PartDTO.specs`, the sparse-specs count and the Parts free-text search all come from
 `part_spec_value`. **The JSONB is still written**, deliberately: the plan had step 4 stop writing it,
 but that would make this step irreversible, and the point of no return belongs at step 6 where the
-column is dropped. Keeping the write costs one column and leaves a live fallback. Still to come: the
-parametric search UI, and dropping `part.specs`.
+column is dropped. Keeping the write costs one column and leaves a live fallback. Still to come:
+dropping `part.specs` (step 6).
 
 **The flip was verified equivalent, not assumed.** Against a copy of the real catalogue: the spec key
 set is identical for **all 1,102 parts**; the sparse count is identical (335); and over 12 search
@@ -1002,6 +1002,34 @@ bit/s family would be wrong by 10⁶), `weight` is in grams while the SI base is
   licenses parsing at all. **Null means never parse** — the safe default, and deliberately not a gap
   to fill in for tidiness. Note the name is not the family: `naturalthermalresistance` is °C/W not Ω,
   `inductancetolerance` is a percentage, `numberofresistors` is a count.
+
+### Parametric spec search
+
+The query the whole rewrite exists for. `GET /parts?spec=<jsonName>:<op>:<value>`, **repeated** —
+each criterion runs as its own indexed query and the results are intersected, so they AND together
+like every other filter. Ops: `eq` `gte` `gt` `lte` `lt` `contains` `any`. The UI is a
+**Specifications** block in the Parts screen's "More search options" panel (field → operator →
+value), mirrored in the URL so a search is bookmarkable.
+
+- **The value is written the way people write it** and parsed server-side against the spec's own
+  unit family, so `100nF`, `0.1uF`, `1e-7` and `100n` are one search. A value that will not parse as
+  a number falls back to a text match, which is how `dielectric:eq:X7R` works through the same path.
+- **Interval semantics**: a criterion asks whether the part *has some value satisfying it*, so a
+  range answers on the bound that could — `supplyvoltage:eq:3.3` matches a part specified `2..5.5`
+  (170 of them in the development catalogue), and `gte 60` matches `4..70`. An open bound is
+  unbounded and satisfies any comparison in its direction.
+- ⚠️ **An unknown spec name matches nothing rather than being ignored.** Silently dropping an
+  unrecognised filter shows the user a longer list and lets them believe it was filtered.
+- ⚠️ **Numeric values are rounded to 12 significant digits on write**
+  (`PartSpecValueService.storedScale`) — **this is what makes equality work at all.** The rewrite
+  assumed NUMERIC made the component cache's `value_exact`/`value_num` split unnecessary because
+  only cc's numbers were JSON doubles. Ours are too: the catalogue's 100 nF capacitor arrives from
+  the JSONB as `1.0000000000000001e-7`, so "capacitance = 100 nF" found nothing. NUMERIC preserves
+  what it is given; it cannot un-ruin a number that was a double first. Twelve digits is far beyond
+  any component tolerance and is the precision `units.ts` has always displayed at.
+- **The Parts screen loads every spec definition separately** (`searchSpecDefs`) — `specDefs` is
+  loaded only while the create modal is open and is scoped to the chosen category, while searching
+  must offer every field whatever category a part is in.
 
 ### The backfill CLI
 
@@ -1769,7 +1797,8 @@ and would need to become display-only.
     the flag), `manufacturer` (case-insensitive substring), `locationId` (parts holding stock >0 in
     that location **or any location below it** — the same recursive walk as categories),
     `sparseSpecs` (parts carrying fewer than `PartRepository.SPARSE_SPEC_THRESHOLD` spec keys — see
-    *Spec coverage* below), and `tags`
+    *Spec coverage* below), `spec` (repeated parametric criteria `jsonName:op:value` — see
+    *Parametric spec search*), and `tags`
     (repeated param; a part must carry **all** of them). Tags are matched in `PartService` rather
     than SQL — they are already loaded for the DTO mapping, and "all of N" is awkward in a native
     query with a variable-length list. The SPA sends them with axios `paramsSerializer: {indexes:

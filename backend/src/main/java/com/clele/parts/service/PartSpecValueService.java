@@ -314,7 +314,7 @@ public class PartSpecValueService {
         // A JSON number needs no parsing and no family: nothing is converted, so nothing can be
         // wrong about its magnitude that was not already wrong in the JSONB.
         if (raw instanceof Number n) {
-            return Classification.scalar(new BigDecimal(n.toString()));
+            return Classification.scalar(storedScale(new BigDecimal(n.toString())));
         }
 
         String s = MetricUnitParser.normalizeSpaces(String.valueOf(raw));
@@ -330,7 +330,7 @@ public class PartSpecValueService {
 
         if (family.isPresent()) {
             Optional<String> parsed = MetricUnitParser.parseToBase(s, family.get());
-            if (parsed.isPresent()) return Classification.scalar(new BigDecimal(parsed.get()));
+            if (parsed.isPresent()) return Classification.scalar(storedScale(new BigDecimal(parsed.get())));
             return Classification.text(true);
         }
 
@@ -344,7 +344,7 @@ public class PartSpecValueService {
         // and anything else whose leading zero is meaning rather than formatting. If the string cannot
         // be reproduced from the number, we did not understand it and must not extract it.
         BigDecimal plain = numericIfLossless(s);
-        return plain != null ? Classification.scalar(plain) : Classification.text(false);
+        return plain != null ? Classification.scalar(storedScale(plain)) : Classification.text(false);
     }
 
     /**
@@ -376,9 +376,10 @@ public class PartSpecValueService {
         String b = MetricUnitParser.normalizeSpaces(bound);
         if (b.isEmpty() || b.equalsIgnoreCase("null")) return null;
         if (family.isPresent()) {
-            return MetricUnitParser.parseToBase(b, family.get()).map(BigDecimal::new).orElse(null);
+            return MetricUnitParser.parseToBase(b, family.get()).map(BigDecimal::new)
+                    .map(PartSpecValueService::storedScale).orElse(null);
         }
-        return plainNumber(b);
+        return storedScale(plainNumber(b));
     }
 
     /**
@@ -397,6 +398,29 @@ public class PartSpecValueService {
         // "1.50" would return as "1.5". Comparing the unstripped form instead would call that
         // lossless and quietly change the value the user sees.
         return plain != null && plain.stripTrailingZeros().toPlainString().equals(s) ? plain : null;
+    }
+
+    /**
+     * Significant digits kept when a value is stored. Mirrors {@code clean()} in
+     * {@code utils/units.ts}, which already truncates to 12 for display.
+     */
+    private static final java.math.MathContext STORED_PRECISION = new java.math.MathContext(12);
+
+    /**
+     * Round a value to {@link #STORED_PRECISION} — <b>the step that makes equality searches work</b>.
+     *
+     * <p>⚠️ The design assumed {@code NUMERIC} was enough to avoid the component cache's
+     * {@code value_exact}/{@code value_num} split, on the grounds that only cc's source numbers are
+     * JSON doubles. Ours are too: the catalogue's 100 nF capacitor arrives from the JSONB as
+     * {@code 1.0000000000000001e-7}, so it is stored as {@code 0.00000010000000000000001} and
+     * "capacitance = 100 nF" — the exact query this whole rewrite exists to enable — finds nothing.
+     * NUMERIC preserves whatever it is given; it cannot un-ruin a number that was a double first.
+     *
+     * <p>Twelve significant digits is far beyond any real component tolerance (a 0.01% resistor has
+     * four), so nothing measurable is lost, and it is the precision the frontend has always used.
+     */
+    private static BigDecimal storedScale(BigDecimal v) {
+        return v == null ? null : v.round(STORED_PRECISION).stripTrailingZeros();
     }
 
     private static BigDecimal plainNumber(String s) {
