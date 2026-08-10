@@ -113,13 +113,28 @@ public interface PartRepository extends JpaRepository<Part, Long> {
      * already have this?" check. Returns parts whose part_number is trigram-similar to the term
      * (typo/transposition tolerant via pg_trgm's {@code %} operator) or contains it as a
      * case-insensitive substring, best match first.
+     *
+     * <p>⚠️ <b>A substring containment outranks any trigram score</b>, and that ordering is
+     * load-bearing rather than cosmetic. Trigram similarity is character overlap, so on a part
+     * number short enough for the family prefix to be most of it, the prefix alone clears pg_trgm's
+     * default 0.3 threshold: {@code similarity('74ls02','74ls189')} is 0.364 on four shared
+     * trigrams that are all {@code 74ls}. Meanwhile the parts actually wanted score <em>lower</em>,
+     * because a manufacturer prefix and a package suffix dilute the overlap — measured on this
+     * catalogue, {@code SN74LS02N} scores 0.308 and {@code SN74LS02DR} 0.286, the latter below the
+     * threshold entirely (it is in the result only via the ILIKE branch). Sorting on similarity
+     * alone therefore put two unrelated 74LS parts above the two right ones. No threshold separates
+     * them either — 0.364 for a wrong part against 0.308 for a right one — so raising it would drop
+     * the real matches before the noise. "The typed term appears literally in the part number" is
+     * the far stronger signal; trigram similarity only orders what is left.
      */
     @Query(value = """
             SELECT p.* FROM part p
             WHERE p.organisation_id = :orgId
               AND (p.part_number % :term
                    OR p.part_number ILIKE '%' || :term || '%')
-            ORDER BY similarity(p.part_number, :term) DESC, p.part_number
+            ORDER BY (p.part_number ILIKE '%' || :term || '%') DESC,
+                     similarity(p.part_number, :term) DESC,
+                     p.part_number
             LIMIT 10
             """, nativeQuery = true)
     List<Part> fuzzyByPartNumber(@Param("orgId") Long organisationId, @Param("term") String term);
@@ -145,6 +160,16 @@ public interface PartRepository extends JpaRepository<Part, Long> {
      *
      * <p>The score is the better of the two similarities, exposed so the screen can show how
      * confident a suggestion is. Nothing auto-accepts on it.
+     *
+     * <p>⚠️ <b>A substring containment on either column outranks the score</b>, for the reason
+     * spelled out on {@link #fuzzyByPartNumber} — a shared family prefix clears pg_trgm's threshold
+     * on its own, while the genuinely wanted part scores lower for carrying a manufacturer prefix
+     * and a package suffix. The score is still returned unchanged and still orders everything below
+     * the literal hits; it is only no longer the first key.
+     *
+     * <p>⚠️ <b>The MPN containment must be coalesced to false.</b> {@code mpn} is nullable, so
+     * {@code NULL ILIKE …} is NULL, and Postgres sorts NULLs <em>first</em> under {@code DESC} —
+     * left bare, the term would rank every part that has no MPN at all above every real match.
      */
     @Query(value = """
             SELECT p.id AS id,
@@ -156,7 +181,10 @@ public interface PartRepository extends JpaRepository<Part, Long> {
                    OR p.part_number ILIKE '%' || :term || '%'
                    OR p.mpn % :term
                    OR p.mpn ILIKE '%' || :term || '%')
-            ORDER BY score DESC, p.part_number
+            ORDER BY (p.part_number ILIKE '%' || :term || '%'
+                      OR COALESCE(p.mpn ILIKE '%' || :term || '%', false)) DESC,
+                     score DESC,
+                     p.part_number
             LIMIT :limit
             """, nativeQuery = true)
     List<PartMatchView> fuzzyByPartNumberOrMpn(@Param("orgId") Long organisationId,
