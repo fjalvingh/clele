@@ -341,9 +341,14 @@ export default function UsersPage() {
         {sent ? (
           <>
             <p className="mb-3 text-sm text-amber-700">
-              The invitation was created, but no mail could be sent (this installation has no mail
-              server configured). Pass this link to <strong>{sent.email}</strong> yourself:
+              The invitation was created, but no mail could be sent. Pass this link to{' '}
+              <strong>{sent.email}</strong> yourself:
             </p>
+            {sent.mailError && (
+              <p className="mb-3 rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                {sent.mailError}
+              </p>
+            )}
             <p className="mb-4 break-all rounded bg-gray-100 p-3 font-mono text-xs text-gray-800">
               {sent.link}
             </p>

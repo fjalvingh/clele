@@ -339,6 +339,8 @@ export interface Invitation {
   respondedAt?: string;
   /** False when the mail could not be sent — the admin then passes `link` on themselves. */
   mailSent: boolean;
+  /** Why the mail did not go out, ready to show as-is; absent when it did. */
+  mailError?: string;
   /** Only returned in the response to creating the invitation. */
   link?: string;
 }

@@ -24,10 +24,16 @@ public class InvitationDTO {
     private LocalDateTime expiresAt;
     private LocalDateTime respondedAt;
     /**
-     * True when the mail could not be sent (no SMTP configured, or the send failed) — the admin
+     * False when the mail could not be sent (no SMTP configured, or the send failed) — the admin
      * then has to pass {@link #link} on themselves, so the UI shows it.
      */
     private boolean mailSent;
+    /**
+     * Why the mail did not go out, phrased for the admin; null when it did. Without it the UI can
+     * only guess, and guessing "no mail server configured" at a server that is configured but
+     * refusing the message points the admin at the wrong thing entirely.
+     */
+    private String mailError;
     /** The accept/decline link, returned only in the response to creating the invitation. */
     private String link;
 }

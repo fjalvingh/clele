@@ -4,6 +4,7 @@ import com.clele.parts.config.AppProperties;
 import com.clele.parts.mail.EmailMessage;
 import com.clele.parts.mail.MailProvider;
 import com.clele.parts.mail.MailProviderRegistry;
+import com.clele.parts.mail.MailSendResult;
 import com.clele.parts.model.OrganisationInvitation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,9 +38,9 @@ public class MailService {
      * Send the invitation mail.
      *
      * @param link the accept/decline URL the invitee follows
-     * @return whether the mail was actually sent
+     * @return whether the mail went out, and why it did not
      */
-    public boolean sendInvitation(OrganisationInvitation invitation, String link) {
+    public MailSendResult sendInvitation(OrganisationInvitation invitation, String link) {
         String organisation = invitation.getOrganisation().getName();
         String inviter = displayName(invitation);
         // Always the public product name here — never the "Clele" code name (see AppProperties).
@@ -74,25 +75,51 @@ public class MailService {
      *
      * @param logContext what to say when the mail could not go out — it must contain everything an
      *                   admin needs to act by hand (that is the whole point of logging it)
-     * @return whether the mail was actually sent
+     * @return whether the mail went out, and why it did not
      */
-    private boolean send(EmailMessage message, String logContext) {
+    private MailSendResult send(EmailMessage message, String logContext) {
         Optional<MailProvider> provider = providers.active();
         if (provider.isEmpty()) {
             log.warn("No mail provider configured — {} not sent. {}", message.subject(),
                     logContext);
-            return false;
+            return MailSendResult.failed(providers.inactiveReason());
         }
         try {
             provider.get().send(message);
-            return true;
+            return MailSendResult.succeeded();
         } catch (Exception e) {
             // Never fail the caller over this: an invitation row is valid and its link works, so
-            // the admin can still pass it on by hand. They are told it did not send.
+            // the admin can still pass it on by hand. They are told it did not send, and what the
+            // server said — a rejected password or sending IP is only fixable if it is repeated.
             log.error("Provider '{}' failed to send to {}: {} — {}", provider.get().name(),
                     message.to(), e.getMessage(), logContext, e);
-            return false;
+            // No prefix: the provider's own exception already names the step that failed, and the
+            // UI has already said no mail went out — this line is the detail under that.
+            return MailSendResult.failed(describe(e));
         }
+    }
+
+    /**
+     * The exception as one line. The useful detail is usually in the deepest cause — the SMTP
+     * layer's own wording ("525 5.7.1 Unauthorized IP address") — while the outer message only
+     * says which step failed, so both go in.
+     */
+    private static String describe(Throwable e) {
+        String top = messageOf(e);
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String deepest = messageOf(root);
+        return top.contains(deepest) ? top : top + " (" + deepest + ")";
+    }
+
+    /** An exception's message, falling back to its type when it has none. */
+    private static String messageOf(Throwable e) {
+        String message = e.getMessage();
+        return message == null || message.isBlank()
+                ? e.getClass().getSimpleName()
+                : message.strip();
     }
 
     /** The inviting admin as the mail should name them; their email is the honest fallback. */

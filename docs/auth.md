@@ -176,7 +176,12 @@ conscript another's user without their knowledge. They invite an address; the in
 - **Mail is optional.** `MailService` composes the message and hands it to the configured provider
   (see *Outgoing Mail* in this file); with none configured it logs the link instead and reports
   `mailSent: false`, and the invite dialog then shows the link so the admin can pass it on. A send
-  failure never fails the invitation — the row is valid and the link works. Set `APP_BASE_URL` when
+  failure never fails the invitation — the row is valid and the link works. It also reports
+  **`mailError`**, a sentence saying *which* failure it was — no provider configured, or a
+  configured one that refused the message (with the server's own wording, e.g. `525 5.7.1
+  Unauthorized IP address`) — shown verbatim under the link. Guessing "no mail server configured"
+  at a server that is configured and merely rejecting the sending IP costs an afternoon. Set
+  `APP_BASE_URL` when
   the app sits behind a proxy that rewrites the host — otherwise the link is derived from the
   request that created the invitation.
 - **Frontend**: `pages/Users.tsx` has the **Invite user** dialog (email with a debounced

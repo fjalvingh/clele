@@ -6,6 +6,7 @@ import com.clele.parts.dto.EmailLookupDTO;
 import com.clele.parts.dto.InvitationDTO;
 import com.clele.parts.dto.InvitationRequest;
 import com.clele.parts.dto.PublicInvitationDTO;
+import com.clele.parts.mail.MailSendResult;
 import com.clele.parts.model.AppUser;
 import com.clele.parts.model.InvitationStatus;
 import com.clele.parts.model.Organisation;
@@ -129,10 +130,11 @@ public class InvitationService {
         invitation = invitationRepository.save(invitation);
 
         String link = linkFor(invitation);
-        boolean sent = mailService.sendInvitation(invitation, link);
+        MailSendResult mail = mailService.sendInvitation(invitation, link);
 
         InvitationDTO dto = toDTO(invitation);
-        dto.setMailSent(sent);
+        dto.setMailSent(mail.sent());
+        dto.setMailError(mail.failureReason());
         dto.setLink(link);
         return dto;
     }

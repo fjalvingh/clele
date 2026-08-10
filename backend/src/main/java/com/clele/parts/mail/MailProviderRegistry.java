@@ -53,6 +53,19 @@ public class MailProviderRegistry {
         return provider.isConfigured() ? Optional.of(provider) : Optional.empty();
     }
 
+    /**
+     * Why {@link #active()} is empty, as a sentence for an admin. Distinguishes "sending is off"
+     * from "a provider is selected but has no credentials" — different fixes, in different places.
+     */
+    public String inactiveReason() {
+        String configured = configuredName();
+        if (MailProviders.NONE.equals(configured)) {
+            return "This installation has outgoing mail switched off (app.mail.provider=none).";
+        }
+        return "This installation selects the '" + configured
+                + "' mail provider but has not configured it.";
+    }
+
     /** Every provider this build knows about — useful for diagnostics and error messages. */
     public List<String> available() {
         return providers.keySet().stream().sorted().toList();
