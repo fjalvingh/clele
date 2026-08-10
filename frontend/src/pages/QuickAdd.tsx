@@ -712,6 +712,7 @@ export default function QuickAddPage() {
           <form onSubmit={handleSearch} className="flex gap-3">
             <input
               type="text"
+              autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="e.g. NE555, BC547, LM358"
