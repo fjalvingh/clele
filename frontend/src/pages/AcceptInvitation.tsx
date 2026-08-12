@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { acceptInvitation, declineInvitation, getInvitationByToken } from '../api';
 import { PERMISSIONS, type PublicInvitation } from '../api/types';
-import loginPhoto from '../assets/clele.jpg';
+import { pickLoginPhoto } from '../utils/loginPhotos';
 
 const permLabel = (key: string) => PERMISSIONS.find((p) => p.key === key)?.label ?? key;
 
@@ -18,6 +18,8 @@ export default function AcceptInvitationPage() {
   const { token = '' } = useParams();
   const navigate = useNavigate();
 
+  // Chosen once per mount, so a re-render does not swap the photo mid-page.
+  const [loginPhoto] = useState(pickLoginPhoto);
   const [invitation, setInvitation] = useState<PublicInvitation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -235,8 +237,8 @@ export default function AcceptInvitationPage() {
   return (
     <div className="flex min-h-screen bg-gray-100">
       <div
-        className="relative hidden w-1/2 flex-col justify-end bg-cover bg-center p-12 md:flex"
-        style={{ backgroundImage: `url(${loginPhoto})` }}
+        className="relative hidden w-1/2 flex-col justify-end bg-cover bg-center bg-gray-800 p-12 md:flex"
+        style={loginPhoto ? { backgroundImage: `url(${loginPhoto})` } : undefined}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
         <div className="relative max-w-md text-white">

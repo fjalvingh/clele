@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import loginPhoto from '../assets/clele.jpg';
+import { pickLoginPhoto } from '../utils/loginPhotos';
 
 export default function LoginPage() {
+  // Chosen once per mount, so a re-render (typing, failed login) does not swap the photo.
+  const [loginPhoto] = useState(pickLoginPhoto);
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -31,8 +33,8 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen bg-gray-100">
       <div
-        className="relative hidden w-1/2 flex-col justify-end bg-cover bg-center p-12 md:flex"
-        style={{ backgroundImage: `url(${loginPhoto})` }}
+        className="relative hidden w-1/2 flex-col justify-end bg-cover bg-center bg-gray-800 p-12 md:flex"
+        style={loginPhoto ? { backgroundImage: `url(${loginPhoto})` } : undefined}
       >
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
         <div className="relative max-w-md text-white">
