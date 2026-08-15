@@ -33,20 +33,20 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen bg-gray-100">
       <div
-        className="relative hidden w-1/2 flex-col justify-end bg-cover bg-center bg-gray-800 p-12 md:flex"
+        className="hidden w-1/2 bg-gray-100 bg-contain bg-center bg-no-repeat md:block"
         style={loginPhoto ? { backgroundImage: `url(${loginPhoto})` } : undefined}
-      >
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-        <div className="relative max-w-md text-white">
-          <h2 className="text-2xl font-bold tracking-tight">Know what's on the bench.</h2>
-          <p className="mt-2 text-sm text-teal-50/80">
+      />
+
+      <div className="flex w-full flex-col items-center justify-center p-4 md:w-1/2">
+        <div className="mb-6 w-full max-w-sm">
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900">
+            Know what's on the bench.
+          </h2>
+          <p className="mt-2 text-sm text-gray-500">
             Track parts, stock and locations across your whole workshop — from a single reel of
             resistors to a full cabinet of modules.
           </p>
         </div>
-      </div>
-
-      <div className="flex w-full items-center justify-center p-4 md:w-1/2">
         <form
           onSubmit={handleSubmit}
           className="w-full max-w-sm rounded-xl bg-surface p-8 shadow-2xl"
