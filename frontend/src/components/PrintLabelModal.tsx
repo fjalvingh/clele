@@ -118,7 +118,11 @@ function barcodeLabelBody(code: string, widthMm: number, heightMm: number): stri
 
 // Print by writing the label document into a hidden iframe and calling its print(). This keeps
 // the rest of the SPA out of the printed output and avoids popup blockers.
-function printLabel(doc: string) {
+//
+// onDone fires once the browser's print dialog has been dismissed — print() blocks until then —
+// which is the only "finished" signal this path offers, and is the same whether the user printed
+// or cancelled.
+function printLabel(doc: string, onDone?: () => void) {
   const iframe = document.createElement('iframe');
   iframe.setAttribute('aria-hidden', 'true');
   iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
@@ -131,6 +135,7 @@ function printLabel(doc: string) {
     }
     // The print dialog is modal; clean up once it's been shown.
     setTimeout(() => iframe.remove(), 1000);
+    onDone?.();
   };
   document.body.appendChild(iframe);
 }
@@ -161,6 +166,11 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
     if (open) {
       setWithText(true);
       setWithBarcode(!!user?.printBarcodeLabel);
+      // Reopening starts a fresh print: without this the previous run's outcome is still on
+      // screen, which since the dialog closes itself on success would only ever be a stale one.
+      setDaemonState('idle');
+      setDaemonError(null);
+      setPrintingStep(null);
     }
   }, [open, user?.printBarcodeLabel]);
 
@@ -247,6 +257,11 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
       await printBarcodeLabelViaDaemon(user.preferredDaemonId, code, onUpdate, { widthMm, heightMm });
     }
     setPrintingStep(null);
+    // The labels are out and the printed label is its own confirmation, so there is nothing left
+    // to read. A failure stays on screen: the printer's own reason is the whole point of showing it.
+    if (!failed) {
+      onClose();
+    }
   };
 
   return (
@@ -377,7 +392,7 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
           </button>
         ) : (
           <button
-            onClick={() => printLabel(printDoc)}
+            onClick={() => printLabel(printDoc, onClose)}
             disabled={nothingSelected}
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
