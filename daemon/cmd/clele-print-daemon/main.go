@@ -89,11 +89,16 @@ func cmdRun(args []string) {
 	// poll. The probe result is cached and reported back so the app can size labels to the
 	// printable area of whatever is actually loaded.
 	var (
-		target      printer.Target
-		driver      printer.Driver
-		report      *printer.Report
-		probedAt    time.Time
-		capsSentFor string
+		target   printer.Target
+		driver   printer.Driver
+		report   *printer.Report
+		probedAt time.Time
+		// Capabilities describe the *machine*, not the printer currently configured, so they are
+		// discovered independently of the target: the web app needs the queue list before the user
+		// can pick a queue, and asking only after they have chosen a type would leave the picker
+		// empty at exactly the moment they need it.
+		capsReported bool
+		capsTried    bool
 	)
 	const probeTTL = time.Minute
 
@@ -126,12 +131,13 @@ func cmdRun(args []string) {
 			driver = driverFor(target)
 			report = nil
 			probedAt = time.Time{}
-			capsSentFor = ""
 		}
-		if driver != nil && (poll.WantCapabilities || capsSentFor != capsKey(target)) {
-			if reportCapabilities(client, driver) {
-				capsSentFor = capsKey(target)
-			}
+
+		// Retried only when the backend asks, so a machine with no CUPS at all logs its one
+		// failure and then stays quiet rather than complaining on every poll forever.
+		if !capsReported && (!capsTried || poll.WantCapabilities) {
+			capsTried = true
+			capsReported = reportCapabilities(client, cupsprint.New("", ""))
 		}
 
 		if err != nil {
@@ -165,12 +171,9 @@ func driverFor(t printer.Target) printer.Driver {
 	}
 }
 
-// capsKey identifies the target for capability-reporting purposes: the discoverable set depends on
-// the printer family and the queue, not on the label size or a network address.
-func capsKey(t printer.Target) string { return t.Type + "|" + t.Queue }
-
-// reportCapabilities pushes the discoverable queue and media lists, and reports whether the state
-// may be considered sent. A driver with nothing to discover counts as sent so it is not retried.
+// reportCapabilities pushes the queue and label-size lists found on this machine, and reports
+// whether they may be considered sent. A driver with nothing to discover counts as sent, so it is
+// not retried.
 func reportCapabilities(client *apiclient.Client, driver printer.Driver) bool {
 	caps, err := driver.Capabilities()
 	if err != nil {

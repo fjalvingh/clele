@@ -234,8 +234,9 @@ func mediaOptions(attrs ipp.Attrs) []printer.MediaOption {
 		out = append(out, printer.MediaOption{
 			Keyword: v.S,
 			// CUPS does not expose the vendor's friendly label name (30252 Address and such) over
-			// IPP, only the size, so the size is what identifies a roll in the picker.
-			DisplayName:       fmt.Sprintf("%s x %s mm", ipp.Mm(round2(m.WidthMm)), ipp.Mm(round2(m.LengthMm))),
+			// IPP, only the size, so the size is what identifies a roll in the picker. Continuous
+			// stock has no fixed length -- naming it "x 0 mm" would read as a broken entry.
+			DisplayName:       describeSize(m),
 			WidthMm:           round2(m.WidthMm),
 			LengthMm:          round2(m.LengthMm),
 			PrintableWidthMm:  round2(m.PrintableWidthMm()),
@@ -249,6 +250,14 @@ func mediaOptions(attrs ipp.Attrs) []printer.MediaOption {
 		return out[i].LengthMm < out[j].LengthMm
 	})
 	return out
+}
+
+// describeSize names a label stock by its size, which is all that identifies it in the picker.
+func describeSize(m ipp.Media) string {
+	if !m.DieCut || m.LengthMm <= 0 {
+		return fmt.Sprintf("%s mm continuous", ipp.Mm(round2(m.WidthMm)))
+	}
+	return fmt.Sprintf("%s x %s mm", ipp.Mm(round2(m.WidthMm)), ipp.Mm(round2(m.LengthMm)))
 }
 
 func round2(v float64) float64 { return float64(int(v*100+0.5)) / 100 }

@@ -316,7 +316,8 @@ function LabelPrintingSection() {
       <h2 className="text-lg font-semibold text-gray-900">Label printing</h2>
       <p className="mt-1 text-sm text-gray-600">
         Print labels through the browser's print dialog, or silently through a paired daemon
-        running next to a network label printer.
+        running next to your label printer — a Brother QL on the network, or a Dymo LabelWriter
+        on USB.
       </p>
 
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}

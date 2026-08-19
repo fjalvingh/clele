@@ -102,8 +102,7 @@ public class PrintDaemonService {
             validateCupsSelection(daemon, queue, keyword);
         }
 
-        boolean typeChanged = type != daemon.getPrinterType();
-        boolean targetChanged = typeChanged
+        boolean targetChanged = type != daemon.getPrinterType()
                 || !Objects.equals(printerIp, daemon.getPrinterIp())
                 || !Objects.equals(queue, daemon.getPrinterQueue())
                 || !Objects.equals(keyword, daemon.getMediaKeyword());
@@ -119,12 +118,10 @@ public class PrintDaemonService {
         if (targetChanged) {
             clearDetectedState(daemon);
         }
-        // The capability list covers every queue on the machine, so changing queue does not
-        // invalidate it — only changing to a family that discovers nothing does.
-        if (typeChanged) {
-            daemon.setCapabilities(null);
-            daemon.setCapabilitiesAt(null);
-        }
+        // Capabilities are deliberately NOT cleared here. They describe the machine the daemon runs
+        // on — every queue and every label size it offers — not the printer currently selected, so
+        // they stay valid across a type or queue change and the pickers keep working immediately
+        // instead of waiting a poll window for a re-report.
         applyMediaFromCapabilities(daemon);
 
         return toDto(printDaemonRepository.save(daemon));
