@@ -102,6 +102,18 @@ func cmdRun(args []string) {
 	)
 	const probeTTL = time.Minute
 
+	// A successful poll blocks for the long-poll interval, but a failing one can return at once --
+	// connection refused comes back in microseconds. Without a delay a backend that is down,
+	// restarting or erroring turns this loop into a spin that hammers the server and floods the
+	// log. Retry quickly for the first few failures so a restart is ridden out without a visible
+	// stall, then settle into a slow retry for as long as it stays broken.
+	const (
+		shortRetryDelay = 1 * time.Second
+		longRetryDelay  = 10 * time.Second
+		shortRetryCount = 3
+	)
+	pollFailures := 0
+
 	for {
 		if driver != nil && time.Since(probedAt) > probeTTL {
 			probedAt = time.Now()
@@ -141,9 +153,16 @@ func cmdRun(args []string) {
 		}
 
 		if err != nil {
-			log.Printf("poll error: %v", err)
+			pollFailures++
+			delay := shortRetryDelay
+			if pollFailures > shortRetryCount {
+				delay = longRetryDelay
+			}
+			log.Printf("poll error (retrying in %s): %v", delay, err)
+			time.Sleep(delay)
 			continue
 		}
+		pollFailures = 0
 		if poll.Job == nil {
 			continue
 		}
