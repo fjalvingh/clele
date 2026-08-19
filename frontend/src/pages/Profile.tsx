@@ -10,7 +10,13 @@ import {
   updatePrintingPreference,
   switchOrganisation,
 } from '../api';
-import type { OctopartCredentialsStatus, PrintDaemon, PrintingPreference, PrintMethod } from '../api/types';
+import type {
+  OctopartCredentialsStatus,
+  PrintDaemon,
+  PrinterType,
+  PrintingPreference,
+  PrintMethod,
+} from '../api/types';
 
 import { useAuth } from '../auth/AuthContext';
 import FormField from '../components/FormField';
@@ -160,13 +166,37 @@ export default function ProfilePage() {
   );
 }
 
+/** The printer configuration form's working copy, before it is saved. */
+interface ConfigDraft {
+  printerType: PrinterType;
+  printerIp: string;
+  printerQueue: string;
+  mediaKeyword: string;
+}
+
+const draftFor = (d: PrintDaemon): ConfigDraft => ({
+  printerType: d.printerType ?? 'BROTHER_QL',
+  printerIp: d.printerIp ?? '',
+  printerQueue: d.printerQueue ?? '',
+  mediaKeyword: d.mediaKeyword ?? '',
+});
+
+/** Whether a daemon has everything its printer type needs before it can print. */
+const isConfigured = (d: PrintDaemon): boolean =>
+  d.printerType === 'DYMO_CUPS' ? !!d.printerQueue && !!d.mediaKeyword : !!d.printerIp;
+
+const PRINTER_TYPE_LABELS: Record<PrinterType, string> = {
+  BROTHER_QL: 'Brother QL (network)',
+  DYMO_CUPS: 'Dymo LabelWriter (USB, via CUPS)',
+};
+
 function LabelPrintingSection() {
   const { refresh } = useAuth();
   const [preference, setPreferenceState] = useState<PrintingPreference | null>(null);
   const [daemons, setDaemons] = useState<PrintDaemon[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [printerIpDrafts, setPrinterIpDrafts] = useState<Record<number, string>>({});
+  const [configDrafts, setConfigDrafts] = useState<Record<number, ConfigDraft>>({});
   const [busyDaemonId, setBusyDaemonId] = useState<number | null>(null);
   const [testPrintState, setTestPrintState] = useState<Record<number, DaemonPrintState>>({});
   const [testPrintError, setTestPrintError] = useState<Record<number, string | undefined>>({});
@@ -178,7 +208,7 @@ function LabelPrintingSection() {
       .then(([pref, list]) => {
         setPreferenceState(pref);
         setDaemons(list);
-        setPrinterIpDrafts(Object.fromEntries(list.map((d) => [d.id, d.printerIp ?? ''])));
+        setConfigDrafts(Object.fromEntries(list.map((d) => [d.id, draftFor(d)])));
       })
       .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
@@ -215,17 +245,36 @@ function LabelPrintingSection() {
   };
 
   const handleSavePrinterConfig = async (id: number) => {
+    const draft = configDrafts[id];
+    if (!draft) return;
     setBusyDaemonId(id);
     setError(null);
     try {
-      const updated = await updatePrintDaemon(id, { printerIp: printerIpDrafts[id] });
+      // The whole configuration goes every time, with the fields that do not apply to the chosen
+      // printer type explicitly cleared, so switching type cannot leave the old target behind.
+      const cups = draft.printerType === 'DYMO_CUPS';
+      const updated = await updatePrintDaemon(id, {
+        printerType: draft.printerType,
+        printerIp: cups ? null : draft.printerIp,
+        printerQueue: cups ? draft.printerQueue : null,
+        mediaKeyword: cups ? draft.mediaKeyword : null,
+      });
       setDaemons((prev) => prev.map((d) => (d.id === id ? updated : d)));
+      setConfigDrafts((prev) => ({ ...prev, [id]: draftFor(updated) }));
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusyDaemonId(null);
     }
   };
+
+  const patchDraft = (id: number, patch: Partial<ConfigDraft>) =>
+    setConfigDrafts((prev) => {
+      // load() seeds a draft for every visible daemon, but fall back rather than build a partial
+      // one if that ever stops holding — a half-filled draft would silently clear fields on save.
+      const base = prev[id] ?? draftFor(daemons.find((d) => d.id === id)!);
+      return { ...prev, [id]: { ...base, ...patch } };
+    });
 
   const handleDelete = async (id: number) => {
     setBusyDaemonId(id);
@@ -395,14 +444,25 @@ function LabelPrintingSection() {
                       </span>
                     </div>
                   )}
-                  {d.owned && (
+                  {d.owned && (() => {
+                    const draft = configDrafts[d.id] ?? draftFor(d);
+                    const cups = draft.printerType === 'DYMO_CUPS';
+                    const queues = d.capabilities?.queues ?? [];
+                    const queueMedia =
+                      queues.find((q) => q.name === draft.printerQueue)?.media ?? [];
+                    return (
                     <div className="mt-2">
                     <p className="mb-1 text-xs text-gray-500">
                       {d.mediaDescription ? (
                         <>
-                          Loaded media: <span className="font-medium text-gray-700">{d.mediaDescription}</span>{' '}
-                          — read from the printer, so labels are sized to it automatically.
+                          Label size: <span className="font-medium text-gray-700">{d.mediaDescription}</span>
+                          {d.printerModel ? ` on ${d.printerModel}` : ''}
+                          {cups
+                            ? ' — this printer cannot sense its roll, so labels are sized to your choice.'
+                            : ' — read from the printer, so labels are sized to it automatically.'}
                         </>
+                      ) : cups ? (
+                        <>Pick the print queue and the label size loaded in the printer.</>
                       ) : (
                         <>
                           Media not detected yet. Set the printer address below; the daemon reads the
@@ -410,15 +470,80 @@ function LabelPrintingSection() {
                         </>
                       )}
                     </p>
-                    <div className="flex items-end gap-2">
-                      <FormField
-                        label="Printer IP address"
-                        value={printerIpDrafts[d.id] ?? ''}
-                        onChange={(e) =>
-                          setPrinterIpDrafts((prev) => ({ ...prev, [d.id]: e.target.value }))
-                        }
-                        placeholder="192.168.1.50"
-                      />
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="w-56">
+                        <FormField
+                          as="select"
+                          label="Printer type"
+                          value={draft.printerType}
+                          onChange={(e) => {
+                            // Changing family invalidates the other family's target entirely.
+                            const printerType = e.target.value as PrinterType;
+                            patchDraft(d.id, { printerType, printerIp: '', printerQueue: '', mediaKeyword: '' });
+                          }}
+                        >
+                          {(Object.keys(PRINTER_TYPE_LABELS) as PrinterType[]).map((t) => (
+                            <option key={t} value={t}>
+                              {PRINTER_TYPE_LABELS[t]}
+                            </option>
+                          ))}
+                        </FormField>
+                      </div>
+
+                      {!cups && (
+                        <FormField
+                          label="Printer IP address"
+                          value={draft.printerIp}
+                          onChange={(e) => patchDraft(d.id, { printerIp: e.target.value })}
+                          placeholder="192.168.1.50"
+                        />
+                      )}
+
+                      {cups && (
+                        <>
+                          <div className="w-72">
+                            <FormField
+                              as="select"
+                              label="Print queue"
+                              value={draft.printerQueue}
+                              disabled={queues.length === 0}
+                              onChange={(e) =>
+                                // A different queue offers different stock, so the size must be re-picked.
+                                patchDraft(d.id, { printerQueue: e.target.value, mediaKeyword: '' })
+                              }
+                            >
+                              <option value="">
+                                {queues.length === 0 ? 'Waiting for the daemon…' : 'Select a queue…'}
+                              </option>
+                              {queues.map((q) => (
+                                <option key={q.name} value={q.name}>
+                                  {q.name}
+                                  {q.makeAndModel ? ` — ${q.makeAndModel}` : ''}
+                                </option>
+                              ))}
+                            </FormField>
+                          </div>
+                          <div className="w-64">
+                            <FormField
+                              as="select"
+                              label="Label size"
+                              value={draft.mediaKeyword}
+                              disabled={queueMedia.length === 0}
+                              onChange={(e) => patchDraft(d.id, { mediaKeyword: e.target.value })}
+                            >
+                              <option value="">
+                                {draft.printerQueue ? 'Select the loaded label…' : 'Pick a queue first'}
+                              </option>
+                              {queueMedia.map((m) => (
+                                <option key={m.keyword} value={m.keyword}>
+                                  {m.displayName ?? m.keyword}
+                                </option>
+                              ))}
+                            </FormField>
+                          </div>
+                        </>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => handleSavePrinterConfig(d.id)}
@@ -427,7 +552,7 @@ function LabelPrintingSection() {
                       >
                         Save
                       </button>
-                      {d.printerIp && (
+                      {isConfigured(d) && (
                         <button
                           type="button"
                           onClick={() => handleTestPrint(d.id)}
@@ -442,8 +567,20 @@ function LabelPrintingSection() {
                         </button>
                       )}
                     </div>
+                    {cups && queues.length === 0 && (
+                      // The daemon discovers its queues on its next poll, so this state is normal
+                      // for up to a poll window after switching type — but only ends when it does.
+                      <p className="-mt-2 mb-2 text-xs text-gray-500">
+                        The daemon reports the print queues on its machine within about half a
+                        minute of being asked.{' '}
+                        <button type="button" onClick={load} className="underline hover:text-gray-700">
+                          Refresh
+                        </button>
+                      </p>
+                    )}
                     </div>
-                  )}
+                    );
+                  })()}
                   {testPrintState[d.id] === 'done' && (
                     <p className="mt-1 text-sm text-green-600">Test label printed.</p>
                   )}

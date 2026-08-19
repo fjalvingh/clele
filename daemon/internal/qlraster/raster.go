@@ -54,7 +54,7 @@ func BuildCommands(pngBytes []byte, media ipp.Media) ([]byte, error) {
 		return nil, fmt.Errorf("decode png: %w", err)
 	}
 	if media.WidthMm <= 0 || media.WidthMm > 62 {
-		return nil, fmt.Errorf("invalid media width %dmm (must be 1-62)", media.WidthMm)
+		return nil, fmt.Errorf("invalid media width %smm (must be 1-62)", ipp.Mm(media.WidthMm))
 	}
 	if media.DieCut && media.LengthMm <= 0 {
 		return nil, fmt.Errorf("die-cut media requires a label length")
@@ -122,8 +122,8 @@ func BuildCommands(pngBytes []byte, media ipp.Media) ([]byte, error) {
 
 // printableLines is how many raster lines fit on a die-cut label of the given physical length,
 // allowing for the lead the printer feeds before it starts printing.
-func printableLines(lengthMm int) int {
-	n := int((float64(lengthMm) - dieCutLeadMm) * dotsPerMm)
+func printableLines(lengthMm float64) int {
+	n := int((lengthMm - dieCutLeadMm) * dotsPerMm)
 	if n < 1 {
 		n = 1
 	}

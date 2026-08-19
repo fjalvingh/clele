@@ -294,6 +294,14 @@ export default function PrintLabelModal({ open, onClose, part }: Props) {
         Shown at {previewScale.toFixed(1)}× — actual size {widthMm} × {heightMm} mm
         {useDaemon && daemon?.mediaDescription ? ` on ${daemon.mediaDescription}` : ''}
       </p>
+      {useDaemon && daemon?.printerType === 'DYMO_CUPS' && !daemon.mediaKeyword && (
+        // Without a label size this printer falls back to the browser default, which is almost
+        // certainly not what is in the printer — say so rather than printing something wrong.
+        <p className="mb-3 text-center text-xs text-amber-600">
+          No label size is set for this printer, so a default size is being used. Pick the loaded
+          label on My Account.
+        </p>
+      )}
 
       <label className="mb-1 flex items-start gap-2 text-sm text-gray-700">
         <input

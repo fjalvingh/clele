@@ -1,5 +1,7 @@
-// clele-print-daemon prints labels pushed from the Clele web app to a network-connected Brother
-// QL-710W, without any user interaction. See daemon/README.md for install/usage.
+// clele-print-daemon prints labels pushed from the Clele web app to a label printer, without any
+// user interaction. Two printer families are supported: a network Brother QL (raster over raw TCP,
+// status over IPP) and a USB Dymo LabelWriter (everything through the local CUPS queue over IPP).
+// See daemon/README.md for install/usage.
 package main
 
 import (
@@ -12,7 +14,9 @@ import (
 
 	"github.com/clele/print-daemon/internal/apiclient"
 	"github.com/clele/print-daemon/internal/config"
+	"github.com/clele/print-daemon/internal/cupsprint"
 	"github.com/clele/print-daemon/internal/ipp"
+	"github.com/clele/print-daemon/internal/printer"
 	"github.com/clele/print-daemon/internal/qlraster"
 )
 
@@ -81,68 +85,160 @@ func cmdRun(args []string) {
 	client := apiclient.New(cfg.BackendURL, cfg.DaemonID, cfg.APIKey, version)
 	log.Printf("clele-print-daemon #%d (version %s) started, polling %s", cfg.DaemonID, version, cfg.BackendURL)
 
-	// Cached media, refreshed periodically and reported on each poll so the web app can size
-	// labels to the stock actually loaded. Detection needs the printer address, which the backend
-	// returns with every poll.
-	var media *ipp.Media
-	var mediaCheckedAt time.Time
-	const mediaTTL = time.Minute
+	// Which printer to drive is configured in the web app, not here, and is returned with every
+	// poll. The probe result is cached and reported back so the app can size labels to the
+	// printable area of whatever is actually loaded.
+	var (
+		target      printer.Target
+		driver      printer.Driver
+		report      *printer.Report
+		probedAt    time.Time
+		capsSentFor string
+	)
+	const probeTTL = time.Minute
 
-	var printerIP string
 	for {
-		if printerIP != "" && time.Since(mediaCheckedAt) > mediaTTL {
-			mediaCheckedAt = time.Now()
-			if status, err := ipp.GetPrinterStatus(printerIP); err != nil {
-				log.Printf("could not read printer status from %s: %v", printerIP, err)
+		if driver != nil && time.Since(probedAt) > probeTTL {
+			probedAt = time.Now()
+			status, probed, err := driver.Probe()
+			if err != nil {
+				log.Printf("could not read printer status: %v", err)
 			} else {
-				if media == nil || status.Media == nil || *status.Media != *media {
-					log.Printf("printer %s: %s (%s)", printerIP, status.Media, status.State)
+				if report == nil || probed.Media == nil || report.Media == nil || *probed.Media != *report.Media {
+					log.Printf("printer: %s (%s)", probed.Media, status.State)
 				}
-				media = status.Media
+				report = probed
 			}
 		}
 
-		job, ip, err := client.NextJob(25, media)
-		if ip != "" && ip != printerIP {
-			printerIP = ip
-			mediaCheckedAt = time.Time{} // new printer address, re-detect immediately
+		poll, err := client.NextJob(25, report)
+
+		// A changed target invalidates everything cached about the old printer; re-probe and
+		// re-report at once rather than serving stale geometry to the next job.
+		//
+		// An empty target means the poll never reached the backend, so keep the configuration
+		// already held rather than dropping the printer on every transient network blip.
+		if !poll.Target.Empty() && poll.Target != target {
+			target = poll.Target
+			if target.Type == "" {
+				target.Type = printer.TypeBrotherQL // backend predating printer types
+			}
+			driver = driverFor(target)
+			report = nil
+			probedAt = time.Time{}
+			capsSentFor = ""
 		}
+		if driver != nil && (poll.WantCapabilities || capsSentFor != capsKey(target)) {
+			if reportCapabilities(client, driver) {
+				capsSentFor = capsKey(target)
+			}
+		}
+
 		if err != nil {
 			log.Printf("poll error: %v", err)
 			continue
 		}
-		if job == nil {
+		if poll.Job == nil {
 			continue
 		}
-		if err := printJob(client, job); err != nil {
-			log.Printf("job %d failed: %v", job.JobID, err)
+		if err := printJob(client, poll.Job, target); err != nil {
+			log.Printf("job %d failed: %v", poll.Job.JobID, err)
 		}
 	}
 }
 
-// cmdStatus queries a printer and prints what it reports — media loaded, error state, raw packet.
-// Diagnostic aid for "the printer shows an error but I can't tell why".
+// driverFor picks the implementation for a printer target. This is the only place that knows which
+// families exist; everything else works through printer.Driver.
+func driverFor(t printer.Target) printer.Driver {
+	switch t.Type {
+	case printer.TypeDymoCUPS:
+		// Built even without a queue selected: discovering the machine's queues is exactly what
+		// the web app needs before the user can pick one.
+		return cupsprint.New(t.Queue, t.MediaKeyword)
+	case printer.TypeBrotherQL:
+		if t.IP == "" {
+			return nil
+		}
+		return qlraster.NewDriver(t.IP)
+	default:
+		return nil
+	}
+}
+
+// capsKey identifies the target for capability-reporting purposes: the discoverable set depends on
+// the printer family and the queue, not on the label size or a network address.
+func capsKey(t printer.Target) string { return t.Type + "|" + t.Queue }
+
+// reportCapabilities pushes the discoverable queue and media lists, and reports whether the state
+// may be considered sent. A driver with nothing to discover counts as sent so it is not retried.
+func reportCapabilities(client *apiclient.Client, driver printer.Driver) bool {
+	caps, err := driver.Capabilities()
+	if err != nil {
+		log.Printf("could not read printer capabilities: %v", err)
+		return false
+	}
+	if caps == nil {
+		return true
+	}
+	if err := client.ReportCapabilities(caps); err != nil {
+		log.Printf("could not report printer capabilities: %v", err)
+		return false
+	}
+	log.Printf("reported %d print queue(s) to the backend", len(caps.Queues))
+	return true
+}
+
+// cmdStatus queries a printer and prints what it reports — media loaded, error state, and for a
+// CUPS printer the queues available. Diagnostic aid for "the printer shows an error but I can't
+// tell why" and for "which queue name do I put in the web app".
 func cmdStatus(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	printerIP := fs.String("printer-ip", "", "printer IP address (as configured on the Settings page)")
+	printerIP := fs.String("printer-ip", "", "printer IP address, for a network Brother QL")
+	printerType := fs.String("printer-type", "", "BROTHER_QL or DYMO_CUPS (default: inferred from the other flags)")
+	queue := fs.String("queue", "", "CUPS queue name, for a USB printer")
+	media := fs.String("media", "", "IPP media keyword, for a printer that cannot sense its roll")
 	fs.Parse(args)
 
-	ip := *printerIP
-	if ip == "" {
-		log.Fatal("--printer-ip is required, e.g. clele-print-daemon status --printer-ip 192.168.1.50")
+	target := printer.Target{Type: *printerType, IP: *printerIP, Queue: *queue, MediaKeyword: *media}
+	if target.Type == "" {
+		target.Type = printer.TypeBrotherQL
+		if *printerIP == "" {
+			target.Type = printer.TypeDymoCUPS
+		}
 	}
 
-	status, err := ipp.GetPrinterStatus(ip)
+	driver := driverFor(target)
+	if driver == nil {
+		log.Fatal("nothing to query: give --printer-ip for a Brother QL, or --queue for a CUPS printer")
+	}
+
+	// The queue list does not need a queue selected, so print it before probing — it is what the
+	// user is looking for when they do not yet know the name to configure.
+	if caps, err := driver.Capabilities(); err == nil && caps != nil {
+		fmt.Println("Print queues on this machine:")
+		for _, q := range caps.Queues {
+			fmt.Printf("  %-24s %s (%d label sizes)\n", q.Name, q.MakeAndModel, len(q.Media))
+		}
+		fmt.Println()
+	}
+	if target.Type == printer.TypeDymoCUPS && target.Queue == "" {
+		fmt.Println("No queue selected; pass --queue <name> to query one.")
+		return
+	}
+
+	status, report, err := driver.Probe()
 	if err != nil {
-		log.Fatalf("could not read status from %s: %v", ip, err)
+		log.Fatalf("could not read printer status: %v", err)
 	}
 
-	fmt.Printf("Printer:   %s\n", ip)
+	fmt.Printf("Printer:   %s\n", printerDescription(target))
+	fmt.Printf("Model:     %s\n", status.MakeAndModel)
 	fmt.Printf("State:     %s\n", status.State)
 	fmt.Printf("Media:     %s\n", status.Media)
 	if status.Media != nil {
 		fmt.Printf("           (IPP name: %s)\n", status.Media.Name)
 	}
+	fmt.Printf("Printable: %s x %s mm\n", ipp.Mm(report.PrintableWidthMm), ipp.Mm(report.PrintableLengthMm))
 	fmt.Printf("Accepting: %v\n", status.AcceptingJobs)
 	if problem := status.Problem(); problem != "" {
 		fmt.Printf("Problem:   %s\n", problem)
@@ -151,13 +247,32 @@ func cmdStatus(args []string) {
 	fmt.Printf("Problem:   none\n")
 }
 
-func printJob(client *apiclient.Client, job *apiclient.Job) error {
-	if job.PrinterIP == "" {
-		err := client.Complete(job.JobID, "FAILED", "no printer IP configured for this daemon")
-		if err != nil {
+func printerDescription(t printer.Target) string {
+	if t.Type == printer.TypeDymoCUPS {
+		return "CUPS queue " + t.Queue
+	}
+	return t.IP
+}
+
+func printJob(client *apiclient.Client, job *apiclient.Job, fallback printer.Target) error {
+	// Prefer the target carried on the job itself; fall back to the poll's for a backend that does
+	// not send it yet.
+	target := job.Target()
+	if target.Type == "" {
+		target = fallback
+	}
+	if !target.Configured() {
+		if err := client.Complete(job.JobID, "FAILED", target.Missing()); err != nil {
 			log.Printf("failed to report job %d: %v", job.JobID, err)
 		}
-		return fmt.Errorf("no printer IP configured")
+		return fmt.Errorf("%s", target.Missing())
+	}
+
+	driver := driverFor(target)
+	if driver == nil {
+		msg := fmt.Sprintf("unsupported printer type %q", target.Type)
+		client.Complete(job.JobID, "FAILED", msg)
+		return fmt.Errorf("%s", msg)
 	}
 
 	png, err := base64.StdEncoding.DecodeString(job.LabelPngBase64)
@@ -166,14 +281,13 @@ func printJob(client *apiclient.Client, job *apiclient.Job) error {
 		return fmt.Errorf("decode label png: %w", err)
 	}
 
-	// Print checks the printer over IPP first, so failures come back as the printer's own reason
-	// ("cover open", "media empty", …) rather than succeeding silently on a write-only port.
-	media, err := qlraster.Print(job.PrinterIP, png)
-	if err != nil {
+	// Every driver checks the printer over IPP before printing, so failures come back as the
+	// printer's own reason ("cover open", "media empty", …) rather than succeeding silently.
+	if err := driver.Print(png); err != nil {
 		client.Complete(job.JobID, "FAILED", err.Error())
 		return err
 	}
 
-	log.Printf("printed job %d on %s (%s)", job.JobID, job.PrinterIP, media)
+	log.Printf("printed job %d on %s", job.JobID, printerDescription(target))
 	return client.Complete(job.JobID, "DONE", "")
 }

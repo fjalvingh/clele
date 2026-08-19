@@ -106,9 +106,11 @@ frontend/src/
 
 daemon/           Go print daemon — single static binary, stdlib only, no external deps
   cmd/clele-print-daemon/   main.go: register / run / status / version subcommands
-  internal/apiclient/       talks to /api/daemon/** (long-poll, media + version reporting)
-  internal/ipp/             minimal IPP client — printer status + loaded-media detection
-  internal/qlraster/        Brother QL raster protocol + measured print geometry
+  internal/apiclient/       talks to /api/daemon/** (long-poll, media/geometry + version reporting)
+  internal/ipp/             minimal IPP client — Get-Printer-Attributes, Print-Job, CUPS-Get-Printers
+  internal/printer/         the Driver seam: printer Target, Report, Capabilities
+  internal/qlraster/        Brother QL raster protocol + measured print geometry (network, TCP 9100)
+  internal/cupsprint/       Dymo LabelWriter via the local CUPS queue (USB, IPP + CUPS raster)
   install.sh, clele-print-daemon.service, README.md
 ```
 
@@ -116,9 +118,9 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
 
 - PostgreSQL: database `partsdb`, user `partsuser`, password `partspass`
 - Schema managed by Flyway migrations (V1–V10) in `backend/src/main/resources/db/migration/`
-- Last version is V54
+- Last version is V55
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V55** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V56** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover

@@ -952,18 +952,66 @@ export interface LocationDashboard {
 // Label printing: browser print dialog vs a paired local daemon
 export type PrintMethod = 'BROWSER' | 'DAEMON';
 
+/**
+ * Printer family a daemon drives. BROTHER_QL is a network printer that reports its own media;
+ * DYMO_CUPS is a USB printer behind the machine's local CUPS queue, which cannot sense which roll
+ * is loaded and so needs the label size picking here.
+ */
+export type PrinterType = 'BROTHER_QL' | 'DYMO_CUPS';
+
+/** One label stock a queue offers. Printable dimensions already exclude the printer's margins. */
+export interface DaemonMediaOption {
+  keyword: string;
+  displayName?: string;
+  widthMm: number;
+  lengthMm?: number;
+  printableWidthMm: number;
+  printableLengthMm?: number;
+}
+
+/** A print queue the daemon found on the machine it runs on. */
+export interface DaemonQueue {
+  name: string;
+  description?: string;
+  makeAndModel?: string;
+  media: DaemonMediaOption[];
+}
+
+/**
+ * What the daemon discovered locally, pushed to the backend separately from its poll (the media
+ * lists are far too big for a header) and read back here to populate the pickers.
+ */
+export interface DaemonCapabilities {
+  queues: DaemonQueue[];
+}
+
 export interface PrintDaemon {
   id: number;
   name: string;
   status: 'PENDING' | 'ACTIVE';
+  printerType: PrinterType;
   printerIp?: string;
-  /** Media detected in the printer over IPP; absent until the daemon has read it. */
+  printerQueue?: string;
+  /** Label size chosen here, for a printer that cannot sense its own roll. */
+  mediaKeyword?: string;
+  /** Model the printer reports over IPP, e.g. "DYMO LabelWriter 320". */
+  printerModel?: string;
+  /** Media in the printer: detected for a Brother, resolved from mediaKeyword for a Dymo. */
   mediaKind?: 'CONTINUOUS' | 'DIE_CUT';
   mediaWidthMm?: number;
   mediaLengthMm?: number;
   mediaName?: string;
-  /** Human-readable media summary, e.g. "17 × 54 mm die-cut labels". */
+  /** Human-readable media summary, e.g. "17 × 54 mm labels". */
   mediaDescription?: string;
+  /**
+   * The area the printer can actually mark, as the daemon reports it. Labels are rendered to
+   * exactly this — see labelSizeFor.
+   */
+  printableWidthMm?: number;
+  printableLengthMm?: number;
+  /** Queues and label sizes found on the daemon's machine; absent until it has reported them. */
+  capabilities?: DaemonCapabilities;
+  capabilitiesReportedAt?: string;
   owned: boolean;
   /** Version the daemon reports; absent if it never reported one (pre-versioning build). */
   version?: string;
@@ -973,9 +1021,13 @@ export interface PrintDaemon {
   outdated: boolean;
 }
 
+/** The whole printer configuration is sent on every save; an omitted field is cleared. */
 export interface PrintDaemonUpdateRequest {
   name?: string;
-  printerIp?: string;
+  printerType?: PrinterType;
+  printerIp?: string | null;
+  printerQueue?: string | null;
+  mediaKeyword?: string | null;
 }
 
 export interface PrintingPreference {

@@ -7,36 +7,58 @@ import { code128bModules, drawCode128, pickModuleWidth } from './code128';
 export const LABEL_W_MM = 50;
 export const LABEL_H_MM = 18;
 
-// Printer geometry measured on the QL-710W — must match the daemon's constants in
-// internal/qlraster/raster.go. The printer feeds a lead before printing and cannot reach the far
-// edge across the head, so the printable area is smaller than the physical label. Rendering to
-// the printable area (rather than the full label) means nothing is clipped.
-const DIE_CUT_LEAD_MM = 6;
-const UNPRINTABLE_EDGE_MM = 2;
+// Brother QL geometry, kept ONLY as a fallback for a daemon too old to report its printable area
+// (one predating the X-Printer-Printable-* headers). Mirrors internal/qlraster/raster.go. New code
+// must not reach for these: every driver now reports the real printable area, the Brother from
+// these measured constants and the Dymo from the margins CUPS reports, so the frontend no longer
+// has to mirror per-printer numbers it cannot verify.
+const LEGACY_QL_DIE_CUT_LEAD_MM = 6;
+const LEGACY_QL_UNPRINTABLE_EDGE_MM = 2;
 
 /**
- * Physical size to render for a daemon, from the media it detected in the printer. Die-cut labels
- * print along their length, so the longer dimension runs left-to-right on the label. Falls back to
- * the browser default when the daemon hasn't reported media yet.
+ * Physical size to render for a daemon.
+ *
+ * The printer reports the area it can actually mark: a width across the print head and a length
+ * along the feed. A label runs long-edge left-to-right, so the reported *length* becomes our width
+ * and the reported *width* becomes our height.
+ *
+ * Three tiers, most trustworthy first:
+ *   1. the printable area the daemon reported;
+ *   2. detected media minus the legacy Brother constants, for a daemon not yet upgraded;
+ *   3. the browser default, when the daemon has reported nothing at all.
  */
 export function labelSizeFor(daemon?: {
+  printableWidthMm?: number;
+  printableLengthMm?: number;
   mediaWidthMm?: number;
   mediaLengthMm?: number;
   mediaKind?: string;
 }): { widthMm: number; heightMm: number } {
-  if (!daemon?.mediaWidthMm) {
-    return { widthMm: LABEL_W_MM, heightMm: LABEL_H_MM };
-  }
-  const printableHeight = Math.max(1, daemon.mediaWidthMm - UNPRINTABLE_EDGE_MM);
-  if (daemon.mediaKind === 'DIE_CUT' && daemon.mediaLengthMm) {
+  if (daemon?.printableWidthMm) {
     return {
-      widthMm: Math.max(1, daemon.mediaLengthMm - DIE_CUT_LEAD_MM),
-      heightMm: printableHeight,
+      // No printable length means continuous stock: the roll fixes the width, the length is ours.
+      widthMm: daemon.printableLengthMm ? round1(daemon.printableLengthMm) : LABEL_W_MM,
+      heightMm: round1(daemon.printableWidthMm),
     };
   }
-  // Continuous tape: the width is fixed by the roll, the length is ours to choose.
-  return { widthMm: LABEL_W_MM, heightMm: printableHeight };
+  if (daemon?.mediaWidthMm) {
+    const printableHeight = Math.max(1, round1(daemon.mediaWidthMm - LEGACY_QL_UNPRINTABLE_EDGE_MM));
+    if (daemon.mediaKind === 'DIE_CUT' && daemon.mediaLengthMm) {
+      return {
+        widthMm: Math.max(1, round1(daemon.mediaLengthMm - LEGACY_QL_DIE_CUT_LEAD_MM)),
+        heightMm: printableHeight,
+      };
+    }
+    // Continuous tape: the width is fixed by the roll, the length is ours to choose.
+    return { widthMm: LABEL_W_MM, heightMm: printableHeight };
+  }
+  return { widthMm: LABEL_W_MM, heightMm: LABEL_H_MM };
 }
+
+// Label sizes are now fractional — Dymo stock is sized in inches, so a printable area of
+// 43.52 mm is normal. One decimal is well under a single 300 dpi dot (0.085 mm) and keeps the
+// numbers short where they are shown to the user and interpolated into `@page size:`.
+const round1 = (mm: number) => Math.round(mm * 10) / 10;
 
 // DPI the daemon-rendered PNG is rasterized at, matching the Brother QL-710W's native resolution.
 const DAEMON_DPI = 300;

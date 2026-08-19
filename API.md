@@ -12,12 +12,21 @@ in the feature documents under `docs/` — the section names referenced below ("
 - `GET/PUT /profile/printing` — current user's print method + preferred daemon (authenticated)
 - `GET /profile/print-daemons`, `POST /profile/print-daemons/{id}/claim`,
   `PUT/DELETE /profile/print-daemons/{id}` — daemon pairing/config; the list is filtered to the
-  caller's own daemons seen at the browser's current IP (authenticated)
+  caller's own daemons seen at the browser's current IP (authenticated). The `PUT` body carries the
+  whole printer configuration — `printerType` (`BROTHER_QL`/`DYMO_CUPS`), plus `printerIp` for a
+  network Brother or `printerQueue` + `mediaKeyword` for a CUPS-attached Dymo — and an omitted
+  field is cleared, so the UI always submits the full form
 - `POST /print-jobs`, `GET /print-jobs/{id}` — enqueue a label print job / poll its status
   (authenticated)
 - **Daemon-facing** (`/api/daemon/**`, API-key auth via `X-Daemon-Id`/`X-Daemon-Key`, *not* the
-  session cookie): `POST /daemon/register` (public), `GET /daemon/jobs/next?wait=` (long-poll;
-  always returns `X-Printer-Ip`), `POST /daemon/jobs/{id}/complete`
+  session cookie): `POST /daemon/register` (public); `GET /daemon/jobs/next?wait=` (long-poll —
+  reports upward via `X-Printer-Media-*`, `X-Printer-Printable-Width`/`-Length` and
+  `X-Printer-Model`, and always returns the printer configuration downward as `X-Printer-Type` plus
+  `X-Printer-Ip` or `X-Printer-Queue` + `X-Printer-Media`, plus `X-Capabilities-Wanted` when the
+  backend holds no capabilities; note `X-Printer-Media` travels down while `X-Printer-Media-*`
+  travel up); `POST /daemon/capabilities` (the machine's CUPS queues, each with its label-size
+  list — too large for a header, and it changes rarely);
+  `POST /daemon/jobs/{id}/complete`
 - `GET /downloads/clele-print-daemon.tar.gz` — the built daemon (static resource, not `/api`)
 - `GET /organisations/selectable` — organisations the caller may switch into (authenticated);
   `GET/POST /organisations`, `GET/PUT/DELETE /organisations/{id}` — organisation management

@@ -46,6 +46,10 @@ public class PrintJobService {
         if (daemon.getOwner() == null || !daemon.getOwner().getId().equals(me.getId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your daemon");
         }
+        // Refuse an unconfigured printer here rather than queueing a job that can only fail: the
+        // browser shows this message straight away, instead of polling the job for 20 seconds and
+        // timing out with nothing useful to say.
+        requireConfigured(daemon);
         byte[] png = Base64.getDecoder().decode(request.getLabelPngBase64());
         PrintJob job = PrintJob.builder()
                 .daemon(daemon)
@@ -108,6 +112,21 @@ public class PrintJobService {
                 });
     }
 
+    /** Rejects a daemon whose printer is not configured, naming what is missing. */
+    private static void requireConfigured(PrintDaemon daemon) {
+        String missing = switch (daemon.getPrinterType()) {
+            case DYMO_CUPS -> daemon.getPrinterQueue() == null
+                    ? "no print queue is selected for this daemon"
+                    : daemon.getMediaKeyword() == null ? "no label size is selected for this printer" : null;
+            case BROTHER_QL -> daemon.getPrinterIp() == null
+                    ? "no printer address is configured for this daemon" : null;
+        };
+        if (missing != null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Cannot print: " + missing + ". Set it up on My Account.");
+        }
+    }
+
     private void wake(Long daemonId) {
         CompletableFuture<Void> future = waiters.get(daemonId);
         if (future != null) {
@@ -119,7 +138,10 @@ public class PrintJobService {
         return DaemonJobDTO.builder()
                 .jobId(job.getId())
                 .labelPngBase64(Base64.getEncoder().encodeToString(job.getLabelPng()))
+                .printerType(job.getDaemon().getPrinterType().name())
                 .printerIp(job.getDaemon().getPrinterIp())
+                .printerQueue(job.getDaemon().getPrinterQueue())
+                .mediaKeyword(job.getDaemon().getMediaKeyword())
                 .build();
     }
 

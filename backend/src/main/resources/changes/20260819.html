@@ -1,0 +1,33 @@
+<h4>Direct printing now works with a Dymo LabelWriter</h4>
+<p>
+  Silent label printing — the kind that goes straight to the printer with no print dialog — used to
+  require a Brother QL on the network. It now also works with a <strong>Dymo LabelWriter plugged
+  into USB</strong>, developed and tested against a LabelWriter 320. The label comes out the same
+  way it always has, barcode included.
+</p>
+<p>
+  A USB printer has no network address, so it is reached through the print queue already set up on
+  the machine running the print daemon. If the printer works from that machine's own print dialog,
+  Sortiment can use it — no extra driver, no configuration file to edit.
+</p>
+
+<h4>Choosing your printer on My Account</h4>
+<p>
+  <strong>My Account → Label printing</strong> now starts with a <strong>printer type</strong>:
+  Brother QL on the network, or Dymo LabelWriter over USB. Picking one shows only the settings that
+  apply to it. A Brother still just needs its IP address. A Dymo instead offers a list of the print
+  queues found on that machine, so you pick the printer by name rather than typing it.
+</p>
+<p>
+  There is one thing a LabelWriter needs that a Brother does not: <strong>tell it which labels are
+  loaded</strong>. A Brother reads its own roll and always has — change the roll and Sortiment
+  follows automatically. A LabelWriter genuinely cannot tell, so the label sizes its driver knows
+  about are offered as a list and you choose the one on the spool. Change the roll on a Dymo and you
+  will want to change that setting too.
+</p>
+<p>
+  <strong>Test print</strong> appears once the printer is set up either way, and labels are sized
+  to the area your printer can actually print on, which the daemon now works out for itself. If you
+  print to a Dymo before choosing a label size, the print dialog says so rather than quietly
+  guessing.
+</p>
