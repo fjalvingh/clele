@@ -16,9 +16,13 @@ import com.clele.parts.service.QuickAddService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -67,6 +71,21 @@ public class PartSearchController {
             @RequestParam String q,
             @RequestParam(required = false, defaultValue = "false") boolean forceAi) {
         return aiPartSearchService.searchDatasheets(q, forceAi);
+    }
+
+    /**
+     * Identify a component from an uploaded datasheet PDF — Quick Add's "read the datasheet" path.
+     *
+     * <p>Reads the file in memory and stores nothing: the caller confirms the proposal on the
+     * Quick Add form and uploads the same file as the new part's datasheet once it exists. A
+     * multipart POST rather than a GET because it carries a file and costs money.
+     */
+    @PostMapping(value = "/api/parts-search/from-datasheet", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public PartSearchResultDTO searchFromDatasheet(@RequestParam("file") MultipartFile file) throws IOException {
+        if (file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No file was uploaded.");
+        }
+        return datasheetSpecExtractionService.identify(file.getBytes(), file.getOriginalFilename());
     }
 
     /**

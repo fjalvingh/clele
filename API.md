@@ -150,6 +150,11 @@ in the feature documents under `docs/` — the section names referenced below ("
   (requires `PARTS_EDIT`). Costs less than a search — no search fees, one page of input tokens.
   400 for a non-HTTP(S) or over-250-character address; 502 naming the reason when the page could not
   be fetched. See *Looking a part up from a page you found* in `docs/ai.md`
+- `POST /parts-search/from-datasheet` (multipart `file`) — identify a part from an uploaded
+  datasheet PDF and return one `PartSearchResultDTO` (with `details`) (requires `PARTS_EDIT`).
+  Stores nothing: the caller uploads the same file as the part's datasheet once the part exists.
+  422 for a non-PDF, an unreadable PDF, a scan with no text layer, or a document that names no part
+  number. See *Identifying a part from an uploaded datasheet* in `docs/specs.md`
 - `GET /parts-search/images?q=` — image suggestions (requires `PARTS_EDIT`)
 - `GET /parts-search/datasheets?q=&forceAi=` — datasheet links, web search first and AI as fallback
   (requires `PARTS_EDIT`).

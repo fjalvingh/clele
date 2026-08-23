@@ -686,6 +686,8 @@ export interface PartSearchResult {
   shortDescription?: string;
   datasheetUrl?: string;
   category?: string;
+  /** A few sentences on what the part is — only the datasheet reader supplies this. */
+  details?: string;
   specs: string[];
 }
 

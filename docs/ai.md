@@ -50,6 +50,10 @@ user pastes the page that *does* describe the part and the model reads that inst
   `source=web-search`. Its web-search count is name-checked (`web_search` blocks only) so a fetch
   is not priced as a search.
 
+Quick Add's third fallback — uploading the datasheet itself — is the datasheet reader rather than
+the search, and is documented with it: `docs/specs.md` → *Identifying a part from an uploaded
+datasheet*.
+
 ### What a lookup costs, and why prompt caching is not worth it
 
 `AiPartSearchService.search` logs one INFO line per call (`ai-part-search …`) with tokens, cache

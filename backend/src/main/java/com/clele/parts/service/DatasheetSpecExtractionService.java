@@ -2,6 +2,7 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.DatasheetExtractionDTO;
 import com.clele.parts.dto.ExtractedSpecDTO;
+import com.clele.parts.dto.PartSearchResultDTO;
 import com.clele.parts.model.AttachmentType;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.PartAttachment;
@@ -112,10 +113,20 @@ public class DatasheetSpecExtractionService {
     private static final int FRONT_MATTER_PAGES = 2;
     private static final int THIN_PAGE_CHARS = 1_200;
 
-    private static final String SYSTEM_PROMPT_TEMPLATE = """
+    /**
+     * The prompt in four blocks: what the reader is, what to return, how to key a spec, and how to
+     * read a datasheet. Only the second differs between the two callers — {@link #extract}, which
+     * is told the part and wants its data, and {@link #identify}, which has the document and
+     * nothing else. The spec-key block and the reading rules are shared on purpose: a key described
+     * one way here and another way there lands in {@code part.specs} as two fields, and "prefer
+     * typical over absolute maximum" is not a rule that stops applying because the part is unknown.
+     */
+    private static final String READER_INTRO = """
             You are reading a manufacturer datasheet for a single electronic component and \
             extracting its data for an inventory system.
+            """;
 
+    private static final String EXTRACT_FIELDS = """
             Return ONLY a valid JSON object with no markdown formatting, no code blocks, no \
             explanation, with exactly these fields:
             - details: 2-5 sentences describing what the component is and does, written from the \
@@ -123,7 +134,30 @@ public class DatasheetSpecExtractionService {
             Null if the excerpt does not describe the component.
             - specs: an array of objects {"key": "...", "value": "...", "page": <number>} where \
             page is the page of the excerpt the value was read from.
+            """;
 
+    private static final String IDENTIFY_FIELDS = """
+            Nobody has told you which component this is: the document is all there is. \
+            Read the title block and the front matter to identify it.
+
+            Return ONLY a valid JSON object with no markdown formatting, no code blocks, no \
+            explanation, with exactly these fields:
+            - mpn: the manufacturer part number this datasheet is for (string, required). Exactly \
+            one part number, never a list and never a variant's full ordering code. Where the \
+            document covers a family, give the member the uploaded filename names; if the filename \
+            names none of them, give the first part number of the title block.
+            - manufacturer: the manufacturer whose document this is (string or null)
+            - shortDescription: the document's own one-line title for the part, \
+            e.g. "Single bipolar timer" (string or null)
+            - category: component category such as "Transistors" or "Logic ICs" (string or null)
+            - details: 2-5 sentences describing what the component is and does, written from the \
+            datasheet's own description and feature list. Plain prose, no bullet points, no markdown. \
+            Null if the excerpt does not describe the component.
+            - specs: an array of objects {"key": "...", "value": "...", "page": <number>} where \
+            page is the page of the excerpt the value was read from.
+            """;
+
+    private static final String SPEC_KEY_RULES = """
             IMPORTANT: for spec keys you MUST use EXACTLY these predefined keys when applicable. \
             Each entry below is the exact key to use, followed by a human-readable title in \
             parentheses (a hint only — do NOT use the title as the key). \
@@ -137,16 +171,18 @@ public class DatasheetSpecExtractionService {
             If a value the datasheet gives has no matching key above, still return it under a short \
             lowercase key of your own — an unrecognised field is kept and can be promoted to a real \
             field later.
+            """;
 
+    private static final String READING_RULES = """
             Rules that matter more than completeness:
             - Take values ONLY from the excerpt. Do not add what you know about this part from \
             elsewhere, and do not guess.
             - Prefer recommended operating conditions and typical characteristics over absolute \
             maximum ratings. Where you use an absolute maximum, say so in the value \
             (e.g. "40 (abs max)").
-            - Many datasheets cover a family. Extract only values that apply to the exact part \
-            asked about; skip a parameter that differs across the family unless the excerpt shows \
-            which row is this part's.
+            - Many datasheets cover a family. Extract only values that apply to the exact part in \
+            question; skip a parameter that differs across the family unless the excerpt shows \
+            which row is that part's.
             - Where a parameter has min/typ/max columns, give the typical value; where there is no \
             typical, give the range as "min..max".
             - Return an empty specs array rather than a speculative one.
@@ -243,6 +279,103 @@ public class DatasheetSpecExtractionService {
                 .details(extracted.details())
                 .specs(extracted.specs())
                 .build();
+    }
+
+    /**
+     * Identify the component an uploaded datasheet is for, and read its data — Quick Add's third
+     * source, for when neither the catalogue, the cache, a web search nor a pasted page finds it.
+     *
+     * <p>The mirror image of {@link #extract}: there the part is known and the document fills in
+     * its values; here the document is all there is and has to name the part as well. Everything
+     * after that is the same machinery — the same excerpt, the same spec keys, the same reading
+     * rules — because the difference is what we know going in, not how a datasheet is read.
+     *
+     * <p>Writes nothing and stores nothing: the file is read in memory and the answer is a
+     * proposal. The caller confirms it on the Quick Add form and, when the part is created, uploads
+     * the same file as its datasheet attachment. Doing it in that order means a PDF the user
+     * abandons at the confirm step leaves nothing behind.
+     *
+     * <p>Costs what an extraction costs — a fraction of a cent, no web searches — and refuses the
+     * same scanned PDFs, for the same reason: there is no text to send.
+     */
+    public PartSearchResultDTO identify(byte[] data, String filename) {
+        if (!PdfBytes.looksLikePdf(data)) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "That file is not a PDF, so there is nothing to read.");
+        }
+
+        DatasheetAnalyzer.Analysis analysis = datasheetAnalyzer.analyze(data);
+        if (analysis.route() == DatasheetAnalyzer.Route.UNUSABLE) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "That PDF could not be read: " + analysis.error());
+        }
+        if (analysis.route() == DatasheetAnalyzer.Route.NO_TEXT_LAYER) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "This datasheet is a scan with no text layer — there is no text to read. "
+                            + "Reading the pages as images is not supported yet; add the part by "
+                            + "hand, or find a text PDF of the same part.");
+        }
+
+        String excerpt = buildExcerpt(pageTexts(data));
+        if (excerpt.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "No readable text could be taken from this PDF.");
+        }
+
+        SpecFieldCatalog.Fields fields = specFieldCatalog.render();
+        String system = buildSystem(IDENTIFY_FIELDS, fields);
+        // The filename is worth naming: it is frequently the part number, and where the title block
+        // is a family name it is the only hint of which member was downloaded.
+        String user = "This datasheet was uploaded as \"" + filename + "\". "
+                + "Identify the component it is for and extract its data.\n\n"
+                + "Datasheet excerpt follows. Page numbers are marked as [page N]; \"[…]\" "
+                + "marks omitted text.\n\n" + excerpt;
+
+        long startedAt = System.currentTimeMillis();
+        ResponseEntity<String> response = callAnthropic(system, user,
+                "Datasheet identification request failed");
+
+        JsonNode obj;
+        try {
+            obj = responseObject(response.getBody());
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Failed to parse the identification response: " + e.getMessage());
+        }
+
+        String mpn = obj == null ? "" : obj.path("mpn").asText("").strip();
+        if (mpn.isBlank()) {
+            // Not an error of ours, and not worth dressing up as an empty result: the user picked
+            // this file believing it was a datasheet, and needs to know it did not read as one.
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Could not tell which component this document is for — its front matter names "
+                            + "no part number. Is it a datasheet?");
+        }
+
+        Extracted extracted = detailsAndSpecs(obj);
+        // The search DTO carries specs as "key: value" strings; canonicalisation already happened.
+        List<String> specs = new ArrayList<>(extracted.specs().size());
+        for (ExtractedSpecDTO spec : extracted.specs()) {
+            specs.add(spec.key() + ": " + spec.value());
+        }
+
+        logUsage("datasheet-identify", mpn, filename, response.getBody(), analysis, fields, excerpt,
+                specs.size(), System.currentTimeMillis() - startedAt);
+
+        return PartSearchResultDTO.builder()
+                .mpn(mpn)
+                .manufacturer(nullIfBlank(obj.path("manufacturer").asText(null)))
+                .shortDescription(nullIfBlank(obj.path("shortDescription").asText(null)))
+                .category(nullIfBlank(obj.path("category").asText(null)))
+                .details(extracted.details())
+                .specs(specs)
+                .build();
+    }
+
+    private static String nullIfBlank(String s) {
+        return (s == null || s.isBlank()) ? null : s;
     }
 
     private PartAttachment resolveAttachment(Long partId, Long attachmentId) {
@@ -361,13 +494,8 @@ public class DatasheetSpecExtractionService {
 
     private Extracted callModel(Part part, PartAttachment attachment,
                                 DatasheetAnalyzer.Analysis analysis, String excerpt) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "AI extraction not configured. Set anthropic.api-key in application.yml.");
-        }
-
         SpecFieldCatalog.Fields fields = specFieldCatalog.render();
-        String system = String.format(SYSTEM_PROMPT_TEMPLATE, fields.text());
+        String system = buildSystem(EXTRACT_FIELDS, fields);
 
         // Naming the part explicitly matters: a datasheet frequently covers a family, and without
         // this the model averages the family rather than reading this part's row.
@@ -382,27 +510,9 @@ public class DatasheetSpecExtractionService {
         user.append("\nDatasheet excerpt follows. Page numbers are marked as [page N]; \"[…]\" "
                 + "marks omitted text.\n\n").append(excerpt);
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", apiKey);
-        headers.set("anthropic-version", API_VERSION);
-
-        Map<String, Object> body = Map.of(
-                "model", model,
-                "max_tokens", 4096,
-                "system", system,
-                "messages", List.of(Map.of("role", "user", "content", user.toString()))
-        );
-
         long startedAt = System.currentTimeMillis();
-        ResponseEntity<String> response;
-        try {
-            response = restTemplate.exchange(API_URL, HttpMethod.POST,
-                    new HttpEntity<>(body, headers), String.class);
-        } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "Datasheet extraction request failed: " + e.getMessage());
-        }
+        ResponseEntity<String> response = callAnthropic(system, user.toString(),
+                "Datasheet extraction request failed");
 
         Extracted extracted;
         try {
@@ -414,12 +524,54 @@ public class DatasheetSpecExtractionService {
                     "Failed to parse the extraction response: " + e.getMessage());
         }
 
-        logUsage(response.getBody(), part, attachment, analysis, fields, excerpt,
-                extracted.specs().size(), System.currentTimeMillis() - startedAt);
+        logUsage("datasheet-extract", part.getPartNumber(), String.valueOf(attachment.getId()),
+                response.getBody(), analysis, fields, excerpt, extracted.specs().size(),
+                System.currentTimeMillis() - startedAt);
         return extracted;
     }
 
+    /** The four prompt blocks, assembled for one of the two readers. */
+    private static String buildSystem(String fieldsBlock, SpecFieldCatalog.Fields fields) {
+        return READER_INTRO + "\n" + fieldsBlock + "\n"
+                + String.format(SPEC_KEY_RULES, fields.text()) + "\n" + READING_RULES;
+    }
+
+    /**
+     * One Messages API call. Shared by both readers so they get the same long read timeout — an
+     * excerpt this size runs past the 30 s of the ordinary template, which surfaces as a truncated
+     * read rather than an error.
+     */
+    private ResponseEntity<String> callAnthropic(String system, String user, String what) {
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "AI extraction not configured. Set anthropic.api-key in application.yml.");
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("x-api-key", apiKey);
+        headers.set("anthropic-version", API_VERSION);
+
+        Map<String, Object> body = Map.of(
+                "model", model,
+                "max_tokens", 4096,
+                "system", system,
+                "messages", List.of(Map.of("role", "user", "content", user))
+        );
+        try {
+            return restTemplate.exchange(API_URL, HttpMethod.POST,
+                    new HttpEntity<>(body, headers), String.class);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, what + ": " + e.getMessage());
+        }
+    }
+
     private Extracted parseResponse(String body) throws Exception {
+        JsonNode obj = responseObject(body);
+        return obj == null ? new Extracted(null, List.of()) : detailsAndSpecs(obj);
+    }
+
+    /** The JSON object the model answered with, or null when it answered with something else. */
+    private JsonNode responseObject(String body) throws Exception {
         JsonNode root = objectMapper.readTree(body);
         if (root.has("error")) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
@@ -432,9 +584,7 @@ public class DatasheetSpecExtractionService {
                 text = item.path("text").asText("").strip();
             }
         }
-        if (text == null || text.isBlank()) {
-            return new Extracted(null, List.of());
-        }
+        if (text == null || text.isBlank()) return null;
 
         // Same defensive unwrapping as the part search: the model may fence the JSON or prepend prose.
         int fence = text.indexOf("```");
@@ -445,13 +595,15 @@ public class DatasheetSpecExtractionService {
                     .strip();
         } else {
             int brace = text.indexOf('{');
-            if (brace < 0) return new Extracted(null, List.of());
+            if (brace < 0) return null;
             if (brace > 0) text = text.substring(brace);
         }
 
         JsonNode obj = objectMapper.readTree(text);
-        if (!obj.isObject()) return new Extracted(null, List.of());
+        return obj.isObject() ? obj : null;
+    }
 
+    private Extracted detailsAndSpecs(JsonNode obj) {
         // Canonicalize through the alias table exactly as every other intake path does, so a value
         // arriving under a source's own name lands on the spec it belongs to rather than creating a
         // duplicate field. Done on a map because canonicalizeKeys works on one; the page numbers are
@@ -485,7 +637,7 @@ public class DatasheetSpecExtractionService {
      * One INFO line per extraction, mirroring {@code ai-part-search} so the two can be compared in
      * the same log. No web-search figure: this path runs none, which is the whole point of it.
      */
-    private void logUsage(String body, Part part, PartAttachment attachment,
+    private void logUsage(String action, String subject, String source, String body,
                           DatasheetAnalyzer.Analysis analysis, SpecFieldCatalog.Fields fields,
                           String excerpt, int specCount, long millis) {
         try {
@@ -494,9 +646,9 @@ public class DatasheetSpecExtractionService {
             long output = usage.path("output_tokens").asLong(0);
             double cost = (input * inputPerMTok + output * outputPerMTok) / 1_000_000d;
 
-            log.info("datasheet-extract model={} part={} attachment={} route={} docPages={} "
+            log.info("{} model={} part={} source={} route={} docPages={} "
                             + "excerptChars={} specDefs={} inTok={} outTok={} specs={} ms={} estCostUsd={}",
-                    model, part.getPartNumber(), attachment.getId(), analysis.route(), analysis.pages(),
+                    action, model, subject, source, analysis.route(), analysis.pages(),
                     excerpt.length(), fields.count(), input, output, specCount, millis,
                     String.format("%.4f", cost));
         } catch (Exception e) {

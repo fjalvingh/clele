@@ -446,6 +446,20 @@ export const searchPartsOnline = (q: string) =>
 export const searchPartsByUrl = (url: string) =>
   client.get<PartSearchResult[]>('/parts-search/from-url', { params: { url } }).then((r) => r.data);
 
+/**
+ * Identify a part from an uploaded datasheet PDF.
+ *
+ * Reads the file and returns what it says the component is; stores nothing. Upload the same file
+ * as the part's datasheet with `uploadPartAttachment` once the part exists.
+ */
+export const identifyPartFromDatasheet = (file: File) => {
+  const form = new FormData();
+  form.append('file', file);
+  return client.post<PartSearchResult>('/parts-search/from-datasheet', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then((r) => r.data);
+};
+
 /** Quick Add: fuzzy-match existing parts by part number before searching the Internet. */
 export const findLocalParts = (q: string) =>
   client.get<Part[]>('/parts/local-match', { params: { q } }).then((r) => r.data);

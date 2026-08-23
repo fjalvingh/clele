@@ -289,6 +289,40 @@ does (→ `details`). `SpecFieldCatalog` renders the spec-field list both prompt
 describe the catalogue identically — a spec offered as `"100 nF"` in one prompt and a bare number in
 the other would store two different values for the same field.
 
+### Identifying a part from an uploaded datasheet
+
+The mirror image of the section above, and Quick Add's last fallback: **upload the PDF** and let it
+say what the part is (`POST /parts-search/from-datasheet`, `DatasheetSpecExtractionService.identify`).
+`extract` is told the part and wants its values; `identify` has only the document and must name the
+part as well — so it returns the same `PartSearchResultDTO` a web search does (plus `details`), the
+result lands on the same confirm step, and the same cards render it.
+
+Everything after the identification is the shared machinery: the same `buildExcerpt`, the same
+`DatasheetAnalyzer` routing (a `NO_TEXT_LAYER` scan is refused before any spend), the same
+`canonicalizeKeys`. The prompt is assembled from four blocks — `READER_INTRO`, one of
+`EXTRACT_FIELDS`/`IDENTIFY_FIELDS`, `SPEC_KEY_RULES` and `READING_RULES` — and only the second
+differs. The spec-key block is shared for the reason `SpecFieldCatalog` exists: a key described one
+way in one prompt and another way in the other lands in `part.specs` as two fields.
+
+**One part number, never a list.** A family datasheet ("xx555 Precision Timers", covering NA555 /
+NE555 / SA555 / SE555) first came back with `mpn` as all four joined by commas — which would create
+a part called that. The prompt now demands exactly one, taking the member the **uploaded filename**
+names and falling back to the first of the title block; `ne555.pdf` then yields `NE555`. Measured on
+that datasheet: 8.2k input / 360 output ≈ **1¢**, no web searches.
+
+A document that names no part number at all is a **422**, not an empty result — the user chose the
+file believing it was a datasheet and needs to be told it did not read as one.
+
+**The file is attached after the part exists, and is never stored before that.** The browser keeps
+the `File` from the lookup and uploads it as a `DATASHEET` once `quickAdd` returns (the same order,
+and for the same reason, as the `datasheetUrl` download below). A PDF whose confirm step is
+abandoned therefore leaves nothing behind, and a part created this way carries the exact document
+its values were read from. An upload over the 10 MB multipart limit is now a **413** with a readable
+message rather than a bare 500 (`GlobalExceptionHandler.handleTooLarge`).
+
+`DatasheetIdentificationTest` pins the mapping (`{key,value,page}` objects out as `"key: value"`
+strings — a mismatch there is a part saved with no specs, not an error) and both refusals.
+
 ### Datasheets are fetched at creation
 
 Quick Add pulls the part's `datasheetUrl` into `part_attachment` as a `DATASHEET` right after

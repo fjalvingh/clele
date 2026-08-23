@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { findLocalParts, getComponentCacheStatus, getMyLocations, getSpecDefinitions, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsByUrl, searchPartsOnline, uploadPartAttachment } from '../api';
+import { findLocalParts, getComponentCacheStatus, identifyPartFromDatasheet, getMyLocations, getSpecDefinitions, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsByUrl, searchPartsOnline, uploadPartAttachment } from '../api';
 import type { ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import MetricNumberField from '../components/MetricNumberField';
@@ -231,6 +231,16 @@ export default function QuickAddPage() {
   // the user can point at the page that does describe it and have the AI read that.
   const [pageUrl, setPageUrl] = useState('');
   const [readingUrl, setReadingUrl] = useState(false);
+  // Two different things, deliberately: `datasheetFile` is what the file input holds, and
+  // `attachDatasheet` is the document the results on screen actually came from — the one that gets
+  // attached to the part on save. Searching for something else clears the second and leaves the
+  // first alone, so the input does not end up showing a filename beside a dead button.
+  const [datasheetFile, setDatasheetFile] = useState<File | null>(null);
+  const [attachDatasheet, setAttachDatasheet] = useState<File | null>(null);
+  const [readingDatasheet, setReadingDatasheet] = useState(false);
+  // Hidden input + our own button, as everywhere else in the app: a native file control does not
+  // follow the theme.
+  const datasheetInputRef = useRef<HTMLInputElement>(null);
   // What produced the results on step 2 — the typed query, or the page that was read. Step 2 says
   // so in its heading, which is the only place the two can be told apart afterwards.
   const [resultsFrom, setResultsFrom] = useState('');
@@ -337,6 +347,7 @@ export default function QuickAddPage() {
     setLocalMatches([]);
     setCacheMatches([]);
     setResultsFrom(query.trim());
+    setAttachDatasheet(null);
     setStep(2);
   }
 
@@ -362,11 +373,40 @@ export default function QuickAddPage() {
       setLocalMatches([]);
       setCacheMatches([]);
       setResultsFrom(url);
+      setAttachDatasheet(null);
       setStep(2);
     } catch (err: unknown) {
       setSearchError((err as Error).message ?? 'Could not read that page. Please try again.');
     } finally {
       setReadingUrl(false);
+    }
+  }
+
+  /**
+   * Read an uploaded datasheet and let it say what the part is.
+   *
+   * The last resort, and the most accurate one when it works: the manufacturer's own document,
+   * read for its title block as well as its tables. It costs a fraction of a web search because it
+   * searches nothing. A scanned PDF with no text layer is refused by the backend rather than
+   * charged for.
+   */
+  async function handleDatasheetLookup(e: React.FormEvent) {
+    e.preventDefault();
+    if (!datasheetFile) return;
+    setReadingDatasheet(true);
+    setSearchError(null);
+    try {
+      const result = await identifyPartFromDatasheet(datasheetFile);
+      setResults([result]);
+      setLocalMatches([]);
+      setCacheMatches([]);
+      setResultsFrom(datasheetFile.name);
+      setAttachDatasheet(datasheetFile);
+      setStep(2);
+    } catch (err: unknown) {
+      setSearchError((err as Error).message ?? 'Could not read that datasheet. Please try again.');
+    } finally {
+      setReadingDatasheet(false);
     }
   }
 
@@ -469,6 +509,7 @@ export default function QuickAddPage() {
         specsPrefill: detail.specs,
         tags: [],
       });
+      setAttachDatasheet(null);
       setSaveError(null);
       setSelectedImageUrls(new Set());
       setFailedImageUrls(new Set());
@@ -496,7 +537,8 @@ export default function QuickAddPage() {
     setForm({
       partNumber: result.mpn,
       description: result.shortDescription ?? '',
-      details: '',
+      // Only the datasheet reader fills this in; a web result leaves the field empty as before.
+      details: result.details ?? '',
       manufacturer: result.manufacturer ?? '',
       footprint: '', // the AI lookup returns no package
       personalNumber: false,
@@ -583,8 +625,19 @@ export default function QuickAddPage() {
       refresh();
       const partId = response.part.id;
 
+      // The datasheet the details were read from, attached to the part that describes them. After
+      // the commit, for the same reason the URL download is: a rejected upload — too large, a
+      // dropped connection — must not take the newly created part with it.
+      const uploadErrors: string[] = [];
+      if (attachDatasheet) {
+        try {
+          await uploadPartAttachment(partId, attachDatasheet, 'DATASHEET');
+        } catch (dsErr) {
+          uploadErrors.push(`${attachDatasheet.name}: ${(dsErr as Error).message}`);
+        }
+      }
+
       // Upload selected images: fetch via our same-origin proxy, then upload as multipart.
-      const imageErrors: string[] = [];
       let imgIndex = 0;
       for (const originalUrl of selectedImageUrls) {
         try {
@@ -596,19 +649,20 @@ export default function QuickAddPage() {
           const file = new File([blob], `image-${imgIndex}.png`, { type: blob.type || 'image/png' });
           await uploadPartAttachment(partId, file, 'PHOTO');
         } catch (imgErr) {
-          imageErrors.push((imgErr as Error).message);
+          uploadErrors.push((imgErr as Error).message);
         }
         imgIndex++;
       }
 
-      if (imageErrors.length > 0) {
-        const succeeded = selectedImageUrls.size - imageErrors.length;
+      if (uploadErrors.length > 0) {
+        const attempted = selectedImageUrls.size + (attachDatasheet ? 1 : 0);
+        const succeeded = attempted - uploadErrors.length;
         setSaveError(
-          `Part saved, but ${imageErrors.length} photo(s) failed to upload` +
+          `Part saved, but ${uploadErrors.length} file(s) failed to upload` +
           (succeeded > 0 ? ` (${succeeded} succeeded)` : '') +
-          `: ${imageErrors[0]}` +
-          (imageErrors.length > 1 ? ` (and ${imageErrors.length - 1} more)` : '') +
-          `. View your part or try uploading photos manually.`
+          `: ${uploadErrors[0]}` +
+          (uploadErrors.length > 1 ? ` (and ${uploadErrors.length - 1} more)` : '') +
+          `. View your part or try uploading them manually.`
         );
         setSaving(false);
         // Store partId so user can navigate manually
@@ -802,6 +856,42 @@ export default function QuickAddPage() {
                 className="rounded-lg border border-blue-600 px-5 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 transition-colors"
               >
                 {readingUrl ? 'Reading…' : 'Read page'}
+              </button>
+            </form>
+          </div>
+
+          {/* Or the document itself — the most accurate source, and the cheapest. */}
+          <div className="mt-5 border-t border-gray-200 pt-4">
+            <h3 className="text-sm font-semibold text-gray-900">Have the datasheet?</h3>
+            <p className="mt-1 mb-3 text-xs text-gray-500">
+              Upload the PDF and the AI reads it — which part it is, what it does, and its
+              specifications — and the file is attached to the part when you save it. A scan with no
+              text layer cannot be read.
+            </p>
+            <form onSubmit={handleDatasheetLookup} className="flex items-center gap-3">
+              <input
+                ref={datasheetInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={(e) => setDatasheetFile(e.target.files?.[0] ?? null)}
+              />
+              <button
+                type="button"
+                onClick={() => datasheetInputRef.current?.click()}
+                className="shrink-0 rounded-lg border border-dashed border-gray-300 px-3 py-2 text-sm text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
+              >
+                {datasheetFile ? 'Choose another PDF' : 'Choose a PDF…'}
+              </button>
+              <span className="min-w-0 flex-1 truncate text-sm text-gray-600">
+                {datasheetFile ? datasheetFile.name : 'No file chosen'}
+              </span>
+              <button
+                type="submit"
+                disabled={readingDatasheet || searching || !datasheetFile}
+                className="shrink-0 rounded-lg border border-blue-600 px-5 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 transition-colors"
+              >
+                {readingDatasheet ? 'Reading…' : 'Read datasheet'}
               </button>
             </form>
           </div>
@@ -1014,6 +1104,12 @@ export default function QuickAddPage() {
                   type="url"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
+                {attachDatasheet && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    <span className="font-medium text-gray-700">{attachDatasheet.name}</span> is
+                    attached to the part when you save it.
+                  </p>
+                )}
               </div>
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
