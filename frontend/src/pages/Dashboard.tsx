@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { getDashboard } from '../api';
-import { SPARSE_SPEC_THRESHOLD, type Dashboard } from '../api/types';
+import { getDashboard, getRecentParts } from '../api';
+import {
+  SPARSE_SPEC_THRESHOLD,
+  type Dashboard,
+  type RecentPart,
+  type RecentPartsPage,
+} from '../api/types';
 import { useSettings } from '../settings/SettingsContext';
 
 const iconProps = {
@@ -75,6 +80,152 @@ function StatCard({ label, value, to, color, icon }: StatCardProps) {
       </span>
       <span className="text-sm font-medium opacity-80">{label}</span>
     </Link>
+  );
+}
+
+const RECENT_PAGE_SIZE = 10;
+
+const formatAdded = (iso: string) =>
+  new Date(iso).toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+/**
+ * Where a part's stock sits. A part usually lives in one place, but it may be spread over several
+ * and it may be catalogued without any stock at all — so the row names the location holding the
+ * most and summarises the rest, with the full list in the tooltip rather than a wrapped cell.
+ */
+function LocationCell({ locations }: { locations: string[] }) {
+  if (locations.length === 0) {
+    return <span className="text-gray-400">—</span>;
+  }
+  return (
+    <span title={locations.join('\n')}>
+      {locations[0]}
+      {locations.length > 1 && (
+        <span className="ml-1 text-xs text-gray-500">+{locations.length - 1} more</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The newest parts in the catalogue, newest first. Paged rather than capped at a fixed "last N":
+ * the question this answers ("what did we just take in?") does not stop at ten, and walking back
+ * through it is how a mis-entered part gets found.
+ */
+function RecentlyAdded() {
+  const [page, setPage] = useState(0);
+  const [data, setData] = useState<RecentPartsPage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getRecentParts(page, RECENT_PAGE_SIZE)
+      .then((d) => {
+        if (cancelled) return;
+        setData(d);
+        // The backend clamps a page index past the end of a list that shrank; follow it back so
+        // the controls keep agreeing with what is on screen.
+        if (d.page !== page) setPage(d.page);
+        setError(null);
+      })
+      .catch((e: Error) => !cancelled && setError(e.message))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [page]);
+
+  const total = data?.total ?? 0;
+  const items: RecentPart[] = data?.items ?? [];
+  const lastPage = total === 0 ? 0 : Math.ceil(total / RECENT_PAGE_SIZE) - 1;
+  const first = total === 0 ? 0 : page * RECENT_PAGE_SIZE + 1;
+  const last = page * RECENT_PAGE_SIZE + items.length;
+
+  return (
+    <div className="mt-10">
+      <h2 className="mb-4 text-lg font-semibold text-gray-900">Recently Added</h2>
+
+      {error && <p className="text-red-600">{error}</p>}
+      {!error && !loading && items.length === 0 && (
+        <p className="text-gray-500">No parts yet.</p>
+      )}
+
+      {!error && items.length > 0 && (
+        <>
+          <div className="max-w-full overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
+            <table className="w-full divide-y divide-gray-200 bg-surface text-sm">
+              <thead className="bg-blue-50">
+                <tr>
+                  {['Part', 'Description', 'Location', 'Count', 'Added'].map((h) => (
+                    <th
+                      key={h}
+                      className={`border-b border-blue-100 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-blue-800/80 ${
+                        h === 'Count' ? 'text-right' : 'text-left'
+                      }`}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className={`divide-y divide-gray-100 ${loading ? 'opacity-50' : ''}`}>
+                {items.map((p) => (
+                  <tr key={p.id} className="hover:bg-gray-50">
+                    <td className="whitespace-nowrap px-4 py-3 font-medium">
+                      <Link to={`/parts/${p.id}`} className="text-blue-700 hover:underline">
+                        {p.partNumber}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">{p.description}</td>
+                    <td className="px-4 py-3 text-gray-700">
+                      <LocationCell locations={p.locations} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right font-mono text-gray-700">
+                      {p.totalQuantity}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-gray-700">
+                      {formatAdded(p.createdAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-3 flex items-center gap-4 text-sm text-gray-600">
+            <span>
+              {first}–{last} of {total}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((n) => Math.max(0, n - 1))}
+                disabled={page === 0 || loading}
+                className="rounded border border-gray-300 px-3 py-1 hover:bg-gray-50 disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((n) => n + 1)}
+                disabled={page >= lastPage || loading}
+                className="rounded border border-gray-300 px-3 py-1 hover:bg-gray-50 disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -188,6 +339,8 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      <RecentlyAdded />
     </div>
   );
 }

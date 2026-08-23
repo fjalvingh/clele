@@ -1,6 +1,7 @@
 package com.clele.parts.controller;
 
 import com.clele.parts.dto.DashboardDTO;
+import com.clele.parts.dto.RecentPartsPageDTO;
 import com.clele.parts.repository.CategoryRepository;
 import com.clele.parts.service.CurrentOrganisationService;
 import com.clele.parts.service.LocationService;
@@ -12,6 +13,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -39,5 +41,19 @@ public class DashboardController {
                 .totalStockValue(stockEntryService.totalStockValue())
                 .perLocation(locationService.perLocationStats())
                 .build();
+    }
+
+    /**
+     * The newest parts in the organisation, most recently added first, one page at a time.
+     *
+     * <p>Separate from {@link #getDashboard()} rather than another field on it: the tiles are one
+     * fixed snapshot the page loads once, while this list is paged and refetched as the user walks
+     * through it.
+     */
+    @GetMapping("/recent-parts")
+    @Operation(summary = "Most recently added parts, newest first")
+    public RecentPartsPageDTO getRecentParts(@RequestParam(defaultValue = "0") int page,
+                                             @RequestParam(defaultValue = "10") int size) {
+        return partService.recentlyAdded(page, size);
     }
 }

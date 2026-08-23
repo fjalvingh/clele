@@ -60,6 +60,7 @@ import type {
   PullStockRequest,
   QuickAddRequest,
   QuickAddResponse,
+  RecentPartsPage,
   SpecDefinition,
   SpecDefinitionRequest,
   SpecGroup,
@@ -350,6 +351,12 @@ export const moveStock = (data: StockMoveRequest) =>
 export const getDashboard = () =>
   client.get<Dashboard>('/dashboard').then((r) => r.data);
 
+// The most recently added parts, newest first, one page at a time.
+export const getRecentParts = (page: number, size: number) =>
+  client
+    .get<RecentPartsPage>('/dashboard/recent-parts', { params: { page, size } })
+    .then((r) => r.data);
+
 // Part attachments (photos, datasheets, user files)
 export const getPartAttachments = (partId: number, type?: AttachmentType) =>
   client.get<PartAttachment[]>(`/parts/${partId}/attachments`, {
@@ -428,6 +435,16 @@ export const getSpecsForCategory = (categoryId: number | null) =>
 // Part search (AI-powered)
 export const searchPartsOnline = (q: string) =>
   client.get<PartSearchResult[]>('/parts-search', { params: { q } }).then((r) => r.data);
+
+/**
+ * Read one page the user pasted and return what it says the component is.
+ *
+ * The way out when the search does not find a part: paste the distributor page, the manufacturer
+ * page or the datasheet PDF and the AI reads that instead. Same result shape as
+ * `searchPartsOnline`, so the caller shows the same cards.
+ */
+export const searchPartsByUrl = (url: string) =>
+  client.get<PartSearchResult[]>('/parts-search/from-url', { params: { url } }).then((r) => r.data);
 
 /** Quick Add: fuzzy-match existing parts by part number before searching the Internet. */
 export const findLocalParts = (q: string) =>

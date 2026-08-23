@@ -4,6 +4,7 @@ import com.clele.parts.model.Part;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
@@ -221,6 +222,18 @@ public interface PartRepository extends JpaRepository<Part, Long> {
     boolean existsByOrganisationIdAndPartNumberAndIdNot(Long organisationId, String partNumber, Long id);
 
     long countByOrganisationId(Long organisationId);
+
+    /**
+     * The organisation's parts, newest first — the dashboard's "Recently Added" list.
+     *
+     * <p>Paged through {@link Pageable} (the caller passes the slice; the total comes from
+     * {@link #countByOrganisationId}). The id is the tiebreaker so that parts created in the same
+     * transaction — a kit generation writes a hundred with one timestamp — hold a stable order
+     * across pages instead of the database's arbitrary one, which would otherwise let a row appear
+     * on two pages and another on none.
+     */
+    @Query("SELECT p FROM Part p WHERE p.organisation.id = :orgId ORDER BY p.createdAt DESC, p.id DESC")
+    List<Part> findRecent(@Param("orgId") Long organisationId, Pageable pageable);
 
     /**
      * Parts carrying a datasheet URL that has not been downloaded into {@code part_attachment} yet,

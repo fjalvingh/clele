@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { findLocalParts, getComponentCacheStatus, getMyLocations, getSpecDefinitions, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsOnline, uploadPartAttachment } from '../api';
+import { findLocalParts, getComponentCacheStatus, getMyLocations, getSpecDefinitions, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsByUrl, searchPartsOnline, uploadPartAttachment } from '../api';
 import type { ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import MetricNumberField from '../components/MetricNumberField';
@@ -201,6 +201,17 @@ function displayUrl(img: { url: string; thumbnailUrl?: string }) {
   return `${import.meta.env.BASE_URL}api/image-proxy?url=${encodeURIComponent(src)}`;
 }
 
+function isUrl(s: string) {
+  return /^https?:\/\//i.test(s);
+}
+
+/** A pasted address is too long for a heading — keep the host and the tail that identifies it. */
+function shortSource(s: string) {
+  if (!isUrl(s)) return s;
+  const bare = s.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+  return bare.length <= 60 ? bare : `${bare.slice(0, 30)}…${bare.slice(-25)}`;
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function QuickAddPage() {
@@ -216,6 +227,13 @@ export default function QuickAddPage() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [results, setResults] = useState<PartSearchResult[]>([]);
+  // The URL escape hatch: when neither the catalogue, the cache nor the web search finds the part,
+  // the user can point at the page that does describe it and have the AI read that.
+  const [pageUrl, setPageUrl] = useState('');
+  const [readingUrl, setReadingUrl] = useState(false);
+  // What produced the results on step 2 — the typed query, or the page that was read. Step 2 says
+  // so in its heading, which is the only place the two can be told apart afterwards.
+  const [resultsFrom, setResultsFrom] = useState('');
   // Existing parts whose part number fuzzy-matches the query — shown before searching the Internet.
   const [localMatches, setLocalMatches] = useState<Part[]>([]);
   // Component-cache hits, the stage between the catalogue and the Internet.
@@ -318,7 +336,38 @@ export default function QuickAddPage() {
     setResults(data);
     setLocalMatches([]);
     setCacheMatches([]);
+    setResultsFrom(query.trim());
     setStep(2);
+  }
+
+  /**
+   * Read one pasted page instead of searching for the part.
+   *
+   * Skips the catalogue and the cache deliberately: someone who has gone and found the page has
+   * already decided this is not a part they hold, and offering their own near-misses again would
+   * only repeat the step they just rejected.
+   */
+  async function handleUrlLookup(e: React.FormEvent) {
+    e.preventDefault();
+    const typed = pageUrl.trim();
+    if (!typed) return;
+    // Pasting from a browser bar drops the scheme often enough to be worth fixing here rather than
+    // bouncing it off the backend.
+    const url = /^https?:\/\//i.test(typed) ? typed : `https://${typed}`;
+    setReadingUrl(true);
+    setSearchError(null);
+    try {
+      const data = await searchPartsByUrl(url);
+      setResults(data);
+      setLocalMatches([]);
+      setCacheMatches([]);
+      setResultsFrom(url);
+      setStep(2);
+    } catch (err: unknown) {
+      setSearchError((err as Error).message ?? 'Could not read that page. Please try again.');
+    } finally {
+      setReadingUrl(false);
+    }
   }
 
   /**
@@ -731,6 +780,31 @@ export default function QuickAddPage() {
               ? "We'll check your existing catalogue first, then the local component cache, and only search the Internet if neither has it."
               : "We'll check your existing catalogue first, then search the Internet if there's no match."}
           </p>
+
+          {/* The way out when the search cannot find it: point at the page that describes it. */}
+          <div className="mt-5 border-t border-gray-200 pt-4">
+            <h3 className="text-sm font-semibold text-gray-900">Found the page yourself?</h3>
+            <p className="mt-1 mb-3 text-xs text-gray-500">
+              Paste the address of a distributor page, a manufacturer product page or a datasheet
+              PDF, and the AI reads the component details from that page instead of searching.
+            </p>
+            <form onSubmit={handleUrlLookup} className="flex gap-3">
+              <input
+                type="text"
+                value={pageUrl}
+                onChange={(e) => setPageUrl(e.target.value)}
+                placeholder="https://www.mouser.com/ProductDetail/…"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                type="submit"
+                disabled={readingUrl || searching || !pageUrl.trim()}
+                className="rounded-lg border border-blue-600 px-5 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 transition-colors"
+              >
+                {readingUrl ? 'Reading…' : 'Read page'}
+              </button>
+            </form>
+          </div>
           {searchError && (
             <div className="mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
               {searchError}
@@ -860,19 +934,22 @@ export default function QuickAddPage() {
       {step === 2 && (
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">
-              {results.length} result{results.length !== 1 ? 's' : ''} for "{query}"
+            <h2 className="min-w-0 text-lg font-semibold text-gray-900">
+              {results.length} result{results.length !== 1 ? 's' : ''} for{' '}
+              <span className="break-all">"{shortSource(resultsFrom || query)}"</span>
             </h2>
             <button
               onClick={() => setStep(1)}
-              className="text-sm text-blue-600 hover:underline"
+              className="shrink-0 whitespace-nowrap text-sm text-blue-600 hover:underline"
             >
               ← New search
             </button>
           </div>
           {results.length === 0 ? (
             <div className="rounded-lg border border-gray-200 bg-surface p-6 text-center text-sm text-gray-500">
-              No results found. Try a different search term.
+              {isUrl(resultsFrom)
+                ? 'That page was read, but nothing on it looked like a component. Try the product page or the datasheet itself.'
+                : 'No results found. Try a different search term.'}
             </div>
           ) : (
             <div className="space-y-3">

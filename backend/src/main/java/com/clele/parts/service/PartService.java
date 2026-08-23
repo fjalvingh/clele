@@ -3,12 +3,15 @@ package com.clele.parts.service;
 import com.clele.parts.dto.PartCreateRequest;
 import com.clele.parts.dto.PartDTO;
 import com.clele.parts.dto.PartRequest;
+import com.clele.parts.dto.RecentPartDTO;
+import com.clele.parts.dto.RecentPartsPageDTO;
 import com.clele.parts.dto.SpecsMode;
 import com.clele.parts.model.AttachmentType;
 import com.clele.parts.model.Category;
 import com.clele.parts.model.Location;
 import com.clele.parts.model.MovementType;
 import com.clele.parts.model.Part;
+import com.clele.parts.model.StockEntry;
 import com.clele.parts.model.SpecDefinition;
 import com.clele.parts.model.Tag;
 import com.clele.parts.repository.CategoryRepository;
@@ -18,6 +21,7 @@ import com.clele.parts.repository.PartRepository;
 import com.clele.parts.repository.StockEntryRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -431,6 +435,64 @@ public class PartService {
 
     public long countAll() {
         return partRepository.countByOrganisationId(currentOrganisationService.currentId());
+    }
+
+    /** Largest page the dashboard list will serve, whatever the caller asks for. */
+    private static final int MAX_RECENT_PAGE_SIZE = 100;
+
+    /**
+     * One page of the organisation's parts, newest first — the dashboard's "Recently Added" list.
+     *
+     * <p>Each row carries where the part's stock sits and how much of it there is, both batched over
+     * the page rather than fetched per row. The requested page is clamped into the available range,
+     * so a stale page index (the list shrank while it was open) returns the last page instead of an
+     * empty one.
+     */
+    public RecentPartsPageDTO recentlyAdded(int page, int size) {
+        Long organisationId = currentOrganisationService.currentId();
+        int pageSize = Math.min(Math.max(size, 1), MAX_RECENT_PAGE_SIZE);
+        long total = partRepository.countByOrganisationId(organisationId);
+        int lastPage = total == 0 ? 0 : (int) ((total - 1) / pageSize);
+        int pageIndex = Math.min(Math.max(page, 0), lastPage);
+
+        List<Part> parts = partRepository.findRecent(organisationId, PageRequest.of(pageIndex, pageSize));
+        Map<Long, List<StockEntry>> stockByPart = stockRowsFor(parts, organisationId);
+
+        List<RecentPartDTO> items = parts.stream()
+                .map(p -> toRecentDTO(p, stockByPart.getOrDefault(p.getId(), List.of())))
+                .collect(Collectors.toList());
+        return RecentPartsPageDTO.builder()
+                .items(items)
+                .total(total)
+                .page(pageIndex)
+                .size(pageSize)
+                .build();
+    }
+
+    /** The on-hand rows of the listed parts, grouped by part, in one query. */
+    private Map<Long, List<StockEntry>> stockRowsFor(List<Part> parts, Long organisationId) {
+        if (parts.isEmpty()) return Map.of();
+        List<Long> ids = parts.stream().map(Part::getId).collect(Collectors.toList());
+        return stockEntryRepository.findByPartIdInAndOrganisationId(ids, organisationId).stream()
+                .collect(Collectors.groupingBy(s -> s.getPart().getId()));
+    }
+
+    /**
+     * A part as one "Recently Added" row. The locations are ordered by how much of the part each
+     * holds so the row can name the main one first and summarise the rest.
+     */
+    private RecentPartDTO toRecentDTO(Part part, List<StockEntry> stock) {
+        return RecentPartDTO.builder()
+                .id(part.getId())
+                .partNumber(part.getPartNumber())
+                .description(part.getDescription())
+                .locations(stock.stream()
+                        .sorted(Comparator.comparingInt(StockEntry::getQuantity).reversed())
+                        .map(s -> s.getLocation().breadcrumb())
+                        .collect(Collectors.toList()))
+                .totalQuantity(stock.stream().mapToLong(StockEntry::getQuantity).sum())
+                .createdAt(part.getCreatedAt())
+                .build();
     }
 
     /**

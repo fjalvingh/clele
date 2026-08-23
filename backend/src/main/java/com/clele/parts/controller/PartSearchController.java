@@ -46,6 +46,17 @@ public class PartSearchController {
         return aiPartSearchService.search(q);
     }
 
+    /**
+     * Look a part up from one page the user pasted, instead of from a web search.
+     *
+     * <p>Costs less than {@link #search}: no search fees, one page of input tokens. Same
+     * {@code PARTS_EDIT} gate all the same — it spends money and ends in the same mutation.
+     */
+    @GetMapping("/api/parts-search/from-url")
+    public List<PartSearchResultDTO> searchByUrl(@RequestParam String url) {
+        return aiPartSearchService.searchByUrl(url);
+    }
+
     @GetMapping("/api/parts-search/images")
     public List<ImageSuggestionDTO> searchImages(@RequestParam String q) {
         return aiPartSearchService.searchImages(q);

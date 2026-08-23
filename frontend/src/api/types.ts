@@ -1059,6 +1059,26 @@ export interface Dashboard {
   perLocation: LocationDashboard[];
 }
 
+/** One row of the dashboard's "Recently Added" list. */
+export interface RecentPart {
+  id: number;
+  partNumber: string;
+  description?: string | null;
+  /** Location breadcrumbs holding this part, most stock first; empty when nothing is stocked. */
+  locations: string[];
+  /** On-hand total across every location in the current organisation. */
+  totalQuantity: number;
+  createdAt: string;
+}
+
+export interface RecentPartsPage {
+  items: RecentPart[];
+  total: number;
+  /** Zero-based page index actually served — may be lower than asked for if the list shrank. */
+  page: number;
+  size: number;
+}
+
 // ── Part kit templates ────────────────────────────────────────────────────────
 // A pack of parts differing in one value (a resistor kit): the part fields once, with the
 // placeholder ${value} where the varying value belongs, plus the list of values.

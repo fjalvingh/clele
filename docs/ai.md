@@ -21,6 +21,35 @@ Part of the Clele documentation — `CLAUDE.md` holds the overview and the index
   `GET /api/parts/auto-categorize/status` (progress: total/processed/assigned/skipped/lastError).
   The Parts page has an "Auto-categorize (AI)" button that starts the job and polls status.
 
+### Looking a part up from a page you found
+
+`GET /parts-search/from-url?url=` (`AiPartSearchService.searchByUrl`) is the escape hatch behind
+Quick Add's "New search": when the catalogue, the component cache and the web search all miss —
+a house-branded module, a shop the search engine does not index, a datasheet nobody links — the
+user pastes the page that *does* describe the part and the model reads that instead.
+
+- The page is fetched by Anthropic's server-side **`web_fetch_20250910`** tool (no beta header;
+  verified working on Haiku 4.5), not by us. It renders HTML and PDF alike, and the bytes never
+  pass through this process. The tool may only fetch a URL that already appears in the
+  conversation, which is exactly the pasted one — a model that invents a second address is refused
+  by the API rather than by our code.
+- Web fetch is billed at **no fee**; the page arrives as input tokens, which is what
+  `max_content_tokens` (60k) bounds. A real product-page lookup measured ~12k input tokens, ~1.2¢ —
+  a fraction of a web search lookup, whose cost is the searches. PDFs are *not* capped by
+  `max_content_tokens`, so a 500 kB datasheet is ~125k tokens (~12¢ on Haiku 4.5).
+- Output is the same `PartSearchResultDTO[]` as the search, so the caller shows the same result
+  cards and the same confirm step. The system prompt shares its middle — `RESULT_CONTRACT`, which
+  names the spec keys — with the search prompt, and differs only in the intro and outro that name
+  the source; describing a spec key two ways would land it in `part.specs` as two fields.
+- **A failed fetch is not an API error**: the call returns 200 with a `web_fetch_tool_result_error`
+  block and the model carries on, usually returning `[]`. `requireFetchSucceeded` turns that into a
+  502 that names the reason ("the site did not return it", "only web pages and PDF files can be
+  read", …), because "no results" would read as "that page holds nothing" and the user would paste
+  the same URL again.
+- The per-lookup log line is the same `ai-part-search …`, with `source=url` instead of
+  `source=web-search`. Its web-search count is name-checked (`web_search` blocks only) so a fetch
+  is not priced as a search.
+
 ### What a lookup costs, and why prompt caching is not worth it
 
 `AiPartSearchService.search` logs one INFO line per call (`ai-part-search …`) with tokens, cache

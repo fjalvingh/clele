@@ -130,6 +130,12 @@ in the feature documents under `docs/` — the section names referenced below ("
   `POST /apply` pushes the matched lines into `project_part`, summing quantities per part
   (PLANNING only); `DELETE` drops the imported BOM, leaving `project_part` alone
 - `GET /dashboard`
+- `GET /dashboard/recent-parts?page=&size=` — the organisation's parts newest first (the dashboard's
+  "Recently Added" list), as `{items, total, page, size}`. Each item carries `partNumber`,
+  `description`, `createdAt`, the on-hand `totalQuantity` and the `locations` holding it (breadcrumbs,
+  largest holding first — empty for a part that was catalogued without stock). `page` is zero-based
+  and clamped into the available range, so the `page` returned may be lower than the one asked for;
+  `size` defaults to 10 and is capped at 100
 - `GET /parts-search?q=` — AI part search (requires `PARTS_EDIT`)
 - `POST /parts/{id}/ai-apply` — apply a chosen AI-lookup result to an existing part; specs merge onto
   the part and a null column field leaves that column alone, since both arrive filtered to what the
@@ -139,6 +145,11 @@ in the feature documents under `docs/` — the section names referenced below ("
   propose specs + a description from it (`DatasheetExtractionDTO`); writes nothing, ~1.6¢, no web
   search. `attachmentId` optional (defaults to the part's first datasheet). Requires `PARTS_EDIT`.
   See *Reading the specs out of the datasheet*
+- `GET /parts-search/from-url?url=` — read one page the user pasted (a distributor page, a
+  manufacturer page or a datasheet PDF) and return the same `PartSearchResultDTO[]` the search does
+  (requires `PARTS_EDIT`). Costs less than a search — no search fees, one page of input tokens.
+  400 for a non-HTTP(S) or over-250-character address; 502 naming the reason when the page could not
+  be fetched. See *Looking a part up from a page you found* in `docs/ai.md`
 - `GET /parts-search/images?q=` — image suggestions (requires `PARTS_EDIT`)
 - `GET /parts-search/datasheets?q=&forceAi=` — datasheet links, web search first and AI as fallback
   (requires `PARTS_EDIT`).

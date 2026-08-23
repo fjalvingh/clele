@@ -34,6 +34,13 @@ public class AiPartSearchService {
     private static final String WIKIMEDIA_API =
             "https://commons.wikimedia.org/w/api.php";
 
+    /** What the web fetch tool accepts; anything longer comes back as {@code url_too_long}. */
+    private static final int MAX_FETCH_URL_LENGTH = 250;
+    /** One page is the point of the URL lookup — the spare fetch is for a redirect. */
+    private static final int MAX_FETCHES = 2;
+    /** Caps the page text that enters the prompt (~250 kB of HTML). PDFs are not capped by it. */
+    private static final int MAX_FETCH_CONTENT_TOKENS = 60_000;
+
     private static final String IMAGE_PROMPT = """
             You are helping source photographs of electronic components for an inventory system.
             For the electronic component or package "%s", suggest up to 5 direct image URLs.
@@ -57,17 +64,34 @@ public class AiPartSearchService {
             Return [] if you truly have no suggestions.
             """;
 
-    private static final String SYSTEM_PROMPT_TEMPLATE = """
+    /**
+     * How the model is told to find the component. The two openings differ in their source — a web
+     * search of its own, or the one page the user pasted — and are the only part that may: what a
+     * result must look like is {@link #RESULT_CONTRACT}, shared, because a spec key described two
+     * ways lands in {@code part.specs} as two different fields. Same reason
+     * {@link SpecFieldCatalog} exists.
+     */
+    private static final String SEARCH_INTRO = """
             You are an electronic components database assistant. \
             Use web search to look up accurate information about the requested component from \
             Mouser, DigiKey, manufacturer datasheets, or other authoritative sources before responding.
+            """;
 
+    private static final String URL_INTRO = """
+            You are an electronic components database assistant. \
+            The user gives you the address of ONE web page: a distributor product page, a \
+            manufacturer product page, or a datasheet PDF. \
+            Use the web_fetch tool to read exactly that address, and describe the component that \
+            page is about.
+            """;
+
+    private static final String RESULT_CONTRACT = """
             Return ONLY a valid JSON array with no markdown formatting, no code blocks, no explanation. \
             Each object must have these fields:
             - mpn: manufacturer part number (string, required)
             - manufacturer: manufacturer name (string or null)
             - shortDescription: brief one-line description (string or null)
-            - datasheetUrl: datasheet URL found in search results (string or null)
+            - datasheetUrl: URL of the datasheet PDF, if the source gives one (string or null)
             - category: component category such as "Transistors" or "Logic ICs" (string or null)
             - specs: array of "Name: Value" strings for verified key specifications
 
@@ -82,10 +106,21 @@ public class AiPartSearchService {
             For NUMBER specs with multiple unit options shown after the name, append the unit to the value \
             (e.g. "Capacitance: 100 nF", "Resistance: 4.7 kΩ"). \
             For NUMBER specs with a single unit, just provide the numeric value.
+            """;
 
+    private static final String SEARCH_OUTRO = """
             Be precise: verify the correct package type, pin count, and function from the search results. \
             Only include real components with accurate, search-verified data. \
             If no components match, return an empty array [].
+            """;
+
+    private static final String URL_OUTRO = """
+            Take every value from that page. Do not fill gaps from memory and do not fetch any \
+            other address: leave a field null rather than guessing it. \
+            If the page offers several orderable variants of one component, return one entry per \
+            distinct manufacturer part number, the most prominent one first. \
+            If the page could not be read, or is not about an electronic component, \
+            return an empty array [].
             """;
 
     @Value("${anthropic.api-key:}")
@@ -124,7 +159,7 @@ public class AiPartSearchService {
         headers.set("anthropic-version", API_VERSION);
         headers.set("anthropic-beta", "web-search-2025-03-05");
 
-        SystemPrompt prompt = buildSystemPrompt();
+        SystemPrompt prompt = buildSystemPrompt(SEARCH_INTRO, SEARCH_OUTRO);
         Map<String, Object> body = Map.of(
                 "model", model,
                 "max_tokens", 4096,
@@ -145,7 +180,7 @@ public class AiPartSearchService {
 
         try {
             List<PartSearchResultDTO> results = parseResponse(response.getBody());
-            logUsage(response.getBody(), query, prompt, results.size(),
+            logUsage("web-search", response.getBody(), query, prompt, results.size(),
                     System.currentTimeMillis() - startedAt);
             return results;
         } catch (ResponseStatusException e) {
@@ -154,6 +189,115 @@ public class AiPartSearchService {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "Failed to parse AI response: " + e.getMessage());
         }
+    }
+
+    /**
+     * Read one page the user pasted and describe the component on it.
+     *
+     * <p>The escape hatch behind Quick Add's "New search": when the web search misses a part —
+     * a house-branded module, a shop the search engine does not index, a PDF nobody links — the
+     * user can still point at the page that does describe it. Same output as {@link #search}, so
+     * the caller shows the same result cards and the same confirm step; only the source differs.
+     *
+     * <p>The model reads the page through Anthropic's server-side {@code web_fetch} tool rather
+     * than us downloading it: it renders HTML and PDF alike, and it is the only way the fetched
+     * bytes reach the model without a round trip through this process. That tool may only fetch a
+     * URL that already appears in the conversation, which is exactly the one the user pasted —
+     * a model that invents a second address is refused by the API, not by us.
+     *
+     * <p>Web fetch itself is free; the cost is the fetched page as input tokens, which is what
+     * {@code max_content_tokens} bounds — a datasheet PDF is easily 125k tokens left uncapped.
+     */
+    public List<PartSearchResultDTO> searchByUrl(String url) {
+        String target = url == null ? "" : url.strip();
+        if (!target.regionMatches(true, 0, "http://", 0, 7)
+                && !target.regionMatches(true, 0, "https://", 0, 8)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Paste the full address of the page, starting with http:// or https://");
+        }
+        // The tool rejects anything longer with url_too_long, and says so only after we have paid
+        // for the request.
+        if (target.length() > MAX_FETCH_URL_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "That address is too long to fetch (over " + MAX_FETCH_URL_LENGTH + " characters).");
+        }
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "AI part search not configured. Set anthropic.api-key in application.yml.");
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("x-api-key", apiKey);
+        headers.set("anthropic-version", API_VERSION);
+
+        SystemPrompt prompt = buildSystemPrompt(URL_INTRO, URL_OUTRO);
+        Map<String, Object> body = Map.of(
+                "model", model,
+                "max_tokens", 4096,
+                "system", prompt.text(),
+                "tools", List.of(Map.of(
+                        "type", "web_fetch_20250910",
+                        "name", "web_fetch",
+                        "max_uses", MAX_FETCHES,
+                        "max_content_tokens", MAX_FETCH_CONTENT_TOKENS)),
+                "messages", List.of(Map.of("role", "user",
+                        "content", "Read " + target + " and return the component it describes."))
+        );
+
+        ResponseEntity<String> response;
+        long startedAt = System.currentTimeMillis();
+        try {
+            response = restTemplate.exchange(API_URL, HttpMethod.POST,
+                    new HttpEntity<>(body, headers), String.class);
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "AI lookup request failed: " + e.getMessage());
+        }
+
+        try {
+            requireFetchSucceeded(response.getBody());
+            List<PartSearchResultDTO> results = parseResponse(response.getBody());
+            logUsage("url", response.getBody(), target, prompt, results.size(),
+                    System.currentTimeMillis() - startedAt);
+            return results;
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Failed to parse AI response: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Fail loudly when the page could not be read.
+     *
+     * <p>A failed fetch is not an API error: the call returns 200 with an error block, the model
+     * carries on, and — having been told to return {@code []} when it cannot read the page — it
+     * usually does. Without this the user would see "no results", which reads as "that page has
+     * nothing on it" rather than "the site refused us", and they would try the same URL again.
+     */
+    private void requireFetchSucceeded(String body) throws Exception {
+        for (JsonNode item : objectMapper.readTree(body).path("content")) {
+            if (!"web_fetch_tool_result".equals(item.path("type").asText(""))) continue;
+            JsonNode content = item.path("content");
+            if (!"web_fetch_tool_result_error".equals(content.path("type").asText(""))) continue;
+            String code = content.path("error_code").asText("");
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                    "Could not read that page: " + describeFetchError(code));
+        }
+    }
+
+    private static String describeFetchError(String code) {
+        return switch (code) {
+            case "url_not_accessible" -> "the site did not return it (it may be down, or it blocks automated readers).";
+            case "url_not_allowed" -> "that address may not be fetched — it is private, or its robots.txt forbids it.";
+            case "unsupported_content_type" -> "only web pages and PDF files can be read.";
+            case "too_many_requests" -> "too many requests right now — try again in a minute.";
+            case "url_too_long", "invalid_tool_input" -> "that address is not one we can fetch.";
+            case "url_not_in_prior_context" -> "the lookup tried to read a different address than the one given.";
+            default -> "the fetch failed (" + (code.isBlank() ? "unknown error" : code) + ").";
+        };
     }
 
     /**
@@ -173,7 +317,8 @@ public class AiPartSearchService {
      * <p>Logging must never break a search that otherwise worked, so every failure in here is
      * swallowed at DEBUG.
      */
-    private void logUsage(String body, String query, SystemPrompt prompt, int resultCount, long millis) {
+    private void logUsage(String source, String body, String query, SystemPrompt prompt,
+                          int resultCount, long millis) {
         try {
             JsonNode usage = objectMapper.readTree(body).path("usage");
             long input = usage.path("input_tokens").asLong(0);
@@ -188,10 +333,10 @@ public class AiPartSearchService {
                     + output * outputPerMTok) / 1_000_000d
                     + searches * webSearchPerKSearch / 1_000d;
 
-            log.info("ai-part-search model={} query=\"{}\" specDefs={} promptChars={} "
+            log.info("ai-part-search source={} model={} query=\"{}\" specDefs={} promptChars={} "
                             + "promptTok={} (in={} cacheWrite={} cacheRead={}) outTok={} "
                             + "webSearches={} results={} ms={} estCostUsd={}",
-                    model, query, prompt.definitionCount(), prompt.text().length(),
+                    source, model, query, prompt.definitionCount(), prompt.text().length(),
                     input + cacheWrite + cacheRead, input, cacheWrite, cacheRead, output,
                     searches, resultCount, millis, String.format("%.4f", cost));
         } catch (Exception e) {
@@ -209,7 +354,11 @@ public class AiPartSearchService {
         if (reported.isNumber()) return reported.asLong();
         long counted = 0;
         for (JsonNode item : objectMapper.readTree(body).path("content")) {
-            if ("server_tool_use".equals(item.path("type").asText(""))) counted++;
+            // Name-checked, not just type-checked: a URL lookup's server_tool_use blocks are
+            // web_fetch calls, which are billed as tokens only. Counting those as searches would
+            // put a phantom cent on every line.
+            if ("server_tool_use".equals(item.path("type").asText(""))
+                    && "web_search".equals(item.path("name").asText(""))) counted++;
         }
         return counted;
     }
@@ -513,12 +662,13 @@ public class AiPartSearchService {
      */
     private record SystemPrompt(String text, int definitionCount) {}
 
-    private SystemPrompt buildSystemPrompt() {
+    private SystemPrompt buildSystemPrompt(String intro, String outro) {
         // The prompt describes the current organisation's spec fields, so the AI returns keys that
         // match this tenant's part.specs schema. Rendered by the shared catalogue so the datasheet
         // reader describes the same fields the same way.
         SpecFieldCatalog.Fields fields = specFieldCatalog.render();
-        return new SystemPrompt(String.format(SYSTEM_PROMPT_TEMPLATE, fields.text()), fields.count());
+        String template = intro + "\n" + RESULT_CONTRACT + "\n" + outro;
+        return new SystemPrompt(String.format(template, fields.text()), fields.count());
     }
 
     private static String nullIfBlank(String s) {

@@ -56,4 +56,15 @@ public interface StockEntryRepository extends JpaRepository<StockEntry, Long> {
             GROUP BY s.part.id
             """)
     List<Object[]> sumQuantityByPartIdsAndOrganisationId(List<Long> partIds, Long organisationId);
+
+    /**
+     * The on-hand rows of several parts at once, with their locations fetched — the dashboard's
+     * "Recently Added" list needs both the quantity and where it sits for every row it shows, and
+     * doing that per part would be a query per row.
+     */
+    @Query("""
+            SELECT s FROM StockEntry s JOIN FETCH s.part JOIN FETCH s.location
+            WHERE s.part.id IN :partIds AND s.location.organisation.id = :organisationId
+            """)
+    List<StockEntry> findByPartIdInAndOrganisationId(List<Long> partIds, Long organisationId);
 }
