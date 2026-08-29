@@ -1,0 +1,7 @@
+# Activated by the 'specs' profile: re-classify stored spec values as a CLI job and exit instead of
+# starting the web server. See SpecResyncRunner for the options — it is a dry run unless told
+# otherwise. Without web-application-type: none the runner would finish and the process would then
+# sit there serving HTTP, which reads exactly like a job that has hung.
+spring:
+  main:
+    web-application-type: none

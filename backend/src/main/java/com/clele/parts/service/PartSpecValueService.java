@@ -29,27 +29,31 @@ import java.util.*;
  *
  * <h2>How a value is classified</h2>
  *
- * <ol>
- *   <li><b>A range string</b> — {@code "3..16"}, {@code "4.5..null"} — becomes {@code value_min}/
- *       {@code value_max}, either bound open. These are the ~1,500 Partsbox ranges that are dead as
- *       numbers today: convert-to-number has to refuse them, and no query can reach inside them.</li>
- *   <li><b>A three-part range string</b> — {@code "4.5..5..5.5"} — is {@code min..nominal..max}, and
- *       fills {@code value_num} <em>and</em> the bounds (V56). It is how the UI writes a value the
- *       user gave a tolerance band to, and how a datasheet's min/typ/max survives as one value.
- *       Any component may be {@code "null"}, so a nominal with only an upper bound is
- *       {@code "null..5..5.5"}.</li>
- *   <li><b>A JSON number</b> is stored as {@code value_num} <em>whatever the family</em>. No
- *       conversion happens, so there is no magnitude to get wrong — the number is already in
- *       whatever unit the field means, and comparing it with its siblings is exactly as valid as it
- *       was in the JSONB. This is what keeps the catalogue's 11,384 bare numbers numeric.</li>
- *   <li><b>A string with a unit family</b> is parsed by {@link MetricUnitParser} into the family's
- *       base SI unit — {@code "100nF"}, {@code "0.1 uF"} and {@code "1e-7"} all land on the same
- *       number, where as strings they are three unrelated values.</li>
- *   <li><b>Anything else</b> — no family, or a string the family refused — stays {@code value_text}.
- *       Nothing was extracted from it, so nothing can drift. A refusal is an ordinary outcome, not
- *       an error: it is how {@code 4m7} in a resistance field, or a value in a unit nobody declared,
- *       declines to become a wrong number.</li>
- * </ol>
+ * <p><b>The definition's {@code data_type} decides which columns are used — nothing else.</b>
+ *
+ * <ul>
+ *   <li><b>NUMBER</b> — the value is read by {@link NumericSpecParser} into
+ *       {@code value_num}/{@code value_min}/{@code value_max}, in the field's base SI unit. There is
+ *       no scalar-versus-range distinction: empty bounds <em>are</em> a scalar.</li>
+ *   <li><b>TEXT, SELECT, BOOLEAN</b> — the value is stored verbatim in {@code value_text}. It is
+ *       never parsed, never split into bounds, and never becomes a number however numeric it
+ *       looks.</li>
+ * </ul>
+ *
+ * <p><b>A NUMBER value that will not parse is dropped, not parked as text</b> (and reported in
+ * {@link SyncResult#unparsed()}). This is the point of the rule: a number sitting in
+ * {@code value_text} is invisible to every parametric query — "supply voltage between 3 and 5 V"
+ * cannot see a part whose supply voltage reads {@code "5V ± 10%"} — so the field looks populated
+ * while answering nothing. An empty field is the honest version of that, and it is visible. The
+ * defence against losing something real is the parser's tolerance, not a text fallback.
+ *
+ * <p>⚠️ The corollary: <b>a mis-typed definition destroys values.</b> A field that is really text
+ * ({@code "2K x 8"}, {@code "0805"}) but is declared NUMBER will lose its values the next time each
+ * part is saved. {@code SpecResyncService} exists to show that list before it happens.
+ *
+ * <p>A definition auto-created for an unknown key still infers its type from the one value in hand
+ * ({@link #inferDataType}), which is where the "0805 is a code, not the number 805" rule now earns
+ * its keep: it decides the <em>type</em>, and the type decides everything after.
  *
  * <p>BOOLEAN definitions are text ({@code "true"}/{@code "false"}) — filtered by equality, never by
  * range, so they need no numeric column.
@@ -67,7 +71,11 @@ public class PartSpecValueService {
     private static final String DEFAULT_GROUP_NAME = "Technical";
 
     /** What one sync did, for the backfill report. */
-    public record SyncResult(int scalars, int ranges, int texts, int definitionsCreated,
+    /**
+     * @param refused  NUMBER values that could not be read as numbers, and so were dropped. Each one
+     *                 is listed in {@code unparsed} as {@code key=value}.
+     */
+    public record SyncResult(int scalars, int ranges, int texts, int refused, int definitionsCreated,
                              List<String> unparsed) {
         public int total() {
             return scalars + ranges + texts;
@@ -75,7 +83,7 @@ public class PartSpecValueService {
 
         /** A part that vanished between listing and syncing — an empty outcome, not an error. */
         static SyncResult empty() {
-            return new SyncResult(0, 0, 0, 0, List.of());
+            return new SyncResult(0, 0, 0, 0, 0, List.of());
         }
     }
 
@@ -89,6 +97,22 @@ public class PartSpecValueService {
      */
     @Transactional
     public SyncResult sync(Part part, Map<String, Object> incoming) {
+        return apply(part, incoming, true);
+    }
+
+    /**
+     * What {@link #sync} would do to this part, writing nothing.
+     *
+     * <p>The same code path, deliberately: a preview assembled by a second implementation of the
+     * rules would drift from them, and the whole reason it exists is to be believed — it is what
+     * says which values a re-sync is about to drop.
+     */
+    @Transactional(readOnly = true)
+    public SyncResult preview(Part part, Map<String, Object> incoming) {
+        return apply(part, incoming, false);
+    }
+
+    private SyncResult apply(Part part, Map<String, Object> incoming, boolean commit) {
         Map<String, Object> specs = incoming == null ? Map.of() : incoming;
         Long orgId = part.getOrganisation().getId();
 
@@ -97,8 +121,13 @@ public class PartSpecValueService {
             existing.put(v.getSpecDefinition().getId(), v);
         }
 
-        int scalars = 0, ranges = 0, texts = 0, created = 0;
+        int scalars = 0, ranges = 0, texts = 0, refused = 0, created = 0;
         List<String> unparsed = new ArrayList<>();
+        // Definitions this map has already decided (whatever the outcome), so two aliases of one
+        // spec do not both write it...
+        Set<Long> decided = new HashSet<>();
+        // ...and those that end up keeping a row. A refused value is deliberately absent from this
+        // one, which is what makes the stale sweep below delete the row it used to have.
         Set<Long> seen = new HashSet<>();
         List<PartSpecValue> toSave = new ArrayList<>();
 
@@ -109,28 +138,37 @@ public class PartSpecValueService {
 
             SpecDefinition def = specRepo.findByOrganisationIdAndJsonName(orgId, key).orElse(null);
             if (def == null) {
+                if (!commit) continue;   // a preview must not create definitions
                 def = createDefinition(part.getOrganisation(), key, raw);
                 created++;
             }
-            if (!seen.add(def.getId())) continue;   // two aliases of one spec on the same part
+            if (!decided.add(def.getId())) continue;   // two aliases of one spec on the same part
+
+            Classification c = classify(raw, def);
+            if (c.shape() == Shape.REFUSED) {
+                // Dropped, not stored as text — see the class docs. The row it may have had goes
+                // with it, because the definition never reaches `seen`.
+                refused++;
+                unparsed.add(key + "=" + raw);
+                continue;
+            }
 
             PartSpecValue row = existing.get(def.getId());
             if (row == null) row = PartSpecValue.text(part, def, null);
-
-            Classification c = classify(raw, def);
             switch (c.shape()) {
                 case NUMERIC -> {
                     row.setNumeric(c.num(), c.min(), c.max());
-                    // Counted for the backfill report only: a value with bounds is reported as a
-                    // range whether or not it also carries a nominal.
+                    // Counted for the report only: a value with bounds is reported as a range
+                    // whether or not it also carries a nominal.
                     if (c.hasBounds()) ranges++; else scalars++;
                 }
                 case TEXT -> {
-                    row.setText(MetricUnitParser.normalizeSpaces(String.valueOf(raw)));
+                    row.setText(textOf(raw));
                     texts++;
-                    if (c.wanted()) unparsed.add(key + "=" + raw);
                 }
+                case REFUSED -> throw new IllegalStateException("handled above");
             }
+            seen.add(def.getId());
             toSave.add(row);
         }
 
@@ -140,14 +178,17 @@ public class PartSpecValueService {
                 .map(Map.Entry::getValue)
                 .toList();
 
-        if (!stale.isEmpty()) valueRepo.deleteAll(stale);
-        if (!toSave.isEmpty()) valueRepo.saveAll(toSave);
+        if (commit) {
+            if (!stale.isEmpty()) valueRepo.deleteAll(stale);
+            if (!toSave.isEmpty()) valueRepo.saveAll(toSave);
 
-        // The search projection the Parts free-text index covers. Written here because this is the
-        // only path that writes a spec value, so it cannot fall behind the rows it summarises.
-        part.setSpecText(specTextOf(toSave));
+            // The search projection the Parts free-text index covers. Written here because this is
+            // the only path that writes a spec value, so it cannot fall behind the rows it
+            // summarises.
+            part.setSpecText(specTextOf(toSave));
+        }
 
-        return new SyncResult(scalars, ranges, texts, created, unparsed);
+        return new SyncResult(scalars, ranges, texts, refused, created, unparsed);
     }
 
     /**
@@ -162,6 +203,25 @@ public class PartSpecValueService {
                 .filter(v -> v != null && !v.isBlank())
                 .collect(java.util.stream.Collectors.joining(" "));
         return joined.isEmpty() ? null : joined;
+    }
+
+    /**
+     * Re-read one part's stored values under the current rules — the unit of work the re-sync CLI
+     * repeats, in its own transaction so a long run neither holds one open nor accumulates a
+     * persistence context the size of the catalogue.
+     *
+     * <p>The part is re-read here rather than passed in for the same reason: the caller iterates ids.
+     */
+    @Transactional
+    public SyncResult resync(Long partId, boolean commit) {
+        Part part = partRepo.findById(partId).orElse(null);
+        if (part == null) return SyncResult.empty();
+        Map<String, Object> specs = specsOf(partId);
+        if (specs.isEmpty()) return SyncResult.empty();
+        if (!commit) return apply(part, specs, false);
+        SyncResult result = apply(part, specs, true);
+        partRepo.save(part);   // apply() rewrote spec_text on it
+        return result;
     }
 
     /**
@@ -220,6 +280,23 @@ public class PartSpecValueService {
         return v.getValueText();
     }
 
+    /**
+     * A value on its way into {@code value_text}.
+     *
+     * <p>⚠️ <b>{@code String.valueOf(BigDecimal)} is not good enough.</b> A value can arrive here as
+     * a number — {@link #specsOf} hands back {@code BigDecimal} for a numeric row, and a re-sync
+     * feeds that straight back in — and {@code BigDecimal.toString()} switches to scientific
+     * notation once trailing zeros are stripped. That turned the Schedule B code 8536695050 into the
+     * string {@code "8.53669505E+9"}: the same number, but not a code anyone can read or search for.
+     */
+    private static String textOf(Object raw) {
+        if (raw instanceof BigDecimal d) return d.stripTrailingZeros().toPlainString();
+        if (raw instanceof Number n) {
+            return new BigDecimal(n.toString()).stripTrailingZeros().toPlainString();
+        }
+        return MetricUnitParser.normalizeSpaces(String.valueOf(raw));
+    }
+
     /** An open bound is written "null", which is the form Partsbox sent and the parser reads back. */
     private static String bound(BigDecimal b) {
         return b == null ? "null" : b.stripTrailingZeros().toPlainString();
@@ -231,117 +308,39 @@ public class PartSpecValueService {
         valueRepo.deleteByPartId(partId);
     }
 
-    /**
-     * Parsed or raw. The parsed shape covers a bare nominal, bounds, and both together — they are
-     * one shape in the row too, since V56 relaxed the check constraint that kept them apart.
-     */
-    private enum Shape { NUMERIC, TEXT }
+    /** What the definition's data type says this value is: a number, raw text, or not storable. */
+    private enum Shape { NUMERIC, TEXT, REFUSED }
 
-    /**
-     * @param wanted true when this value <em>should</em> have parsed — a string against a field that
-     *               declares a family — and did not. That is the residue worth eyeballing; a value
-     *               with no family was never a candidate and is not a failure.
-     */
-    private record Classification(Shape shape, BigDecimal num, BigDecimal min, BigDecimal max,
-                                  boolean wanted) {
-        static Classification scalar(BigDecimal v) { return new Classification(Shape.NUMERIC, v, null, null, false); }
-        static Classification range(BigDecimal lo, BigDecimal hi) { return new Classification(Shape.NUMERIC, null, lo, hi, false); }
+    private record Classification(Shape shape, BigDecimal num, BigDecimal min, BigDecimal max) {
         static Classification numeric(BigDecimal v, BigDecimal lo, BigDecimal hi) {
-            return new Classification(Shape.NUMERIC, v, lo, hi, false);
+            return new Classification(Shape.NUMERIC, v, lo, hi);
         }
-        static Classification text(boolean wanted) { return new Classification(Shape.TEXT, null, null, null, wanted); }
+        static Classification text() { return new Classification(Shape.TEXT, null, null, null); }
+        static Classification refused() { return new Classification(Shape.REFUSED, null, null, null); }
 
         boolean hasBounds() { return min != null || max != null; }
     }
 
-    private Classification classify(Object raw, SpecDefinition def) {
-        if ("BOOLEAN".equals(def.getDataType())) return Classification.text(false);
-
-        // A JSON number needs no parsing and no family: nothing is converted, so nothing can be
-        // wrong about its magnitude that was not already wrong in the JSONB.
-        if (raw instanceof Number n) {
-            return Classification.scalar(storedScale(new BigDecimal(n.toString())));
-        }
-
-        String s = MetricUnitParser.normalizeSpaces(String.valueOf(raw));
-        Optional<UnitFamily> family = def.family();
-
-        String[] bounds = splitRange(s);
-        if (bounds != null && bounds.length == 3) {
-            // "min..nominal..max" — the UI's spelling for a value with a tolerance band.
-            BigDecimal lo = parseBound(bounds[0], family);
-            BigDecimal nom = parseBound(bounds[1], family);
-            BigDecimal hi = parseBound(bounds[2], family);
-            if (nom != null || lo != null || hi != null) return Classification.numeric(nom, lo, hi);
-            return Classification.text(family.isPresent());
-        }
-        if (bounds != null) {
-            BigDecimal lo = parseBound(bounds[0], family);
-            BigDecimal hi = parseBound(bounds[1], family);
-            if (lo != null || hi != null) return Classification.range(lo, hi);
-            return Classification.text(family.isPresent());
-        }
-
-        if (family.isPresent()) {
-            Optional<String> parsed = MetricUnitParser.parseToBase(s, family.get());
-            if (parsed.isPresent()) return Classification.scalar(storedScale(new BigDecimal(parsed.get())));
-            return Classification.text(true);
-        }
-
-        // No family: a numeric-looking string may be a number, or may be a code that happens to be
-        // digits. Convert only when the conversion is LOSSLESS -- when the canonical rendering of the
-        // parsed number is the original string, character for character.
-        //
-        // ⚠️ "0805" is why. It is an imperial case code stored in a family-less field, and reading it
-        // as the number 805 both destroys the value and drops it out of the free-text search, so
-        // searching "0805" stopped finding the part. The same applies to date codes, ordering suffixes
-        // and anything else whose leading zero is meaning rather than formatting. If the string cannot
-        // be reproduced from the number, we did not understand it and must not extract it.
-        BigDecimal plain = numericIfLossless(s);
-        return plain != null ? Classification.scalar(storedScale(plain)) : Classification.text(false);
-    }
-
     /**
-     * The ways a range is written in this catalogue's sources, or null when the value is not one.
-     * Components come back untrimmed; any may be the word "null" (an open bound).
+     * The value's shape, decided by the <b>definition's data type</b> and nothing else.
      *
-     * <p>Two components mean {@code min..max}; <b>three mean {@code min..nominal..max}</b>, which is
-     * how the UI writes a value that has both a typical figure and a band (V56). Only the dotted
-     * form can carry three — the other two spellings come from outside sources that never write one.
-     *
-     * <ul>
-     *   <li>{@code "3..16"} — Partsbox, and the bulk of the data (1,488 values).</li>
-     *   <li>{@code "-40.0 °C ~ 105.0 °C"} — the component cache's own {@code display} rendering, so
-     *       this form keeps arriving from a live source rather than only from the backlog.</li>
-     *   <li>{@code "15 V to 35 V"} — how a datasheet writes it, and so how the extractor returns it.
-     *       The spaces are required, or "to" would match inside a word.</li>
-     * </ul>
-     *
-     * <p>A hyphen is deliberately <b>not</b> a separator: "-40-125" cannot be told from a negative
-     * number, and guessing would invent bounds that were never written.
+     * <p>A NUMBER field is read by {@link NumericSpecParser}; anything it cannot read is refused and
+     * the value is dropped. Every other type is stored verbatim, however numeric it looks — that is
+     * what keeps {@code "0805"} an imperial case code and {@code "2K x 8"} a memory organisation
+     * rather than silently becoming 805 and 2000.
      */
-    // Package-private so the separator rules can be pinned by test without a database.
-    static String[] splitRange(String s) {
-        // The dotted form splits into at most three, so "4.5..5..5.5" keeps its middle component
-        // rather than handing "5..5.5" back as an unparseable upper bound.
-        String[] dotted = s.split("\\.\\.", 3);
-        if (dotted.length >= 2) return dotted;
-        for (String sep : new String[]{"~", "(?i)\\s+to\\s+"}) {
-            String[] parts = s.split(sep, 2);
-            if (parts.length == 2) return parts;
-        }
-        return null;
-    }
+    private Classification classify(Object raw, SpecDefinition def) {
+        if (!"NUMBER".equals(def.getDataType())) return Classification.text();
 
-    /** One bound of a range; null when open ("null") or unparseable. */
-    private static BigDecimal parseBound(String bound, Optional<UnitFamily> family) {
-        String b = MetricUnitParser.normalizeSpaces(bound);
-        if (b.isEmpty() || b.equalsIgnoreCase("null")) return null;
-        if (family.isPresent()) {
-            return MetricUnitParser.parseToBase(b, family.get()).map(BigDecimal::new)
-                    .map(PartSpecValueService::storedScale).orElse(null);
+        // A JSON number needs no parsing: it is already a number in whatever unit the field means.
+        if (raw instanceof Number n) {
+            return Classification.numeric(storedScale(new BigDecimal(n.toString())), null, null);
         }
-        return storedScale(plainNumber(b));
+        return NumericSpecParser.parse(String.valueOf(raw), def.family().orElse(null), def.getUnit())
+                .map(p -> Classification.numeric(storedScale(p.num()),
+                                                 storedScale(p.min()),
+                                                 storedScale(p.max())))
+                .orElseGet(Classification::refused);
     }
 
     /**

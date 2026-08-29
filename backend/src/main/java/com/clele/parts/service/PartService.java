@@ -154,37 +154,38 @@ public class PartService {
         return parts;
     }
 
-    /** The part ids one criterion admits. */
+    /**
+     * The part ids one criterion admits.
+     *
+     * <p><b>Which half of the row is searched follows the definition's data type</b>, the same rule
+     * that decided where the value was written. A NUMBER field is searched numerically and only
+     * numerically: it has no text rows to fall back to, and falling back would answer a comparison
+     * with an unrelated substring match. Everything else is searched as text.
+     */
     private List<Long> matchingPartIds(Long orgId, SpecDefinition def, String op, String value) {
         if ("any".equals(op)) {
             return partSpecValueRepository.partIdsWithSpec(orgId, def.getJsonName());
         }
         if (value.isEmpty()) return List.of();
 
-        if ("contains".equals(op)) {
-            return partSpecValueRepository.partIdsMatchingText(orgId, def.getJsonName(), op, value);
+        if (!"NUMBER".equals(def.getDataType())) {
+            // Text fields answer equality and substring; an ordering comparison means nothing here.
+            return "eq".equals(op) || "contains".equals(op)
+                    ? partSpecValueRepository.partIdsMatchingText(orgId, def.getJsonName(), op, value)
+                    : List.of();
         }
 
-        // The value is written the way people write it — "4k7", "100nF", "3.3" — so it is parsed
-        // through the spec's own family, exactly as an incoming spec value would be.
-        BigDecimal num = def.family()
-                .flatMap(f -> MetricUnitParser.parseToBase(value, f))
-                .map(BigDecimal::new)
-                .orElseGet(() -> {
-                    try {
-                        return new BigDecimal(MetricUnitParser.normalizeSpaces(value));
-                    } catch (NumberFormatException e) {
-                        return null;
-                    }
-                });
+        // The term is written the way people write it — "4k7", "100nF", "3.3" — so it is read by
+        // exactly the parser that read the stored values.
+        BigDecimal num = NumericSpecParser.parse(value, def.family().orElse(null), def.getUnit())
+                .map(p -> p.num() != null ? p.num() : p.min() != null ? p.min() : p.max())
+                .orElse(null);
 
-        if (num != null) {
-            return partSpecValueRepository.partIdsMatchingNumeric(orgId, def.getJsonName(), op, num);
-        }
-        // Not a number: only equality is meaningful, and it means the text.
-        return "eq".equals(op)
-                ? partSpecValueRepository.partIdsMatchingText(orgId, def.getJsonName(), "eq", value)
-                : List.of();
+        // A term that is not a number cannot match a numeric field. Saying so with an empty result
+        // is the honest answer; a text fallback would quietly widen the search instead.
+        return num == null
+                ? List.of()
+                : partSpecValueRepository.partIdsMatchingNumeric(orgId, def.getJsonName(), op, num);
     }
 
     /**

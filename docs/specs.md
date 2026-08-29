@@ -60,16 +60,31 @@ bit/s family would be wrong by 10⁶), `weight` is in grams while the SI base is
   and the coming backfill. Wired into `PartService.saveAndSync` (create / update / applyOctopart /
   applyAiLookup), `QuickAddService`, `PartKitTemplateService`, the Partsbox importer, and the two
   bulk paths in `SpecDefinitionService` (merge, convert-to-number) that rewrite `part.specs`.
-- **Three range spellings are recognised** (`PartSpecValueService.splitRange`): `"3..16"` (Partsbox,
-  the bulk), `"-40.0 °C ~ 105.0 °C"` (the **component cache's own `display`**, so this form keeps
-  arriving from a live source) and `"15 V to 35 V"` (how a datasheet writes it, and so how the
-  extractor returns it — the spaces around "to" are required or it matches inside a word). A hyphen
-  is deliberately **not** a separator: `-40-125` cannot be told from a negative number.
-- **Classification, in order**: a range string (`"3..16"`) → `value_min`/`value_max`; a JSON number →
-  `value_num` *whatever the family*, since nothing is converted and so no magnitude can be got wrong;
-  a string with a unit family → parsed to the base SI unit; anything else → `value_text`. A refusal
-  is an ordinary outcome, not an error — it is how a value in a unit nobody declared declines to
-  become a wrong number. BOOLEAN is text (`"true"`/`"false"`): filtered by equality, never by range.
+- ⚠️ **`data_type` decides which columns a value uses, and nothing else does.** A **NUMBER**
+  definition's value is read by `NumericSpecParser` into `value_num`/`value_min`/`value_max`;
+  **TEXT / SELECT / BOOLEAN** are stored verbatim in `value_text`, never parsed, never split into
+  bounds, however numeric they look. That is what keeps `"0805"` an imperial case code and
+  `"2K x 8"` a memory organisation. It was not always so: classification used to be driven by the
+  *value* plus the unit family, so a TEXT field with a family held parsed numbers while a NUMBER
+  field quietly held text — and search then had to guess which half of the row to look in.
+- ⚠️ **A NUMBER value that will not parse is dropped, not kept as text.** A number parked in
+  `value_text` is invisible to every parametric query — "supply voltage between 3 and 5 V" cannot
+  see a part whose supply voltage reads `"5V ± 10%"` — so the field looks populated while answering
+  nothing. An empty field is the honest version of that. **The corollary is that a mis-typed
+  definition destroys values**: a field that is really text but declared NUMBER loses them the next
+  time each part is saved, which is what `SpecResyncService`'s dry run exists to show first.
+- **What a NUMBER field accepts** (`NumericSpecParser`, pinned by `NumericSpecParserTest` against
+  values that actually occur here): the family's own spellings including RKM (`4k7`, `100nF`); unit
+  words folded to symbols (`ohms`, `microseconds`, `degrees`); qualifiers and bracketed notes
+  dropped (`5V DC`, `1.4 A RMS`, `220 mA (6V, no-load)`); ranges as `3..16`, `min..nominal..max`,
+  `-40 °C ~ 105 °C`, `15 V to 35 V`, `4.8-6.0 V`, `-15–70 °C`; tolerances (`5V ± 10%` → 4.5/5/5.5);
+  and one-sided bounds (`> 600 Hz`, `up to 50 W`, `5 V max`). Two rules earn their keep: a **plain
+  hyphen** separates only when the value does not open with a sign *and* both halves parse, so
+  `-40-125` and `1e-7` stay single values; and a **unit written once** is lent to the bare bound
+  beside it, or `500-2500 µs` would read as 500 seconds to 2.5 ms.
+- **A field with no family and no declared `unit` accepts only a plain number.** `"16 mA"` there is
+  refused rather than read as 16 — nothing says what its numbers are counted in.
+  BOOLEAN is text (`"true"`/`"false"`): filtered by equality, never by range.
 - **A value may carry a nominal *and* bounds** (V56). min/typ/max is how a datasheet states a
   parameter — "4.5 V, 5 V typical, 5.5 V" is one fact — so `value_num` and `value_min`/`value_max`
   are no longer mutually exclusive; V50's one-shape check now only keeps *text* apart from the
@@ -77,7 +92,8 @@ bit/s family would be wrong by 10⁶), `weight` is in grams while the SI base is
   written `"null"` when open; the bare number and the two-part `"min..max"` are untouched, so
   everything stored before V56 reads back byte for byte. **Search needed no change**: a criterion
   asks whether the row has *some* value satisfying it, so the nominal and the interval are simply
-  two chances to match.
+  two chances to match. There is no "range or scalar" distinction anywhere any more: empty bounds
+  *are* a scalar.
 - **Entering one.** The numeric spec editor is `components/SpecNumberField` — one box, plus a toggle
   beside the label that opens three (min / nominal / max). A value that already has a bound opens
   them by itself, since there is no other way to show it; collapsing drops the bounds, explicitly,
@@ -90,10 +106,33 @@ bit/s family would be wrong by 10⁶), `weight` is in grams while the SI base is
   `spec_definition_id` (the JSONB could hold a loose key indefinitely). The type is inferred from
   the one value in hand — weaker than `rescanFromParts`, which sees every value of a key at once and
   can spot a SELECT, which is why a rescan still earns its place. **No unit family is ever guessed.**
+  This inference now carries more weight than it used to: it decides the *type*, and the type decides
+  whether that key's values are ever read as numbers — which is where the "`0805` is a code, not the
+  number 805" losslessness rule (`numericIfLossless`) still earns its keep.
+- **Re-classifying what is already stored**: a value is classified once, when written, so a
+  definition that later gains a family or has its type corrected does not reach its own values.
+  `SpecResyncService` reads every part's values back out and writes them again through the one write
+  path. It is a **dry run by default**, and prints the values a commit would drop, per spec field:
+  `mvn21 spring-boot:run -Dspring-boot.run.profiles=specs -DskipFrontend=true`, then
+  `-Dspring-boot.run.arguments=--specs.dry-run=false` to commit. The preview and the commit are the
+  same code path (`PartSpecValueService.preview` / `sync`), so the list cannot describe a different
+  outcome than the one that follows.
 - **`spec_definition.unit_family`** (a `UnitFamily` code, mirroring the `CcUnits` families) is what
   licenses parsing at all. **Null means never parse** — the safe default, and deliberately not a gap
   to fill in for tidiness. Note the name is not the family: `naturalthermalresistance` is °C/W not Ω,
   `inductancetolerance` is a percentage, `numberofresistors` is a count.
+
+### Giving the measured TEXT fields a family
+
+`scripts/spec-text-fields-to-numeric.sql` is the repeatable pass over an installation's own
+definitions: it turns the family-bearing TEXT fields into NUMBER (their values were already being
+parsed — only the widget was a text box) and assigns a family to the fields whose name *and stored
+values* agree on what they measure. Run on the development catalogue it moved 137 definitions.
+The judgement calls are in the script's header, along with what it deliberately leaves alone —
+torque, weight, RPM, memory sizes, multi-dimension strings — and its closing query lists the TEXT
+fields whose names still read like measurements, for the next pass. It does **not** reclassify the
+values already in `value_text`: only `sync` parses, so a value catches up when its part is saved
+again, or through `POST /spec-definitions/{id}/convert-to-number`.
 
 ### Parametric spec search
 
@@ -119,6 +158,10 @@ value), mirrored in the URL so a search is bookmarkable.
   the JSONB as `1.0000000000000001e-7`, so "capacitance = 100 nF" found nothing. NUMERIC preserves
   what it is given; it cannot un-ruin a number that was a double first. Twelve digits is far beyond
   any component tolerance and is the precision `units.ts` has always displayed at.
+- **A criterion is routed by `data_type` too** (`PartService.matchingPartIds`): a NUMBER field is
+  searched numerically and only numerically — it has no text rows to fall back to, and a term that
+  is not a number matches nothing rather than quietly widening into a substring search. Text fields
+  answer `eq` and `contains`; an ordering comparison on one means nothing and returns nothing.
 - **The Parts screen loads every spec definition separately** (`searchSpecDefs`) — `specDefs` is
   loaded only while the create modal is open and is scoped to the chosen category, while searching
   must offer every field whatever category a part is in.
