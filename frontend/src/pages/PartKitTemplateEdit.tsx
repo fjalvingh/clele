@@ -22,6 +22,7 @@ import type {
 import CategoryPicker from '../components/CategoryPicker';
 import FindImageModal from '../components/FindImageModal';
 import FormField from '../components/FormField';
+import SpecFieldLabel from '../components/SpecFieldLabel';
 import TagInput from '../components/TagInput';
 
 /** How many photos a template may carry — the same cap a part has, since that is where they land. */
@@ -352,11 +353,13 @@ export default function PartKitTemplateEditPage() {
   };
 
   /** One spec row: a plain text input whatever the spec's data type is — see below. */
-  const specRow = (key: string, label: string, unit?: string) => (
+  // `spec` is absent for a key no definition covers — there is nothing to say about its type, so
+  // those rows keep the bare key as their label.
+  const specRow = (key: string, label: string, spec?: SpecDefinition) => (
     <div key={key} className="flex items-start gap-2">
       <div className="min-w-0 flex-1">
         <label className="block text-sm font-medium text-gray-700">
-          {label}{unit ? ` (${unit})` : ''}
+          {spec ? <SpecFieldLabel spec={spec} /> : label}
         </label>
         <input
           type="text"
@@ -610,7 +613,7 @@ export default function PartKitTemplateEditPage() {
                 <h4 className="mb-2 border-b border-gray-200 pb-1 text-xs font-semibold uppercase tracking-wider text-blue-700/80">
                   {group.name}
                 </h4>
-                {group.specs.map((spec) => specRow(spec.jsonName, spec.name, spec.unit))}
+                {group.specs.map((spec) => specRow(spec.jsonName, spec.name, spec))}
               </div>
             ))}
 

@@ -64,7 +64,7 @@ import Modal from '../components/Modal';
 import PartEditModal from '../components/PartEditModal';
 import PrintLabelModal from '../components/PrintLabelModal';
 import { formatFamilyValue, formatMetric, unitFamily } from '../utils/units';
-import { parseAiSpecs } from '../utils/specs';
+import { parseAiSpecs, splitSpecNumber } from '../utils/specs';
 
 // The three stock operations offered per location, plus the top-level "add".
 type StockOp = 'add' | 'take' | 'move';
@@ -130,39 +130,44 @@ function formatSpecValue(spec: SpecDefinition, raw: string | number): string {
   }
   const family = unitFamily(spec.unitFamily);
   if (family) {
-    // A stored range renders bound by bound, so "4..16" reads "4 V ~ 16 V" and an open bound stays
-    // open ("≤ 16 V") rather than printing the word "null" at the user.
-    const range = splitStoredRange(value);
-    if (range) {
-      const [lo, hi] = range;
-      const loText = lo == null ? null : formatFamilyValue(lo, spec.unitFamily);
-      const hiText = hi == null ? null : formatFamilyValue(hi, spec.unitFamily);
-      if (loText && hiText) return `${loText} ~ ${hiText}`;
-      if (hiText) return `≤ ${hiText}`;
-      if (loText) return `≥ ${loText}`;
-      return value;
-    }
-    if (value !== '' && !isNaN(Number(value))) return formatFamilyValue(value, spec.unitFamily);
-    return value;
+    return formatStoredNumber(value, (n) => formatFamilyValue(n, spec.unitFamily)) ?? value;
   }
   if (spec.dataType === 'NUMBER') {
     const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
-    // Metric: scale the base-unit value with a prefix (0.009 A → "9 mA")
-    if (units.length === 1 && spec.metricPrefix) return formatMetric(value, units[0]);
-    // Multi-unit: value already contains the chosen unit (e.g. "64 KB") — display as-is
-    // Single unit: append the fixed unit suffix
-    return units.length > 1 ? value : units[0] ? `${value} ${units[0]}` : value;
+    // Multi-unit: the value already contains the chosen unit (e.g. "64 KB") — display as-is.
+    if (units.length > 1) return value;
+    // Metric: scale the base-unit value with a prefix (0.009 A → "9 mA"). Otherwise append the
+    // fixed unit, if the field declares one.
+    const one = units.length === 1 && spec.metricPrefix
+      ? (n: string) => formatMetric(n, units[0])
+      : (n: string) => (units[0] ? `${n} ${units[0]}` : n);
+    return formatStoredNumber(value, one) ?? value;
   }
   return value;
 }
 
-/** "4..16" / "null..125" as a pair of bounds, or null when the value is not a stored range. */
-function splitStoredRange(value: string): [string | null, string | null] | null {
-  const m = /^(-?[0-9.eE+]+|null)\.\.(-?[0-9.eE+]+|null)$/.exec(value.trim());
-  if (!m) return null;
-  const lo = m[1] === 'null' ? null : m[1];
-  const hi = m[2] === 'null' ? null : m[2];
-  return lo == null && hi == null ? null : [lo, hi];
+/**
+ * Render a stored numeric value — a bare number, a band ("4..16"), or a band with a nominal
+ * ("4.5..5..5.5") — given a formatter for one number. Null when the value is not numeric at all,
+ * which is the caller's cue to show it verbatim.
+ *
+ * A band reads bound by bound, so "4..16" is "4 V ~ 16 V" and an open bound stays open ("≤ 16 V")
+ * rather than printing the word "null" at the user. A nominal keeps the front of the value, where
+ * the eye lands, and wears its band behind it: "5 V (4.5 V ~ 5.5 V)".
+ */
+function formatStoredNumber(value: string, one: (n: string) => string): string | null {
+  const parts = splitSpecNumber(value);
+  const numeric = (s: string) => s !== '' && !isNaN(Number(s));
+  // A component that is present but not a number means this was never a stored number — a text
+  // value that happens to contain "..", say — and rendering half of it would be worse than none.
+  if ([parts.min, parts.nominal, parts.max].some((c) => c !== '' && !numeric(c))) return null;
+  const nom = numeric(parts.nominal) ? one(parts.nominal) : null;
+  const lo = numeric(parts.min) ? one(parts.min) : null;
+  const hi = numeric(parts.max) ? one(parts.max) : null;
+  if (!nom && !lo && !hi) return null;
+  if (!lo && !hi) return nom;
+  const band = lo && hi ? `${lo} ~ ${hi}` : hi ? `≤ ${hi}` : `≥ ${lo}`;
+  return nom ? `${nom} (${band})` : band;
 }
 
 // Real part columns that an OctoPart result can change. Each must be confirmed (per-field

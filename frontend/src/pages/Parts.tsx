@@ -28,7 +28,8 @@ import CategoryPicker from '../components/CategoryPicker';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
-import MetricNumberField from '../components/MetricNumberField';
+import SpecFieldLabel from '../components/SpecFieldLabel';
+import SpecNumberField from '../components/SpecNumberField';
 import Modal from '../components/Modal';
 import TagInput from '../components/TagInput';
 
@@ -86,7 +87,7 @@ function SpecField({
             onChange={(e) => onChange(e.target.checked ? 'true' : 'false')}
             className="rounded border-gray-300 text-blue-600"
           />
-          <span className="text-sm font-medium text-gray-700">{spec.name}</span>
+          <span className="text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></span>
         </label>
       </div>
     );
@@ -95,7 +96,7 @@ function SpecField({
   if (spec.dataType === 'SELECT' && spec.options && spec.options.length > 0) {
     return (
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700">{spec.name}</label>
+        <label className="block text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></label>
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -113,23 +114,11 @@ function SpecField({
   if (spec.dataType === 'NUMBER') {
     const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
     const isMulti = units.length > 1;
-    if (!isMulti && spec.metricPrefix && units[0]) {
-      return (
-        <MetricNumberField
-          label={spec.name}
-          unit={units[0]}
-          value={value}
-          onChange={onChange}
-          inputClassName="block flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          selectClassName="rounded-md border border-gray-300 px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-      );
-    }
     if (isMulti) {
       const [numPart, unitPart] = parseMultiUnit(value, units);
       return (
         <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700">{spec.name}</label>
+          <label className="block text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></label>
           <div className="mt-1 flex gap-2">
             <input
               type="number"
@@ -149,26 +138,24 @@ function SpecField({
         </div>
       );
     }
+    // Metric-prefix, unit-family and plain numbers are one editor — the one that also carries the
+    // min / nominal / max toggle.
     return (
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700">
-          {spec.name}{units[0] ? ` (${units[0]})` : ''}
-        </label>
-        <input
-          type="number"
-          step="any"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-      </div>
+      <SpecNumberField
+        spec={spec}
+        label={<SpecFieldLabel spec={spec} />}
+        value={value}
+        onChange={onChange}
+        inputClassName="block rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        selectClassName="rounded-md border border-gray-300 px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      />
     );
   }
 
   // TEXT (default)
   return (
     <div className="mb-4">
-      <label className="block text-sm font-medium text-gray-700">{spec.name}</label>
+      <label className="block text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></label>
       <input
         type="text"
         value={value}

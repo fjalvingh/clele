@@ -33,6 +33,11 @@ import java.util.*;
  *   <li><b>A range string</b> — {@code "3..16"}, {@code "4.5..null"} — becomes {@code value_min}/
  *       {@code value_max}, either bound open. These are the ~1,500 Partsbox ranges that are dead as
  *       numbers today: convert-to-number has to refuse them, and no query can reach inside them.</li>
+ *   <li><b>A three-part range string</b> — {@code "4.5..5..5.5"} — is {@code min..nominal..max}, and
+ *       fills {@code value_num} <em>and</em> the bounds (V56). It is how the UI writes a value the
+ *       user gave a tolerance band to, and how a datasheet's min/typ/max survives as one value.
+ *       Any component may be {@code "null"}, so a nominal with only an upper bound is
+ *       {@code "null..5..5.5"}.</li>
  *   <li><b>A JSON number</b> is stored as {@code value_num} <em>whatever the family</em>. No
  *       conversion happens, so there is no magnitude to get wrong — the number is already in
  *       whatever unit the field means, and comparing it with its siblings is exactly as valid as it
@@ -114,13 +119,11 @@ public class PartSpecValueService {
 
             Classification c = classify(raw, def);
             switch (c.shape()) {
-                case SCALAR -> {
-                    row.setScalar(c.num());
-                    scalars++;
-                }
-                case RANGE -> {
-                    row.setRange(c.min(), c.max());
-                    ranges++;
+                case NUMERIC -> {
+                    row.setNumeric(c.num(), c.min(), c.max());
+                    // Counted for the backfill report only: a value with bounds is reported as a
+                    // range whether or not it also carries a nominal.
+                    if (c.hasBounds()) ranges++; else scalars++;
                 }
                 case TEXT -> {
                     row.setText(MetricUnitParser.normalizeSpaces(String.valueOf(raw)));
@@ -203,12 +206,17 @@ public class PartSpecValueService {
         return specs;
     }
 
-    /** One row as the JSONB would have held it. */
+    /**
+     * One row as the JSONB would have held it — a bare number, {@code "min..max"}, or, for a value
+     * that carries both (V56), {@code "min..nominal..max"}.
+     */
     private static Object valueOf(PartSpecValue v) {
-        if (v.getValueNum() != null) return v.getValueNum().stripTrailingZeros();
         if (v.isRange()) {
-            return bound(v.getValueMin()) + ".." + bound(v.getValueMax());
+            String bounds = bound(v.getValueMin()) + ".." + bound(v.getValueMax());
+            if (v.getValueNum() == null) return bounds;
+            return bound(v.getValueMin()) + ".." + bound(v.getValueNum()) + ".." + bound(v.getValueMax());
         }
+        if (v.getValueNum() != null) return v.getValueNum().stripTrailingZeros();
         return v.getValueText();
     }
 
@@ -223,7 +231,11 @@ public class PartSpecValueService {
         valueRepo.deleteByPartId(partId);
     }
 
-    private enum Shape { SCALAR, RANGE, TEXT }
+    /**
+     * Parsed or raw. The parsed shape covers a bare nominal, bounds, and both together — they are
+     * one shape in the row too, since V56 relaxed the check constraint that kept them apart.
+     */
+    private enum Shape { NUMERIC, TEXT }
 
     /**
      * @param wanted true when this value <em>should</em> have parsed — a string against a field that
@@ -232,9 +244,14 @@ public class PartSpecValueService {
      */
     private record Classification(Shape shape, BigDecimal num, BigDecimal min, BigDecimal max,
                                   boolean wanted) {
-        static Classification scalar(BigDecimal v) { return new Classification(Shape.SCALAR, v, null, null, false); }
-        static Classification range(BigDecimal lo, BigDecimal hi) { return new Classification(Shape.RANGE, null, lo, hi, false); }
+        static Classification scalar(BigDecimal v) { return new Classification(Shape.NUMERIC, v, null, null, false); }
+        static Classification range(BigDecimal lo, BigDecimal hi) { return new Classification(Shape.NUMERIC, null, lo, hi, false); }
+        static Classification numeric(BigDecimal v, BigDecimal lo, BigDecimal hi) {
+            return new Classification(Shape.NUMERIC, v, lo, hi, false);
+        }
         static Classification text(boolean wanted) { return new Classification(Shape.TEXT, null, null, null, wanted); }
+
+        boolean hasBounds() { return min != null || max != null; }
     }
 
     private Classification classify(Object raw, SpecDefinition def) {
@@ -250,6 +267,14 @@ public class PartSpecValueService {
         Optional<UnitFamily> family = def.family();
 
         String[] bounds = splitRange(s);
+        if (bounds != null && bounds.length == 3) {
+            // "min..nominal..max" — the UI's spelling for a value with a tolerance band.
+            BigDecimal lo = parseBound(bounds[0], family);
+            BigDecimal nom = parseBound(bounds[1], family);
+            BigDecimal hi = parseBound(bounds[2], family);
+            if (nom != null || lo != null || hi != null) return Classification.numeric(nom, lo, hi);
+            return Classification.text(family.isPresent());
+        }
         if (bounds != null) {
             BigDecimal lo = parseBound(bounds[0], family);
             BigDecimal hi = parseBound(bounds[1], family);
@@ -277,8 +302,12 @@ public class PartSpecValueService {
     }
 
     /**
-     * The three ways a range is written in this catalogue's sources, or null when the value is not
-     * one. Bounds come back untrimmed; either may be the word "null" (an open bound).
+     * The ways a range is written in this catalogue's sources, or null when the value is not one.
+     * Components come back untrimmed; any may be the word "null" (an open bound).
+     *
+     * <p>Two components mean {@code min..max}; <b>three mean {@code min..nominal..max}</b>, which is
+     * how the UI writes a value that has both a typical figure and a band (V56). Only the dotted
+     * form can carry three — the other two spellings come from outside sources that never write one.
      *
      * <ul>
      *   <li>{@code "3..16"} — Partsbox, and the bulk of the data (1,488 values).</li>
@@ -293,7 +322,11 @@ public class PartSpecValueService {
      */
     // Package-private so the separator rules can be pinned by test without a database.
     static String[] splitRange(String s) {
-        for (String sep : new String[]{"\\.\\.", "~", "(?i)\\s+to\\s+"}) {
+        // The dotted form splits into at most three, so "4.5..5..5.5" keeps its middle component
+        // rather than handing "5..5.5" back as an unparseable upper bound.
+        String[] dotted = s.split("\\.\\.", 3);
+        if (dotted.length >= 2) return dotted;
+        for (String sep : new String[]{"~", "(?i)\\s+to\\s+"}) {
             String[] parts = s.split(sep, 2);
             if (parts.length == 2) return parts;
         }

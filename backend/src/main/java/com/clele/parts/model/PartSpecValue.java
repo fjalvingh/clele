@@ -14,8 +14,8 @@ import java.util.Objects;
  *
  * <h2>Parsed or raw, never both</h2>
  *
- * A row holds exactly one of three shapes, enforced by the {@code part_spec_value_one_shape} check
- * constraint and by the mutators here (each clears the other two):
+ * A row is either parsed or raw, enforced by the {@code part_spec_value_one_shape} check constraint
+ * and by the mutators here (each clears what it does not set):
  *
  * <ul>
  *   <li><b>scalar</b> — {@link #valueNum}, in the definition's base SI unit. {@code "100nF"} against
@@ -25,6 +25,11 @@ import java.util.Objects;
  *       ~1,500 Partsbox range strings ({@code "4.5..null"}, {@code "3..16"}) first-class: they answer
  *       containment queries the JSONB could not express and the convert-to-number tool has to
  *       refuse.</li>
+ *   <li><b>nominal with bounds</b> — {@link #valueNum} <em>and</em> {@link #valueMin}/
+ *       {@link #valueMax} together (V56). min/typ/max is how a datasheet states a parameter, and
+ *       before V56 a value could keep the typical figure or the band around it but not both. Search
+ *       is unaffected: a criterion asks whether the row has <em>some</em> value satisfying it, so
+ *       the nominal and the interval are simply two chances to match.</li>
  *   <li><b>text</b> — {@link #valueText}, for TEXT/SELECT/BOOLEAN definitions and for anything that
  *       did not parse. Nothing was extracted from it, so nothing can drift.</li>
  * </ul>
@@ -111,28 +116,44 @@ public class PartSpecValue {
         return v;
     }
 
+    public static PartSpecValue numeric(Part part, SpecDefinition def, BigDecimal num,
+                                        BigDecimal min, BigDecimal max) {
+        PartSpecValue v = new PartSpecValue(part, def);
+        v.setNumeric(num, min, max);
+        return v;
+    }
+
     public static PartSpecValue text(Part part, SpecDefinition def, String value) {
         PartSpecValue v = new PartSpecValue(part, def);
         v.setText(value);
         return v;
     }
 
-    /** Set the scalar shape, clearing the other two — the check constraint permits only one. */
+    /** Set a bare nominal value, dropping any bounds and any raw text. */
     public void setScalar(BigDecimal value) {
-        this.valueNum = value;
-        this.valueMin = null;
-        this.valueMax = null;
-        this.valueText = null;
+        setNumeric(value, null, null);
     }
 
-    /** Set the range shape. At least one bound must be present; the other stays open. */
+    /** Set bounds with no nominal. At least one bound must be present; the other stays open. */
     public void setRange(BigDecimal min, BigDecimal max) {
         if (min == null && max == null) {
             throw new IllegalArgumentException("a range needs at least one bound");
         }
+        setNumeric(null, min, max);
+    }
+
+    /**
+     * Set the parsed shape in full — any combination of a nominal and two bounds, which is what
+     * lets "4.5 V min, 5 V typ, 5.5 V max" be one value (V56). Clears the raw text either way: a
+     * row that had both a number and the string it came from would have two answers to one question.
+     */
+    public void setNumeric(BigDecimal num, BigDecimal min, BigDecimal max) {
+        if (num == null && min == null && max == null) {
+            throw new IllegalArgumentException("a numeric value needs a nominal or a bound");
+        }
+        this.valueNum = num;
         this.valueMin = min;
         this.valueMax = max;
-        this.valueNum = null;
         this.valueText = null;
     }
 

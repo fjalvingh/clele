@@ -70,6 +70,22 @@ bit/s family would be wrong by 10⁶), `weight` is in grams while the SI base is
   a string with a unit family → parsed to the base SI unit; anything else → `value_text`. A refusal
   is an ordinary outcome, not an error — it is how a value in a unit nobody declared declines to
   become a wrong number. BOOLEAN is text (`"true"`/`"false"`): filtered by equality, never by range.
+- **A value may carry a nominal *and* bounds** (V56). min/typ/max is how a datasheet states a
+  parameter — "4.5 V, 5 V typical, 5.5 V" is one fact — so `value_num` and `value_min`/`value_max`
+  are no longer mutually exclusive; V50's one-shape check now only keeps *text* apart from the
+  numbers. The wire form is `"min..nominal..max"` (`PartSpecValueService.valueOf`), any component
+  written `"null"` when open; the bare number and the two-part `"min..max"` are untouched, so
+  everything stored before V56 reads back byte for byte. **Search needed no change**: a criterion
+  asks whether the row has *some* value satisfying it, so the nominal and the interval are simply
+  two chances to match.
+- **Entering one.** The numeric spec editor is `components/SpecNumberField` — one box, plus a toggle
+  beside the label that opens three (min / nominal / max). A value that already has a bound opens
+  them by itself, since there is no other way to show it; collapsing drops the bounds, explicitly,
+  rather than keeping them stored and invisible. One prefix dropdown serves all three boxes: a band
+  whose bounds sit in different decades is not a band anyone writes. `utils/specs`
+  (`splitSpecNumber` / `joinSpecNumber`) is the frontend mirror of the wire form, and
+  `PartDetail.formatStoredNumber` renders it — "5 V (4.5 V ~ 5.5 V)", "≤ 16 V".
+
 - **An unknown key auto-creates a definition** at write time, since a row needs a
   `spec_definition_id` (the JSONB could hold a loose key indefinitely). The type is inferred from
   the one value in hand — weaker than `rescanFromParts`, which sees every value of a key at once and

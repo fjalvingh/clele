@@ -23,6 +23,17 @@ class PartSpecValueServiceTest {
     }
 
     @Test
+    @DisplayName("three components are min..nominal..max — a value with a band around it")
+    void nominalWithBounds() {
+        assertThat(PartSpecValueService.splitRange("4.5..5..5.5")).containsExactly("4.5", "5", "5.5");
+        // Either bound may be open while the nominal stands.
+        assertThat(PartSpecValueService.splitRange("null..5..5.5")).containsExactly("null", "5", "5.5");
+        assertThat(PartSpecValueService.splitRange("4.5..5..null")).containsExactly("4.5", "5", "null");
+        // A decimal in every component still is not the separator.
+        assertThat(PartSpecValueService.splitRange("1.2..3.4..5.6")).containsExactly("1.2", "3.4", "5.6");
+    }
+
+    @Test
     @DisplayName("the component cache's own display rendering — a live source, not just the backlog")
     void tildeForm() {
         assertThat(PartSpecValueService.splitRange("-40.0 °C ~ 105.0 °C"))

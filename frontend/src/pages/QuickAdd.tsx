@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { findLocalParts, getComponentCacheStatus, identifyPartFromDatasheet, getMyLocations, getSpecDefinitions, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsByUrl, searchPartsOnline, uploadPartAttachment } from '../api';
-import type { ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
+import { findLocalParts, getCategoryTree, getComponentCacheStatus, identifyPartFromDatasheet, getMyLocations, getSpecDefinitions, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsByUrl, searchPartsOnline, uploadPartAttachment } from '../api';
+import type { CategoryTree, ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
-import MetricNumberField from '../components/MetricNumberField';
+import CategoryPicker from '../components/CategoryPicker';
+import SpecFieldLabel from '../components/SpecFieldLabel';
+import SpecNumberField from '../components/SpecNumberField';
 import TagInput from '../components/TagInput';
 import { parseAiSpecs } from '../utils/specs';
 
@@ -179,6 +181,13 @@ interface ConfirmForm {
   footprint: string;
   personalNumber: boolean;
   datasheetUrl: string;
+  categoryId: number | null;
+  /**
+   * The category the lookup *named*, in its own words ("Capacitors", "MOSFETs") — not a category of
+   * this organisation. Kept beside `categoryId` because the tree it has to be resolved against is
+   * only fetched on step 3, well after the source has been chosen.
+   */
+  categorySuggestion: string;
   locationId: string;
   quantity: string;
   unitPrice: string;
@@ -192,6 +201,26 @@ interface ConfirmForm {
    */
   specsPrefill: Record<string, string>;
   tags: string[];
+}
+
+/**
+ * Resolve the lookup's free-text category name against this organisation's own tree.
+ *
+ * Only an unambiguous, exact leaf-name match counts: filing a part under the wrong category
+ * silently is worse than leaving the picker empty for the user to fill in.
+ */
+function findCategoryByName(nodes: CategoryTree[], name: string): number | null {
+  const wanted = name.trim().toLowerCase();
+  if (!wanted) return null;
+  const hits: number[] = [];
+  const walk = (ns: CategoryTree[]) => {
+    for (const n of ns) {
+      if (n.name.trim().toLowerCase() === wanted) hits.push(n.id);
+      walk(n.children);
+    }
+  };
+  walk(nodes);
+  return hits.length === 1 ? hits[0] : null;
 }
 
 function displayUrl(img: { url: string; thumbnailUrl?: string }) {
@@ -260,6 +289,8 @@ export default function QuickAddPage() {
     footprint: '',
     personalNumber: false,
     datasheetUrl: '',
+    categoryId: null,
+    categorySuggestion: '',
     locationId: '',
     quantity: '1',
     unitPrice: '',
@@ -267,12 +298,14 @@ export default function QuickAddPage() {
     tags: [],
   });
   const [locations, setLocations] = useState<Location[]>([]);
+  const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
   const [locLoading, setLocLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [createdPartId, setCreatedPartId] = useState<number | null>(null);
 
-  // Spec fields (no category for quick-add; show all definitions)
+  // Spec fields — every definition is offered regardless of the chosen category, as the category is
+  // only being decided on this same form.
   const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
   const [specValues, setSpecValues] = useState<Record<string, string>>({});
   // jsonNames of the spec fields currently shown on the form. Starts with the specs
@@ -298,6 +331,18 @@ export default function QuickAddPage() {
   // Load locations + all spec definitions when entering step 3
   useEffect(() => {
     if (step !== 3) return;
+    // Fetched on its own rather than inside the Promise.all below: a failure here must cost the user
+    // the category field only, not the locations the form cannot be submitted without.
+    getCategoryTree()
+      .then((tree) => {
+        setCategoryTree(tree);
+        setForm((prev) => {
+          if (prev.categoryId != null || !prev.categorySuggestion) return prev;
+          const id = findCategoryByName(tree, prev.categorySuggestion);
+          return id == null ? prev : { ...prev, categoryId: id };
+        });
+      })
+      .catch(() => {});
     setLocLoading(true);
     Promise.all([getMyLocations(), getSpecDefinitions()])
       .then(([locs, defs]) => {
@@ -503,6 +548,8 @@ export default function QuickAddPage() {
         footprint: detail.footprint ?? '',
         personalNumber: false,
         datasheetUrl: detail.datasheetUrl ?? '',
+        categoryId: null, // resolved from the suggestion below when step 3 loads the category tree
+        categorySuggestion: detail.subcategory ?? detail.category ?? match.subcategory ?? '',
         locationId: '', // resolved to the last-used location when step 3 loads the user's locations
         quantity: '1',
         unitPrice: '',
@@ -543,6 +590,8 @@ export default function QuickAddPage() {
       footprint: '', // the AI lookup returns no package
       personalNumber: false,
       datasheetUrl: result.datasheetUrl ?? '',
+      categoryId: null, // resolved from the suggestion below when step 3 loads the category tree
+      categorySuggestion: result.category ?? '',
       locationId: '', // resolved to the last-used location when step 3 loads the user's locations
       quantity: '1',
       unitPrice: '',
@@ -611,6 +660,7 @@ export default function QuickAddPage() {
       footprint: form.footprint || undefined,
       personalNumber: form.personalNumber,
       datasheetUrl: form.datasheetUrl || undefined,
+      categoryId: form.categoryId,
       specs: Object.keys(specs).length > 0 ? specs : undefined,
       tags: form.tags.length > 0 ? form.tags : undefined,
       locationId: parseInt(form.locationId, 10),
@@ -694,14 +744,14 @@ export default function QuickAddPage() {
             }
             className="rounded border-gray-300 text-blue-600"
           />
-          <span className="text-sm font-medium text-gray-700">{spec.name}</span>
+          <span className="text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></span>
         </label>
       );
     }
     if (spec.dataType === 'SELECT' && spec.options && spec.options.length > 0) {
       return (
         <>
-          <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1"><SpecFieldLabel spec={spec} /></label>
           <select
             value={specValues[spec.jsonName] ?? ''}
             onChange={(e) =>
@@ -721,21 +771,6 @@ export default function QuickAddPage() {
       const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
       const isMulti = units.length > 1;
       const currentVal = specValues[spec.jsonName] ?? '';
-      if (!isMulti && spec.metricPrefix && units[0]) {
-        return (
-          <MetricNumberField
-            label={spec.name}
-            unit={units[0]}
-            value={currentVal}
-            onChange={(val) =>
-              setSpecValues((prev) => ({ ...prev, [spec.jsonName]: val }))
-            }
-            labelClassName="block text-sm font-medium text-gray-700 mb-1"
-            inputClassName="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            selectClassName="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        );
-      }
       if (isMulti) {
         let numPart = currentVal, unitPart = units[0] ?? '';
         for (const u of units) {
@@ -743,7 +778,7 @@ export default function QuickAddPage() {
         }
         return (
           <>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1"><SpecFieldLabel spec={spec} /></label>
             <div className="flex gap-2">
               <input
                 type="number"
@@ -767,26 +802,24 @@ export default function QuickAddPage() {
           </>
         );
       }
+      // Metric-prefix, unit-family and plain numbers are one editor — the one that also carries
+      // the min / nominal / max toggle.
       return (
-        <>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            {spec.name}{units[0] ? ` (${units[0]})` : ''}
-          </label>
-          <input
-            type="number"
-            step="any"
-            value={currentVal}
-            onChange={(e) =>
-              setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
-            }
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-        </>
+        <SpecNumberField
+          spec={spec}
+          label={<SpecFieldLabel spec={spec} />}
+          value={currentVal}
+          onChange={(val) => setSpecValues((prev) => ({ ...prev, [spec.jsonName]: val }))}
+          wrapperClassName=""
+          labelClassName="block text-sm font-medium text-gray-700"
+          inputClassName="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          selectClassName="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        />
       );
     }
     return (
       <>
-        <label className="block text-sm font-medium text-gray-700 mb-1">{spec.name}</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1"><SpecFieldLabel spec={spec} /></label>
         <input
           type="text"
           value={specValues[spec.jsonName] ?? ''}
@@ -1108,6 +1141,20 @@ export default function QuickAddPage() {
                   <p className="mt-1 text-xs text-gray-500">
                     <span className="font-medium text-gray-700">{attachDatasheet.name}</span> is
                     attached to the part when you save it.
+                  </p>
+                )}
+              </div>
+              <div>
+                <CategoryPicker
+                  label="Category"
+                  categories={categoryTree}
+                  value={form.categoryId}
+                  onChange={(id) => setForm((prev) => ({ ...prev, categoryId: id }))}
+                  className=""
+                />
+                {form.categoryId == null && form.categorySuggestion && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    The lookup called this &ldquo;{form.categorySuggestion}&rdquo;.
                   </p>
                 )}
               </div>
