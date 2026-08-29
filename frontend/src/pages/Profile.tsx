@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
   claimPrintDaemon,
+  createMcpKey,
+  deleteMcpKey,
   deletePrintDaemon,
+  getMcpKeys,
   getOctopartCredentials,
   getPrintDaemons,
   getPrintingPreference,
@@ -11,6 +14,7 @@ import {
   switchOrganisation,
 } from '../api';
 import type {
+  McpApiKey,
   OctopartCredentialsStatus,
   PrintDaemon,
   PrinterType,
@@ -162,6 +166,8 @@ export default function ProfilePage() {
       </section>
 
       <LabelPrintingSection />
+
+      <McpAccessSection />
     </div>
   );
 }
@@ -690,6 +696,167 @@ function OrganisationSection() {
           You belong to a single organisation. An administrator can add you to more.
         </p>
       )}
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </section>
+  );
+}
+
+/**
+ * Keys for the MCP endpoint — the door an AI assistant reads the catalogue through. A key carries
+ * no more access than its owner has, and the endpoint behind it is read-only, so issuing one needs
+ * no permission beyond being able to log in.
+ *
+ * <p>The token is shown once, here, and never again: only its hash is stored. That is why the
+ * newly created key gets its own panel with the ready-made command rather than a line in the list.
+ */
+function McpAccessSection() {
+  const { user } = useAuth();
+  const [keys, setKeys] = useState<McpApiKey[]>([]);
+  const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [issued, setIssued] = useState<{ token: string; name: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const endpoint = `${window.location.origin}/api/mcp`;
+  const command = issued
+    ? `claude mcp add --transport http sortiment ${endpoint} --header "X-Api-Key: ${issued.token}"`
+    : '';
+
+  useEffect(() => {
+    getMcpKeys()
+      .then(setKeys)
+      .catch((e: unknown) => setError((e as Error).message));
+  }, []);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setCreating(true);
+    setError(null);
+    setCopied(false);
+    try {
+      const created = await createMcpKey({ name: name.trim() });
+      setIssued({ token: created.token, name: created.key.name });
+      setKeys((current) => [created.key, ...current]);
+      setName('');
+    } catch (err: unknown) {
+      setError((err as Error).message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDelete = async (key: McpApiKey) => {
+    if (!confirm(`Revoke "${key.name}"? Anything using it stops working immediately.`)) return;
+    setError(null);
+    try {
+      await deleteMcpKey(key.id);
+      setKeys((current) => current.filter((k) => k.id !== key.id));
+    } catch (err: unknown) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+    } catch {
+      setError('Could not copy — select the command and copy it by hand.');
+    }
+  };
+
+  return (
+    <section className="mt-6 rounded-lg border border-gray-200 bg-surface p-5 shadow-sm">
+      <h2 className="text-lg font-semibold text-gray-900">AI access (MCP)</h2>
+      <p className="mt-1 text-sm text-gray-600">
+        Let an AI assistant search this catalogue — parts, specifications, stock and locations —
+        through the Model Context Protocol. Access is <strong>read-only</strong>: nothing reached
+        this way can change a part, a specification or your stock. A key reads only{' '}
+        {user?.currentOrganisationName ?? 'your current organisation'} and carries no more
+        permission than you have there.
+      </p>
+
+      <form onSubmit={handleCreate} className="mt-4 flex flex-wrap items-end gap-2">
+        <div className="min-w-[16rem] flex-1">
+          <FormField
+            label="New key"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="What will use it, e.g. Claude on the laptop"
+            autoComplete="off"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={creating || !name.trim()}
+          className="mb-4 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {creating ? 'Creating…' : 'Create key'}
+        </button>
+      </form>
+
+      {issued && (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3">
+          <p className="text-sm font-medium text-amber-900">
+            Copy this now — it is not shown again.
+          </p>
+          <p className="mt-1 text-xs text-amber-800">
+            Run this to connect Claude Code; other MCP clients want the same URL and header.
+          </p>
+          <pre className="mt-2 overflow-x-auto rounded bg-white/70 p-2 text-xs text-gray-800">
+            {command}
+          </pre>
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-amber-400 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"
+          >
+            <svg
+              className="h-3.5 w-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+            {copied ? 'Copied' : 'Copy command'}
+          </button>
+        </div>
+      )}
+
+      {keys.length > 0 ? (
+        <ul className="divide-y divide-gray-200 border-t border-gray-200">
+          {keys.map((key) => (
+            <li key={key.id} className="flex items-center justify-between gap-3 py-2.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-gray-900">{key.name}</p>
+                <p className="text-xs text-gray-500">
+                  {key.organisationName} · created {new Date(key.createdAt).toLocaleDateString()} ·{' '}
+                  {key.lastUsedAt
+                    ? `last used ${new Date(key.lastUsedAt).toLocaleString()}`
+                    : 'never used'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleDelete(key)}
+                className="shrink-0 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50"
+              >
+                Revoke
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-gray-500">No keys yet.</p>
+      )}
+
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
     </section>
   );

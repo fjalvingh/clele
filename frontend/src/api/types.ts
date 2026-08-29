@@ -1184,3 +1184,29 @@ export interface PartKitUndoResult {
   stockRemoved: number;
   deletedPartNumbers: string[];
 }
+
+/**
+ * A key for the read-only MCP endpoint, as listed to its owner. The token itself is returned once,
+ * at creation (see {@link McpApiKeyCreated}), and is unrecoverable afterwards.
+ */
+export interface McpApiKey {
+  id: number;
+  name: string;
+  organisationId: number;
+  organisationName: string;
+  createdAt: string;
+  /** Null until the key is first used. */
+  lastUsedAt?: string | null;
+}
+
+export interface McpApiKeyCreated {
+  key: McpApiKey;
+  /** The one and only sight of the token. */
+  token: string;
+}
+
+export interface McpApiKeyRequest {
+  name: string;
+  /** Defaults to the organisation in force. */
+  organisationId?: number;
+}

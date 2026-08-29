@@ -18,6 +18,10 @@ in the feature documents under `docs/` — the section names referenced below ("
   field is cleared, so the UI always submits the full form
 - `POST /print-jobs`, `GET /print-jobs/{id}` — enqueue a label print job / poll its status
   (authenticated)
+- `GET/POST /profile/mcp-keys`, `DELETE /profile/mcp-keys/{id}` — the caller's own keys for the MCP
+  endpoint (authenticated, self-service). `POST` `{name, organisationId?}` returns
+  `{key, token}` — the **token is returned once and never again**; the list never carries it.
+  `organisationId` defaults to the one in force and must be one the caller may work in. See `docs/mcp.md`
 - **Daemon-facing** (`/api/daemon/**`, API-key auth via `X-Daemon-Id`/`X-Daemon-Key`, *not* the
   session cookie): `POST /daemon/register` (public); `GET /daemon/jobs/next?wait=` (long-poll —
   reports upward via `X-Printer-Media-*`, `X-Printer-Printable-Width`/`-Length` and
@@ -168,4 +172,10 @@ in the feature documents under `docs/` — the section names referenced below ("
 - `GET/POST /spec-definitions`, `PUT/DELETE /spec-definitions/{id}`, `POST /spec-definitions/rescan`;
   `POST /spec-definitions/{id}/convert-to-number` converts a TEXT spec to NUMBER, parsing part values into
   a base unit (dry-run unless `commit:true`; requires `PARTS_EDIT`)
+- `POST /mcp` — the **Model Context Protocol** endpoint an AI client talks to: JSON-RPC 2.0 over
+  `initialize`, `ping`, `tools/list`, `tools/call`. **Read-only**, and authenticated by an MCP API
+  key (`X-Api-Key`, or `Authorization: Bearer`) rather than the session — its own security chain,
+  scoped to this one path. The key pins the organisation. A notification (no `id`) is answered 202;
+  `GET /mcp` (server-initiated SSE) is 405. Tools: `search_parts`, `get_part`, `list_spec_fields`,
+  `list_categories`, `list_locations`, `list_low_stock`. See `docs/mcp.md`
 - Swagger UI at `http://localhost:8080/swagger-ui.html`

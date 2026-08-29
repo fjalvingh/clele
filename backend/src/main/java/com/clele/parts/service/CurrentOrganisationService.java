@@ -40,17 +40,36 @@ public class CurrentOrganisationService {
 
     static final String SESSION_ATTRIBUTE = "currentOrganisationId";
 
+    /**
+     * Request attribute naming the organisation a stateless request is pinned to, set by
+     * {@code McpApiKeyAuthFilter} from the API key it authenticated. Consulted ahead of the
+     * session: an MCP client has no session to hold a choice in, and its key was issued against one
+     * organisation deliberately.
+     */
+    public static final String PINNED_ORGANISATION_ATTRIBUTE = "clele.pinnedOrganisationId";
+
     private final AppUserRepository userRepository;
     private final OrganisationRepository organisationRepository;
     private final CurrentUserService currentUserService;
 
     /**
-     * The organisation for this request: the session's choice when it is still selectable,
-     * otherwise the user's last one, otherwise their first membership (alphabetically, so it is
-     * stable). The resolution is written back into the session so subsequent calls agree.
+     * The organisation for this request: the one it is pinned to when a key chose it, otherwise the
+     * session's choice when it is still selectable, otherwise the user's last one, otherwise their
+     * first membership (alphabetically, so it is stable). The resolution is written back into the
+     * session so subsequent calls agree.
      */
     public Organisation current() {
         AppUser me = currentUserService.current();
+
+        Long pinnedOrgId = pinnedOrganisationId();
+        if (pinnedOrgId != null) {
+            // The filter that pinned it already checked the holder may work there, and there is no
+            // session to fall back into — so a missing organisation is a broken credential, not a
+            // reason to answer about a different catalogue.
+            return organisationRepository.findById(pinnedOrgId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                            "The organisation this key was issued for no longer exists"));
+        }
 
         Long sessionOrgId = sessionOrganisationId();
         if (sessionOrgId != null) {
@@ -154,6 +173,15 @@ public class CurrentOrganisationService {
             }
         }
         return selectable.get(0);
+    }
+
+    /** The organisation pinned on this request by an API-key filter, or null for a session request. */
+    private Long pinnedOrganisationId() {
+        if (RequestContextHolder.getRequestAttributes()
+                instanceof ServletRequestAttributes attributes) {
+            return (Long) attributes.getRequest().getAttribute(PINNED_ORGANISATION_ATTRIBUTE);
+        }
+        return null;
     }
 
     private Long sessionOrganisationId() {

@@ -24,6 +24,9 @@ import type {
   LocationRequest,
   LocationStats,
   LocationTree,
+  McpApiKey,
+  McpApiKeyCreated,
+  McpApiKeyRequest,
   OctopartApplyRequest,
   OctopartCredentialsRequest,
   OctopartCredentialsStatus,
@@ -704,3 +707,14 @@ export const deletePartKitImage = (id: number, attachmentId: number) =>
 
 export const partKitImageUrl = (id: number, attachmentId: number) =>
   `${import.meta.env.BASE_URL}api/part-kit-templates/${id}/images/${attachmentId}`;
+
+// --- MCP keys -----------------------------------------------------------------------------
+// Credentials for the read-only /api/mcp endpoint an AI assistant connects to. Managed here, on
+// the session, never through the MCP endpoint itself: a key must not be able to mint another one.
+
+export const getMcpKeys = () => client.get<McpApiKey[]>('/profile/mcp-keys').then((r) => r.data);
+
+export const createMcpKey = (data: McpApiKeyRequest) =>
+  client.post<McpApiKeyCreated>('/profile/mcp-keys', data).then((r) => r.data);
+
+export const deleteMcpKey = (id: number) => client.delete(`/profile/mcp-keys/${id}`);

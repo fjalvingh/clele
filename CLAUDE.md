@@ -22,6 +22,7 @@ loaded every session.
 | `docs/bom-import.md` | uploading an EDA BOM export into a project and matching its lines to parts |
 | `docs/part-kits.md` | kit templates (`${…}` value expansion), generating parts in bulk, and undoing a generation |
 | `docs/partsbox-import.md` | the one-off Partsbox WebSocket-capture importer |
+| `docs/mcp.md` | the read-only MCP endpoint an AI assistant reads the catalogue through, its API keys, and the tools it offers |
 | `docs/printing.md` | label printing — browser path, the Go daemon, Brother QL raster geometry, barcodes |
 | `docs/features.md` | the feature list, as a map of what exists |
 

@@ -1,6 +1,7 @@
 package com.clele.parts.config;
 
 import com.clele.parts.repository.PrintDaemonRepository;
+import com.clele.parts.service.McpApiKeyService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -75,8 +76,38 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * The MCP endpoint: authenticated by an API key ({@link McpApiKeyAuthFilter}), not the session
+     * cookie, because the caller is an AI client with no browser. Scoped to exactly {@code /api/mcp}
+     * so that key <em>management</em> ({@code /api/profile/mcp-keys}) stays on the session chain
+     * below — a key must never be able to mint another one.
+     */
     @Bean
     @Order(2)
+    public SecurityFilterChain mcpSecurityFilterChain(HttpSecurity http,
+                                                      McpApiKeyService mcpApiKeyService)
+            throws Exception {
+        http
+                .securityMatcher("/api/mcp")
+                .cors(org.springframework.security.config.Customizer.withDefaults())
+                .csrf(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
+                .sessionManagement(sm -> sm.sessionCreationPolicy(
+                        org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
+                .addFilterBefore(new McpApiKeyAuthFilter(mcpApiKeyService),
+                        UsernamePasswordAuthenticationFilter.class)
+                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((req, res, e) -> writeError(res,
+                                HttpServletResponse.SC_UNAUTHORIZED,
+                                "A valid MCP API key is required (X-Api-Key or Authorization: Bearer)")));
+        return http.build();
+    }
+
+    @Bean
+    @Order(3)
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    SecurityContextRepository securityContextRepository,
                                                    OrganisationAuthoritiesFilter organisationAuthoritiesFilter)
