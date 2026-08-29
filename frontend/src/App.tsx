@@ -9,6 +9,7 @@ import DashboardPage from './pages/Dashboard';
 import LocationsPage from './pages/Locations';
 import AcceptInvitationPage from './pages/AcceptInvitation';
 import LoginPage from './pages/Login';
+import OAuthConsentPage from './pages/OAuthConsent';
 import LowStockPage from './pages/LowStock';
 import PartDetailPage from './pages/PartDetail';
 import PartsPage from './pages/Parts';
@@ -38,7 +39,7 @@ function RequireAuth({ children }: { children: React.ReactElement }) {
     );
   }
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   }
   return children;
 }
@@ -73,6 +74,16 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           {/* Public: followed from an invitation mail by someone who may have no account yet. */}
           <Route path="/invite/:token" element={<AcceptInvitationPage />} />
+          {/* The OAuth consent screen: its own page, outside the app shell, but login-gated —
+              approving is the act that grants an AI client access. See docs/mcp.md. */}
+          <Route
+            path="/oauth/consent"
+            element={
+              <RequireAuth>
+                <OAuthConsentPage />
+              </RequireAuth>
+            }
+          />
           <Route
             element={
               <RequireAuth>

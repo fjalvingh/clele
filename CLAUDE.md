@@ -22,7 +22,7 @@ loaded every session.
 | `docs/bom-import.md` | uploading an EDA BOM export into a project and matching its lines to parts |
 | `docs/part-kits.md` | kit templates (`${…}` value expansion), generating parts in bulk, and undoing a generation |
 | `docs/partsbox-import.md` | the one-off Partsbox WebSocket-capture importer |
-| `docs/mcp.md` | the read-only MCP endpoint an AI assistant reads the catalogue through, its API keys, and the tools it offers |
+| `docs/mcp.md` | the read-only MCP endpoint an AI assistant reads the catalogue through — its tools, its API keys, and the OAuth flow (this app is its own authorization server) that lets Claude Desktop connect with a URL alone |
 | `docs/printing.md` | label printing — browser path, the Go daemon, Brother QL raster geometry, barcodes |
 | `docs/features.md` | the feature list, as a map of what exists |
 
@@ -119,9 +119,9 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
 
 - PostgreSQL: database `partsdb`, user `partsuser`, password `partspass`
 - Schema managed by Flyway migrations (V1–V10) in `backend/src/main/resources/db/migration/`
-- Last version is V56
+- Last version is V58
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V57** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V59** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover

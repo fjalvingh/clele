@@ -27,6 +27,7 @@ import type {
   McpApiKey,
   McpApiKeyCreated,
   McpApiKeyRequest,
+  OAuthConsent,
   OctopartApplyRequest,
   OctopartCredentialsRequest,
   OctopartCredentialsStatus,
@@ -718,3 +719,18 @@ export const createMcpKey = (data: McpApiKeyRequest) =>
   client.post<McpApiKeyCreated>('/profile/mcp-keys', data).then((r) => r.data);
 
 export const deleteMcpKey = (id: number) => client.delete(`/profile/mcp-keys/${id}`);
+
+// --- OAuth consent ------------------------------------------------------------------------
+// The browser half of the MCP OAuth flow. Session-authenticated on purpose: approving is
+// something only a logged-in user can do, and that approval is what grants the client anything.
+
+export const getOAuthConsent = (requestId: string) =>
+  client.get<OAuthConsent>(`/oauth/consent/${requestId}`).then((r) => r.data);
+
+export const approveOAuthConsent = (requestId: string, organisationId: number) =>
+  client
+    .post<{ redirectUri: string }>(`/oauth/consent/${requestId}/approve`, { organisationId })
+    .then((r) => r.data);
+
+export const denyOAuthConsent = (requestId: string) =>
+  client.post<{ redirectUri: string }>(`/oauth/consent/${requestId}/deny`).then((r) => r.data);

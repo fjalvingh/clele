@@ -1210,3 +1210,18 @@ export interface McpApiKeyRequest {
   /** Defaults to the organisation in force. */
   organisationId?: number;
 }
+
+/**
+ * A pending OAuth authorization request, as the consent screen shows it. `clientName` and
+ * `redirectHost` are the client's own claims — anyone may register a client calling itself
+ * anything, so the screen presents them as claims rather than as identity.
+ */
+export interface OAuthConsent {
+  requestId: string;
+  clientName?: string | null;
+  redirectHost: string;
+  scope: string;
+  /** The organisations this user may grant; the token is pinned to the one chosen. */
+  organisations: Organisation[];
+  defaultOrganisationId: number;
+}

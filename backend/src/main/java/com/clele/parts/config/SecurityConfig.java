@@ -1,7 +1,9 @@
 package com.clele.parts.config;
 
 import com.clele.parts.repository.PrintDaemonRepository;
+import com.clele.parts.oauth.OAuthUrls;
 import com.clele.parts.service.McpApiKeyService;
+import com.clele.parts.service.OAuthTokenService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -85,7 +87,9 @@ public class SecurityConfig {
     @Bean
     @Order(2)
     public SecurityFilterChain mcpSecurityFilterChain(HttpSecurity http,
-                                                      McpApiKeyService mcpApiKeyService)
+                                                      McpApiKeyService mcpApiKeyService,
+                                                      OAuthTokenService oAuthTokenService,
+                                                      OAuthUrls oAuthUrls)
             throws Exception {
         http
                 .securityMatcher("/api/mcp")
@@ -96,13 +100,20 @@ public class SecurityConfig {
                 .logout(AbstractHttpConfigurer::disable)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(
                         org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
-                .addFilterBefore(new McpApiKeyAuthFilter(mcpApiKeyService),
+                .addFilterBefore(new McpApiKeyAuthFilter(mcpApiKeyService, oAuthTokenService),
                         UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                // The WWW-Authenticate header is not decoration: RFC 9728 makes it how a client
+                // discovers where to authenticate, and it is the first step of the whole OAuth
+                // flow. Without it a client that could have logged the user in simply reports 401.
                 .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint((req, res, e) -> writeError(res,
-                                HttpServletResponse.SC_UNAUTHORIZED,
-                                "A valid MCP API key is required (X-Api-Key or Authorization: Bearer)")));
+                        .authenticationEntryPoint((req, res, e) -> {
+                            res.setHeader("WWW-Authenticate", "Bearer resource_metadata=\""
+                                    + oAuthUrls.protectedResourceMetadata() + "\"");
+                            writeError(res, HttpServletResponse.SC_UNAUTHORIZED,
+                                    "Authentication required: an MCP API key (X-Api-Key) or an "
+                                    + "OAuth access token (Authorization: Bearer)");
+                        }));
         return http.build();
     }
 
@@ -130,6 +141,12 @@ public class SecurityConfig {
                         // have no account at all. The token in the path is the credential; see
                         // InvitationAccessController.
                         .requestMatchers("/api/invitations/token/**").permitAll()
+                        // The OAuth endpoints a client or a not-yet-logged-in browser reaches:
+                        // registration, the authorize redirect, the token exchange, revocation.
+                        // /api/oauth/consent/** is deliberately NOT here — approving is something
+                        // only a logged-in user can do, and that is the whole security of the flow.
+                        .requestMatchers("/api/oauth/register", "/api/oauth/authorize",
+                                "/api/oauth/token", "/api/oauth/revoke").permitAll()
                         .requestMatchers("/api-docs/**", "/v3/api-docs/**",
                                 "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/api/**").authenticated()

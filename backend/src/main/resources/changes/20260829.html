@@ -28,3 +28,27 @@
   allowed to see yourself. The list shows when each key was last used, so you can tell a key
   something is really using from one you have forgotten about.
 </p>
+
+<h4>Connecting Claude Desktop, without copying a key around</h4>
+<p>
+  Claude Desktop and claude.ai connect to Sortiment by <strong>address alone</strong>. Add a custom
+  connector pointing at <code>https://your-server/api/mcp</code> — there is nothing else to fill in.
+  Your browser opens Sortiment, asks whether to allow it, and that is the whole setup. No key to
+  copy, nothing to paste into a configuration file.
+</p>
+<p>
+  The approval screen tells you what an application is asking for and, importantly,
+  <strong>where it will be sent back to</strong>. Any application can call itself anything, so if
+  that address is not one you recognise, refuse. You choose which organisation it may read, and it
+  is limited to that one from then on.
+</p>
+<p>
+  What it can do does not change: <strong>read-only</strong>, limited to what you can see yourself.
+  You can withdraw access at any time from <strong>My Account → AI access</strong>.
+</p>
+<p>
+  Keys are still there for anything without a browser — Claude Code, scripts, the command line.
+  Both work at the same time. One requirement worth knowing: connecting this way needs your server
+  to be reachable over <strong>HTTPS</strong>, which is how the sign-in can be trusted; a local
+  instance on your own machine is fine as it is.
+</p>

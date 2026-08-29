@@ -3,6 +3,7 @@ package com.clele.parts.service;
 import com.clele.parts.dto.McpApiKeyCreatedDTO;
 import com.clele.parts.dto.McpApiKeyDTO;
 import com.clele.parts.dto.McpApiKeyRequest;
+import com.clele.parts.mcp.McpPrincipal;
 import com.clele.parts.model.AppUser;
 import com.clele.parts.model.McpApiKey;
 import com.clele.parts.model.Organisation;
@@ -60,9 +61,6 @@ public class McpApiKeyService {
     private final PasswordEncoder passwordEncoder;
     private final CurrentUserService currentUserService;
     private final CurrentOrganisationService currentOrganisationService;
-
-    /** What a verified token resolves to: who the request acts as, where, and with what authorities. */
-    public record VerifiedKey(Long keyId, String email, Long organisationId, Set<String> authorities) {}
 
     /** The current user's own keys, newest first. */
     public List<McpApiKeyDTO> findMine() {
@@ -123,7 +121,7 @@ public class McpApiKeyService {
      * key was issued against.
      */
     @Transactional
-    public Optional<VerifiedKey> verify(String token) {
+    public Optional<McpPrincipal> verify(String token) {
         if (token == null || !token.startsWith(TOKEN_PREFIX)) return Optional.empty();
         String rest = token.substring(TOKEN_PREFIX.length());
         int separator = rest.indexOf('_');
@@ -156,7 +154,7 @@ public class McpApiKeyService {
         touch(key);
         Set<String> authorities = new LinkedHashSet<>(user.getPermissions());
         authorities.addAll(user.permissionsIn(organisationId));
-        return Optional.of(new VerifiedKey(key.getId(), user.getEmail(), organisationId, authorities));
+        return Optional.of(new McpPrincipal(user.getEmail(), organisationId, authorities));
     }
 
     /** Record the use, but not on every single call — see {@link #TOUCH_INTERVAL}. */

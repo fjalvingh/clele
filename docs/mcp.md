@@ -35,29 +35,110 @@ claude mcp add --transport http sortiment https://your-host/api/mcp --header "X-
 `Authorization: Bearer <token>` works too, for clients that only send that. The Profile screen
 prints the whole command with the token already in it.
 
-## The key
+### Claude Desktop and claude.ai — the OAuth flow
 
-`mcp_api_key` (V57) — owner, organisation, name, BCrypt hash, `created_at`, `last_used_at`.
-Managed at `/api/profile/mcp-keys` (session-authenticated, self-service: a key carries no more
-access than its owner already has). **`/api/mcp` itself is on its own security chain
-(`SecurityConfig.mcpSecurityFilterChain`), scoped to that one path** — so a key can read the
-catalogue but cannot reach key management and mint another one.
+Claude Desktop takes a URL and nothing else: there is nowhere in its connector dialog to put a
+header, and it refuses a remote server declared in `claude_desktop_config.json` (remote ones belong
+under Settings → Connectors). What it expects instead is an authorization server that registers the
+client on the spot and asks the user in a browser — so **this app is its own OAuth 2.1
+authorization server**, which is only reasonable because everyone it would authenticate already has
+an account here.
 
-- **The token is `clele_mcp_<id>_<secret>`.** The id in front is not decoration: only a BCrypt hash
-  of the secret is stored and a hash cannot be looked up, so the token has to say which row to
-  compare against. Same shape as the print daemon's `X-Daemon-Id` + `X-Daemon-Key`, folded into one
-  value because MCP clients configure a single header.
-- **The organisation is pinned on the key**, not resolved the session's way. An MCP client has no
-  way to switch organisation and no screen on which to notice it was moved, so a key that followed
-  `app_user.last_organisation_id` would quietly start answering about a different catalogue.
-  `McpApiKeyAuthFilter` sets it as a request attribute that `CurrentOrganisationService.current()`
-  honours ahead of the session — see `PINNED_ORGANISATION_ATTRIBUTE`.
-- **Membership is re-checked on every call.** A key pins an organisation at creation, but a
-  membership can be revoked afterwards, and a stored credential must not outlive the access it was
-  granted under. Authorities are recomputed from the database the same way
-  `OrganisationAuthoritiesFilter` does for a session.
-- `last_used_at` is written at most once a minute — otherwise every call to a read-only endpoint
-  would be a write.
+Add it under **Settings → Connectors → Add custom connector** with the URL
+`https://your-host/api/mcp`. Nothing else is typed in: the client registers itself, the browser
+opens the Sortiment consent screen, and access begins when the user approves.
+
+⚠️ **HTTPS.** An OAuth redirect must be HTTPS or loopback, so a connector against a plain `http://`
+host on the network will not complete. A local instance on `http://localhost:8080` is fine.
+
+What happens, in order:
+
+1. The client POSTs to `/api/mcp` with no token and gets **401** carrying
+   `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"`. That
+   header is the entire discovery mechanism — without it a client that could have logged the user
+   in just reports a failure.
+2. It reads that document (RFC 9728) for the `resource` and its `authorization_servers`, then the
+   authorization server's own metadata at `/.well-known/oauth-authorization-server` (RFC 8414).
+3. It registers itself at `/api/oauth/register` (RFC 7591) and gets a `client_id`.
+4. It opens a browser at `/api/oauth/authorize` with a PKCE challenge and the `resource` it wants a
+   token for. The browser lands on the SPA's **consent screen** (`/oauth/consent`), logging in
+   first if needed.
+5. The user picks an organisation and approves; the browser goes back to the client with a code.
+6. The client exchanges the code at `/api/oauth/token` for an access token and a refresh token, and
+   uses the access token as `Authorization: Bearer` on every MCP call from then on.
+
+### Where the security actually is
+
+**Registration is open and grants nothing.** Anyone may register a client; what they get is an
+identifier and the right to *ask*. Access exists only after a logged-in user has approved that
+client in the browser, and never exceeds what that user can see. This is why an unauthenticated
+registration endpoint is not the hole it first looks like — and why the consent screen shows the
+client's self-declared name as a *claim* ("an application calling itself…") beside the redirect
+host, which is the part an attacker cannot forge.
+
+- **An error is only redirected to a URI already proved to belong to the client.** Everything
+  checked before that point — the client id, the redirect URI itself — fails to a page the user
+  sees. Getting this backwards turns `/authorize` into an open redirector for any address an
+  attacker names.
+- **Redirect URIs are matched exactly**, never by prefix, and may only be HTTPS, loopback, or a
+  private application scheme the operating system routes locally.
+- **PKCE is required and must be S256.** OAuth 2.1 drops `plain`, which protects nothing.
+- **A code is single-use, and a replay is treated as a theft**: the tokens that code already
+  produced are revoked, not just the second attempt refused. Likewise a refresh token is rotated on
+  every use, and a rotated-away one coming back revokes the whole family.
+  ⚠️ **Both revocations run in their own transaction** (`OAuthRevocationService`, `REQUIRES_NEW`).
+  They are followed by a thrown rejection, and a throw rolls back the transaction it happened in —
+  which silently undid the revocation and left the stolen token working. It passed every test that
+  only checked the rejection; only an end-to-end run that used the token *afterwards* caught it.
+- **Tokens are audience-bound.** The `resource` a client asks for is recorded on the token and
+  checked on every call, so a token issued for somewhere else is refused here however valid it is
+  there.
+- **Membership is re-checked on every call**, exactly as for an API key: a stored credential must
+  not outlive the access it was granted under.
+- Tokens are opaque and stored as SHA-256 — not BCrypt, which cannot be looked up, and not a JWT,
+  which would mean managing a key to tell ourselves something a primary-key lookup already answers
+  and could not be revoked.
+
+Access tokens last an hour, refresh tokens thirty days, an authorization request ten minutes and an
+issued code five.
+
+### An API key is still the right thing for a headless client
+
+Claude Code, `curl` and scripts have no browser to complete a consent in, so the `X-Api-Key` route
+of V57 stays. The two differ in how they are obtained and in nothing else: both resolve to an
+`McpPrincipal` — a user, an organisation, and that user's authorities there — and
+`McpApiKeyAuthFilter` picks between them by the credential's shape (an API key announces itself
+with `clele_mcp_`).
+
+**`/api/mcp` is scoped to its own security chain, and key management is not on it.** A key or token
+can read the catalogue and can never mint another credential.
+
+### `mcp-remote`, if you would rather not use the browser flow
+
+A stdio bridge that forwards to the HTTP endpoint with a header attached still works, and is the
+quickest way to point a config-file client at an API key:
+
+```json
+{
+  "mcpServers": {
+    "sortiment": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "https://your-host/api/mcp",
+        "--header", "X-Api-Key:${SORTIMENT_KEY}"
+      ],
+      "env": { "SORTIMENT_KEY": "clele_mcp_…" }
+    }
+  }
+}
+```
+
+⚠️ **No space after the colon, and the value in `env`.** Claude Desktop on Windows (and Cursor, and
+Codex CLI) does not escape spaces inside `args` when it invokes `npx`, which mangles
+`"X-Api-Key: clele_mcp_…"` into something the server never sees as a key. `--header-file <path>`
+avoids the question entirely. Verified with mcp-remote 0.8.2: no `--transport` flag is needed, and
+a plain `http://` address additionally needs `--allow-http`.
 
 ## The protocol layer
 

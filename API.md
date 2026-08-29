@@ -174,8 +174,24 @@ in the feature documents under `docs/` — the section names referenced below ("
   a base unit (dry-run unless `commit:true`; requires `PARTS_EDIT`)
 - `POST /mcp` — the **Model Context Protocol** endpoint an AI client talks to: JSON-RPC 2.0 over
   `initialize`, `ping`, `tools/list`, `tools/call`. **Read-only**, and authenticated by an MCP API
-  key (`X-Api-Key`, or `Authorization: Bearer`) rather than the session — its own security chain,
-  scoped to this one path. The key pins the organisation. A notification (no `id`) is answered 202;
-  `GET /mcp` (server-initiated SSE) is 405. Tools: `search_parts`, `get_part`, `list_spec_fields`,
+  key (`X-Api-Key`) or an OAuth access token (`Authorization: Bearer`) rather than the session — its
+  own security chain, scoped to this one path. Either credential pins the organisation. An
+  unauthenticated call answers **401 with `WWW-Authenticate: Bearer resource_metadata="…"`**, which
+  is how a client discovers the OAuth flow. A notification (no `id`) is answered 202; `GET /mcp`
+  (server-initiated SSE) is 405. Tools: `search_parts`, `get_part`, `list_spec_fields`,
   `list_categories`, `list_locations`, `list_low_stock`. See `docs/mcp.md`
+- **OAuth for the MCP endpoint** — this app is its own authorization server, so Claude Desktop and
+  claude.ai can connect with a URL alone. Outside `/api`, at the locations their specifications fix:
+  `GET /.well-known/oauth-protected-resource` (RFC 9728) and
+  `GET /.well-known/oauth-authorization-server` (RFC 8414); both also answer under any trailing path,
+  since a client may insert the resource path. **Public.**
+- `POST /oauth/register` — dynamic client registration (RFC 7591), **public and open**: it issues an
+  id and grants nothing. `GET /oauth/authorize` — authorization code + PKCE (S256 only), redirects to
+  the SPA consent screen; **public** (the browser has no session yet). `POST /oauth/token`
+  (form-encoded) — `authorization_code` and `refresh_token` grants, refresh rotated on every use;
+  **public**. `POST /oauth/revoke` (RFC 7009) — **public**
+- `GET /oauth/consent/{requestId}`, `POST /oauth/consent/{requestId}/approve` `{organisationId}`,
+  `POST /oauth/consent/{requestId}/deny` — the consent screen's own endpoints. **Session-authenticated
+  on purpose**: approving is what grants the client access, and only a logged-in user can do it.
+  Approve returns `{redirectUri}` for the browser to follow back to the client
 - Swagger UI at `http://localhost:8080/swagger-ui.html`

@@ -96,7 +96,7 @@ class McpApiKeyServiceTest {
     @Test
     @DisplayName("a valid token resolves to its owner, its organisation and that organisation's permissions")
     void acceptsAValidToken() {
-        Optional<McpApiKeyService.VerifiedKey> verified = service.verify(token(1L, SECRET));
+        Optional<McpPrincipal> verified = service.verify(token(1L, SECRET));
 
         assertThat(verified).isPresent();
         assertThat(verified.get().email()).isEqualTo("owner@example.com");
@@ -148,7 +148,7 @@ class McpApiKeyServiceTest {
         admin.getPermissions().add(Permissions.GLOBAL_ADMIN);
         when(keyRepository.findById(1L)).thenReturn(Optional.of(key(admin, ORG_ID)));
 
-        Optional<McpApiKeyService.VerifiedKey> verified = service.verify(token(1L, SECRET));
+        Optional<McpPrincipal> verified = service.verify(token(1L, SECRET));
 
         assertThat(verified).isPresent();
         assertThat(verified.get().authorities())
