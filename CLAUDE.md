@@ -120,9 +120,9 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
 
 - PostgreSQL: database `partsdb`, user `partsuser`, password `partspass`
 - Schema managed by Flyway migrations (V1–V10) in `backend/src/main/resources/db/migration/`
-- Last version is V59
+- Last version is V60
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V60** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V61** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover

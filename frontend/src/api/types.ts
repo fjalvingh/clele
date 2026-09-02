@@ -77,7 +77,6 @@ export interface Category {
   parentId?: number;
   parentName?: string;
   breadcrumb: string;
-  specIds?: number[];
 }
 
 export interface CategoryTree {
@@ -93,7 +92,6 @@ export interface CategoryRequest {
   name: string;
   description?: string;
   parentId?: number | null;
-  specIds?: number[];
 }
 
 export interface Part {

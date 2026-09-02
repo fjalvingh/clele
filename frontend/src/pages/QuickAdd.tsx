@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { findLocalParts, getCategoryTree, getComponentCacheStatus, identifyPartFromDatasheet, getMyLocations, getSpecDefinitions, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsByUrl, searchPartsOnline, uploadPartAttachment } from '../api';
-import type { CategoryTree, ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
+import { findLocalParts, getCategoryTree, getComponentCacheStatus, identifyPartFromDatasheet, getMyLocations, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsByUrl, searchPartsOnline, uploadPartAttachment } from '../api';
+import type { CategoryTree, ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import CategoryPicker from '../components/CategoryPicker';
 import { NumberTextInput } from '../components/NumberInput';
-import SpecFieldLabel from '../components/SpecFieldLabel';
-import SpecNumberField from '../components/SpecNumberField';
+import PartSpecEditor from '../components/PartSpecEditor';
 import TagInput from '../components/TagInput';
 import { parseAiSpecs } from '../utils/specs';
 
@@ -305,13 +304,12 @@ export default function QuickAddPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [createdPartId, setCreatedPartId] = useState<number | null>(null);
 
-  // Spec fields — every definition is offered regardless of the chosen category, as the category is
-  // only being decided on this same form.
-  const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
+  // Spec fields — see components/PartSpecEditor. Every definition is offered whatever category is
+  // chosen, as the category is only being decided on this same form.
   const [specValues, setSpecValues] = useState<Record<string, string>>({});
-  // jsonNames of the spec fields currently shown on the form. Starts with the specs
-  // pre-filled by the lookup; the user adds more via the "Add specification" combobox.
-  const [visibleSpecs, setVisibleSpecs] = useState<Set<string>>(new Set());
+  // jsonNames of the spec fields currently shown on the form. Starts with the specs the lookup
+  // pre-filled; the user adds more by searching, and removes them with the per-row button.
+  const [shownSpecKeys, setShownSpecKeys] = useState<string[]>([]);
 
   // Image suggestions
   const [imageSuggestions, setImageSuggestions] = useState<ImageSuggestion[]>([]);
@@ -345,8 +343,8 @@ export default function QuickAddPage() {
       })
       .catch(() => {});
     setLocLoading(true);
-    Promise.all([getMyLocations(), getSpecDefinitions()])
-      .then(([locs, defs]) => {
+    getMyLocations()
+      .then((locs) => {
         setLocations(locs);
         // Resolve the selected location: keep the current choice if it's still one of the user's
         // own locations, otherwise fall back to the location they last added stock to.
@@ -359,26 +357,13 @@ export default function QuickAddPage() {
               : '';
           setForm((prev) => ({ ...prev, locationId: fallback }));
         }
-        setSpecDefs(defs);
-        // Pre-fill spec values from whichever source was chosen, keyed by jsonName.
-        // Seed from the definitions first, then carry over every remaining key the source
-        // returned. Iterating only the definitions would silently drop anything it named
-        // that this organisation has no field for yet — which is also how the catalogue learns a
-        // new field, since "rescan from parts" promotes surviving unknown keys to definitions.
-        const sourceSpecs = form.specsPrefill;
-        const known = new Set(defs.map((d) => d.jsonName));
-        const prefilled: Record<string, string> = {};
-        for (const def of defs) prefilled[def.jsonName] = sourceSpecs[def.jsonName] ?? '';
-        for (const [key, value] of Object.entries(sourceSpecs)) {
-          if (!known.has(key)) prefilled[key] = value;
-        }
+        // Pre-fill spec values from whichever source was chosen, keyed by jsonName — every key it
+        // returned, including ones this organisation has no field for yet. That is also how the
+        // catalogue learns a new field: "rescan from parts" promotes surviving unknown keys to
+        // definitions. The editor shows exactly what is filled in here, and nothing else.
+        const prefilled: Record<string, string> = { ...form.specsPrefill };
         setSpecValues(prefilled);
-        // Initially only show specs the lookup actually filled in. From here on visibleSpecs is
-        // the single source of truth for what is on the form, and legitimately holds keys with
-        // no definition.
-        setVisibleSpecs(
-          new Set(Object.entries(prefilled).filter(([, v]) => v !== '').map(([k]) => k)),
-        );
+        setShownSpecKeys(Object.entries(prefilled).filter(([, v]) => v !== '').map(([k]) => k));
       })
       .finally(() => setLocLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -562,7 +547,7 @@ export default function QuickAddPage() {
       setSelectedImageUrls(new Set());
       setFailedImageUrls(new Set());
       setSpecValues({});
-      setVisibleSpecs(new Set());
+      setShownSpecKeys([]);
       // The cache carries the vendor's own product photo, so offer it instead of running an image
       // search: it is the right part by construction, which a search result only might be.
       const cached: ImageSuggestion[] = detail.imageUrl
@@ -605,7 +590,7 @@ export default function QuickAddPage() {
     setImageSuggestions([]);
     setImageQuery(result.mpn);
     setSpecValues({});
-    setVisibleSpecs(new Set());
+    setShownSpecKeys([]);
     setStep(3);
 
     // Kick off image search in the background so results are ready by the time the user submits
@@ -643,14 +628,11 @@ export default function QuickAddPage() {
     setSaving(true);
     setSaveError(null);
 
-    // Every non-empty value shown on the form, including keys no definition covers — iterating
-    // specDefs instead would drop exactly the new fields the "Other" section exists to keep.
+    // Every non-empty value on the form, including keys no definition covers — dropping those
+    // would lose exactly the new fields the "Other" section exists to keep.
     const specs: Record<string, string> = {};
-    for (const key of visibleSpecs) {
-      const v = specValues[key];
-      if (v !== undefined && v !== '') {
-        specs[key] = v;
-      }
+    for (const [key, value] of Object.entries(specValues)) {
+      if (value !== undefined && value !== '') specs[key] = value;
     }
 
     const payload: QuickAddRequest = {
@@ -727,110 +709,6 @@ export default function QuickAddPage() {
     } finally {
       setSaving(false);
     }
-  }
-
-  // Render the input control for one spec definition (label + field), matching its data type.
-  function renderSpecField(spec: SpecDefinition) {
-    if (spec.dataType === 'BOOLEAN') {
-      return (
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={specValues[spec.jsonName] === 'true'}
-            onChange={(e) =>
-              setSpecValues((prev) => ({
-                ...prev,
-                [spec.jsonName]: e.target.checked ? 'true' : 'false',
-              }))
-            }
-            className="rounded border-gray-300 text-blue-600"
-          />
-          <span className="text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></span>
-        </label>
-      );
-    }
-    if (spec.dataType === 'SELECT' && spec.options && spec.options.length > 0) {
-      return (
-        <>
-          <label className="block text-sm font-medium text-gray-700 mb-1"><SpecFieldLabel spec={spec} /></label>
-          <select
-            value={specValues[spec.jsonName] ?? ''}
-            onChange={(e) =>
-              setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
-            }
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="">— Select —</option>
-            {spec.options.map((opt) => (
-              <option key={opt} value={opt}>{opt}</option>
-            ))}
-          </select>
-        </>
-      );
-    }
-    if (spec.dataType === 'NUMBER') {
-      const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
-      const isMulti = units.length > 1;
-      const currentVal = specValues[spec.jsonName] ?? '';
-      if (isMulti) {
-        let numPart = currentVal, unitPart = units[0] ?? '';
-        for (const u of units) {
-          if (currentVal.endsWith(' ' + u)) { numPart = currentVal.slice(0, -(u.length + 1)); unitPart = u; break; }
-        }
-        return (
-          <>
-            <label className="block text-sm font-medium text-gray-700 mb-1"><SpecFieldLabel spec={spec} /></label>
-            <div className="flex gap-2">
-              <NumberTextInput
-                decimal
-                allowNegative
-                value={numPart}
-                onChange={(v) =>
-                  setSpecValues((prev) => ({ ...prev, [spec.jsonName]: v ? v + ' ' + unitPart : '' }))
-                }
-                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <select
-                value={unitPart}
-                onChange={(e) =>
-                  setSpecValues((prev) => ({ ...prev, [spec.jsonName]: numPart ? numPart + ' ' + e.target.value : '' }))
-                }
-                className="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                {units.map((u) => <option key={u} value={u}>{u}</option>)}
-              </select>
-            </div>
-          </>
-        );
-      }
-      // Metric-prefix, unit-family and plain numbers are one editor — the one that also carries
-      // the min / nominal / max toggle.
-      return (
-        <SpecNumberField
-          spec={spec}
-          label={<SpecFieldLabel spec={spec} />}
-          value={currentVal}
-          onChange={(val) => setSpecValues((prev) => ({ ...prev, [spec.jsonName]: val }))}
-          wrapperClassName=""
-          labelClassName="block text-sm font-medium text-gray-700"
-          inputClassName="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          selectClassName="rounded-lg border border-gray-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-      );
-    }
-    return (
-      <>
-        <label className="block text-sm font-medium text-gray-700 mb-1"><SpecFieldLabel spec={spec} /></label>
-        <input
-          type="text"
-          value={specValues[spec.jsonName] ?? ''}
-          onChange={(e) =>
-            setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value }))
-          }
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-      </>
-    );
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -1344,117 +1222,31 @@ export default function QuickAddPage() {
             );
           })()}
 
-          {/* Spec fields — at the bottom. Shows only specs the lookup filled in; more can be
-              added on demand via the combobox. */}
-          {!locLoading && specDefs.length > 0 && (() => {
-            const shownDefs = specDefs.filter((d) => visibleSpecs.has(d.jsonName));
-            const availableDefs = specDefs.filter((d) => !visibleSpecs.has(d.jsonName));
-            const known = new Set(specDefs.map((d) => d.jsonName));
-            // Keys the lookup returned that this organisation has no field for yet. They are shown
-            // and submitted like any other spec; "Rescan from parts" turns them into definitions.
-            const unknownKeys = [...visibleSpecs].filter((k) => !known.has(k));
-            return (
-              <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
-                <h2 className="text-lg font-semibold text-gray-900 mb-1">Specifications</h2>
-                <p className="text-xs text-gray-400 mb-4">
-                  Pre-filled from AI search results where names match. Add more fields below.
-                </p>
-                {shownDefs.length > 0 && (
-                  <div className="grid grid-cols-2 gap-x-4">
-                    {shownDefs.map((spec) => (
-                      <div key={spec.id} className="mb-4 flex items-start gap-2">
-                        <div className="min-w-0 flex-1">{renderSpecField(spec)}</div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setVisibleSpecs((prev) => {
-                              const next = new Set(prev);
-                              next.delete(spec.jsonName);
-                              return next;
-                            })
-                          }
-                          title="Remove this specification"
-                          aria-label={`Remove ${spec.name}`}
-                          className="mt-7 shrink-0 text-gray-400 hover:text-red-600"
-                        >
-                          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <line x1="18" y1="6" x2="6" y2="18" />
-                            <line x1="6" y1="6" x2="18" y2="18" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {unknownKeys.length > 0 && (
-                  <div className="mb-4 border-t border-gray-200 pt-4 dark:border-gray-700">
-                    <h3 className="text-sm font-semibold text-gray-900">Other</h3>
-                    <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-                      The lookup returned these under names your spec catalogue does not have yet.
-                      They are saved with the part; “Rescan from parts” on the Spec Fields screen
-                      turns them into proper fields.
-                    </p>
-                    <div className="grid grid-cols-2 gap-x-4">
-                      {unknownKeys.map((key) => (
-                        <div key={key} className="mb-4 flex items-start gap-2">
-                          <div className="min-w-0 flex-1">
-                            {renderSpecField({
-                              id: -1,
-                              jsonName: key,
-                              name: key,
-                              dataType: 'TEXT',
-                              displayOrder: 0,
-                              groupId: -1,
-                              groupName: 'Other',
-                            })}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setVisibleSpecs((prev) => {
-                                const next = new Set(prev);
-                                next.delete(key);
-                                return next;
-                              })
-                            }
-                            title="Remove this specification"
-                            aria-label={`Remove ${key}`}
-                            className="mt-7 shrink-0 text-gray-400 hover:text-red-600"
-                          >
-                            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <line x1="18" y1="6" x2="6" y2="18" />
-                              <line x1="6" y1="6" x2="18" y2="18" />
-                            </svg>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {availableDefs.length > 0 && (
-                  <div className="max-w-xs">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Add a specification
-                    </label>
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        const jsonName = e.target.value;
-                        if (!jsonName) return;
-                        setVisibleSpecs((prev) => new Set(prev).add(jsonName));
-                      }}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    >
-                      <option value="">— Select a specification… —</option>
-                      {availableDefs.map((d) => (
-                        <option key={d.id} value={d.jsonName}>{d.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+          {/* Spec fields — at the bottom. Shows only the specs the lookup filled in; more are
+              added by searching. Same editor as the New Part and Edit Part dialogs. */}
+          {!locLoading && (
+            <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">Specifications</h2>
+              <p className="text-xs text-gray-400 mb-4">
+                Pre-filled from the lookup where names match. Add more fields below.
+              </p>
+              <PartSpecEditor
+                values={specValues}
+                onValuesChange={setSpecValues}
+                shownKeys={shownSpecKeys}
+                onShownKeysChange={setShownSpecKeys}
+                columns={2}
+                emptyText="The lookup returned no specifications. Search below to add one."
+                otherNote={
+                  <>
+                    The lookup returned these under names your spec catalogue does not have yet.
+                    They are saved with the part; “Rescan from parts” on the Spec Fields screen
+                    turns them into proper fields.
+                  </>
+                }
+              />
+            </div>
+          )}
 
           {saveError && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">

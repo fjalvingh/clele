@@ -6,13 +6,11 @@ import com.clele.parts.dto.MergeSpecsRequest;
 import com.clele.parts.dto.MoveSpecsRequest;
 import com.clele.parts.dto.SpecDefinitionDTO;
 import com.clele.parts.dto.SpecDefinitionRequest;
-import com.clele.parts.model.Category;
 import com.clele.parts.model.Organisation;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.SpecAlias;
 import com.clele.parts.model.SpecDefinition;
 import com.clele.parts.model.SpecGroup;
-import com.clele.parts.repository.CategoryRepository;
 import com.clele.parts.repository.PartRepository;
 import com.clele.parts.repository.SpecAliasRepository;
 import com.clele.parts.repository.SpecDefinitionRepository;
@@ -44,7 +42,6 @@ public class SpecDefinitionService {
     private final SpecAliasRepository aliasRepo;
     private final SpecGroupService specGroupService;
     private final PartSpecValueService partSpecValueService;
-    private final CategoryRepository categoryRepository;
     private final PartRepository partRepository;
     private final CurrentOrganisationService currentOrganisationService;
     private final ObjectMapper objectMapper;
@@ -435,38 +432,6 @@ public class SpecDefinitionService {
         }
     }
 
-    /**
-     * Returns the inherited (union) spec definitions for a category, walking up the parent chain.
-     * If categoryId is null, returns all definitions.
-     */
-    public List<SpecDefinitionDTO> getInheritedSpecs(Long categoryId) {
-        if (categoryId == null) {
-            return findAll();
-        }
-
-        Category category = categoryRepository
-                .findByIdAndOrganisationId(categoryId, currentOrganisationService.currentId())
-                .orElseThrow(() -> new EntityNotFoundException("Category not found: " + categoryId));
-
-        // Walk up the ancestor chain, collecting specs (deduplicating by ID, preserving order)
-        Map<Long, SpecDefinition> collected = new LinkedHashMap<>();
-        Category current = category;
-        while (current != null) {
-            for (SpecDefinition spec : current.getSpecs()) {
-                collected.putIfAbsent(spec.getId(), spec);
-            }
-            current = current.getParent();
-        }
-
-        // Sort by display_order ASC, name ASC
-        return collected.values().stream()
-                .sorted((a, b) -> {
-                    int cmp = Integer.compare(a.getDisplayOrder(), b.getDisplayOrder());
-                    return cmp != 0 ? cmp : a.getName().compareTo(b.getName());
-                })
-                .map(this::toDTO)
-                .collect(Collectors.toList());
-    }
 
     private void applyRequest(SpecDefinition spec, SpecDefinitionRequest request) {
         spec.setJsonName(request.getJsonName());

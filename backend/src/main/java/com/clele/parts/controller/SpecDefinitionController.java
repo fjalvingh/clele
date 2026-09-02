@@ -80,10 +80,4 @@ public class SpecDefinitionController {
                                                  @RequestBody ConvertToNumberRequest request) {
         return specService.convertToNumber(id, request);
     }
-
-    @GetMapping("/for-category/{catId}")
-    @Operation(summary = "Get inherited spec definitions for a category")
-    public List<SpecDefinitionDTO> forCategory(@PathVariable Long catId) {
-        return specService.getInheritedSpecs(catId);
-    }
 }

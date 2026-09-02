@@ -92,7 +92,7 @@ Part of the Clele documentation — `CLAUDE.md` holds the overview and the index
   `project` carries an `organisation_id` (V36), and so does `part_attachment` (V46 — it used to
   derive one through `part_id`, which stopped holding once several parts could share a row).
   `stock_entry`, `stock_movement`, `part_stock_threshold`, `part_attachment_link`, `project_part`,
-  `project_stock`, `part_tag` and `category_spec` deliberately **do not** — they derive their
+  `project_stock` and `part_tag` deliberately **do not** — they derive their
   organisation through `part_id`/`location_id`/`project_id`, so there is nothing that can drift out
   of sync.
 - **`service/CurrentOrganisationService`** is the counterpart to `CurrentUserService` and the single
@@ -111,8 +111,7 @@ Part of the Clele documentation — `CLAUDE.md` holds the overview and the index
   `LOWER(tag.name)` are composite-unique with `organisation_id`. `app_user.email` stays global.
 - **The Template organisation** (`organisation.is_template`, a flag rather than a name — they get
   renamed) holds a blueprint taxonomy. `OrganisationService.create` clones its categories (parents
-  first, remapping `parent`), spec definitions, tags and `category_spec` links into the new
-  organisation; parts, locations, stock and projects are never cloned. Only a `GLOBAL_ADMIN` may
+  first, remapping `parent`), spec definitions and tags into the new organisation; parts, locations, stock and projects are never cloned. Only a `GLOBAL_ADMIN` may
   select it. `delete` refuses the template and any organisation still holding parts/locations/projects.
 - **API**: `GET /api/organisations/selectable` (authenticated — drives the switcher),
   `GET/POST/PUT/DELETE /api/organisations` (`GLOBAL_ADMIN`), `PUT /api/profile/organisation`

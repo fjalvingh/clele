@@ -201,7 +201,6 @@ public class McpToolRegistry {
                                  "type": "object",
                                  "properties": {
                                    "filter": {"type": "string", "description": "Case-insensitive substring of the field's jsonName or label."},
-                                   "categoryId": {"type": "integer", "description": "Only the fields that apply to this category (and those inherited from its ancestors)."},
                                    "limit": {"type": "integer", "description": "Max fields to return, 1-1000. Default 100."}
                                  }
                                }
@@ -334,9 +333,7 @@ public class McpToolRegistry {
     }
 
     private Object listSpecFields(JsonNode args) {
-        List<SpecDefinitionDTO> all = args.hasNonNull("categoryId")
-                ? specDefinitionService.getInheritedSpecs(args.get("categoryId").asLong())
-                : specDefinitionService.findAll();
+        List<SpecDefinitionDTO> all = specDefinitionService.findAll();
 
         String filter = text(args, "filter");
         List<SpecDefinitionDTO> matching = filter == null ? all : all.stream()

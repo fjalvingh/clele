@@ -39,7 +39,7 @@ Part of the Clele documentation — `CLAUDE.md` holds the overview and the index
   Attachments below. Photos: PNG-normalized, max 5 per part. Datasheets & user attachments: original
   bytes + filename + content-type, uncapped. Identical bytes are stored once and linked, so a kit of
   thirty resistor values carries one photo, not thirty copies
-- **Spec definitions**: configurable specification fields (text, number, boolean, select) with units; can be associated with categories
+- **Spec definitions**: configurable specification fields (text, number, boolean, select) with units
   - Every definition belongs to exactly one **spec group** and may carry **aliases** — the other
     JSON names the same spec has at other sources (see Spec Groups & Aliases)
   - Each definition has a `jsonName` (the exact key stored inside `part.specs`) separate from its

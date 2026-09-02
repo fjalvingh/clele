@@ -129,7 +129,6 @@ public class OrganisationService {
             groupCopies.put(source.getId(), specGroupRepository.save(copy));
         }
 
-        Map<Long, SpecDefinition> specCopies = new HashMap<>();
         for (SpecDefinition source :
                 specDefinitionRepository.findByOrganisationIdOrderByDisplayOrderAscNameAsc(from.getId())) {
             SpecDefinition copy = SpecDefinition.builder()
@@ -144,7 +143,6 @@ public class OrganisationService {
                     .group(groupCopies.get(source.getGroup().getId()))
                     .build();
             SpecDefinition savedSpec = specDefinitionRepository.save(copy);
-            specCopies.put(source.getId(), savedSpec);
 
             // The alternate names the spec is known by travel with it, or the copy would start
             // re-accumulating the duplicates the original had already merged away.
@@ -174,10 +172,6 @@ public class OrganisationService {
                     .parent(source.getParent() == null
                             ? null
                             : categoryCopies.get(source.getParent().getId()))
-                    .specs(source.getSpecs().stream()
-                            .map(spec -> specCopies.get(spec.getId()))
-                            .filter(java.util.Objects::nonNull)
-                            .collect(java.util.stream.Collectors.toCollection(ArrayList::new)))
                     .build();
             categoryCopies.put(source.getId(), categoryRepository.save(copy));
         }

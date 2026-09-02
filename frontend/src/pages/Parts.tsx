@@ -7,7 +7,6 @@ import {
   getLocations,
   getParts,
   getSpecDefinitions,
-  getSpecsForCategory,
 } from '../api';
 import type {
   CategoryTree,
@@ -28,10 +27,9 @@ import CategoryPicker from '../components/CategoryPicker';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
-import SpecFieldLabel from '../components/SpecFieldLabel';
-import SpecNumberField from '../components/SpecNumberField';
 import { NumberTextInput } from '../components/NumberInput';
 import Modal from '../components/Modal';
+import PartSpecEditor from '../components/PartSpecEditor';
 import TagInput from '../components/TagInput';
 
 
@@ -59,113 +57,6 @@ interface StockForm {
 }
 
 const emptyStock = (): StockForm => ({ quantity: '', locationId: '', unitPrice: '' });
-
-// Split "64 KB" → ["64", "KB"] given units list; falls back to [value, first unit]
-function parseMultiUnit(value: string, units: string[]): [string, string] {
-  for (const u of units) {
-    if (value.endsWith(' ' + u)) return [value.slice(0, -(u.length + 1)), u];
-  }
-  return [value, units[0] ?? ''];
-}
-
-// Render a single spec input based on its type
-function SpecField({
-  spec,
-  value,
-  onChange,
-}: {
-  spec: SpecDefinition;
-  value: string;
-  onChange: (val: string) => void;
-}) {
-  if (spec.dataType === 'BOOLEAN') {
-    return (
-      <div className="mb-4">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={value === 'true'}
-            onChange={(e) => onChange(e.target.checked ? 'true' : 'false')}
-            className="rounded border-gray-300 text-blue-600"
-          />
-          <span className="text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></span>
-        </label>
-      </div>
-    );
-  }
-
-  if (spec.dataType === 'SELECT' && spec.options && spec.options.length > 0) {
-    return (
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></label>
-        <select
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        >
-          <option value="">— Select —</option>
-          {spec.options.map((opt) => (
-            <option key={opt} value={opt}>{opt}</option>
-          ))}
-        </select>
-      </div>
-    );
-  }
-
-  if (spec.dataType === 'NUMBER') {
-    const units = spec.unit ? spec.unit.split(',').map((s) => s.trim()) : [];
-    const isMulti = units.length > 1;
-    if (isMulti) {
-      const [numPart, unitPart] = parseMultiUnit(value, units);
-      return (
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></label>
-          <div className="mt-1 flex gap-2">
-            <NumberTextInput
-              decimal
-              allowNegative
-              value={numPart}
-              onChange={(v) => onChange(v ? v + ' ' + unitPart : '')}
-              className="block flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-            <select
-              value={unitPart}
-              onChange={(e) => onChange(numPart ? numPart + ' ' + e.target.value : '')}
-              className="rounded-md border border-gray-300 px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              {units.map((u) => <option key={u} value={u}>{u}</option>)}
-            </select>
-          </div>
-        </div>
-      );
-    }
-    // Metric-prefix, unit-family and plain numbers are one editor — the one that also carries the
-    // min / nominal / max toggle.
-    return (
-      <SpecNumberField
-        spec={spec}
-        label={<SpecFieldLabel spec={spec} />}
-        value={value}
-        onChange={onChange}
-        inputClassName="block rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-        selectClassName="rounded-md border border-gray-300 px-2 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-      />
-    );
-  }
-
-  // TEXT (default)
-  return (
-    <div className="mb-4">
-      <label className="block text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></label>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-      />
-    </div>
-  );
-}
 
 type SortKey = 'partNumber' | 'manufacturer';
 
@@ -291,10 +182,9 @@ export default function PartsPage() {
   const [form, setForm] = useState<PartRequest>(emptyForm());
   const [stock, setStock] = useState<StockForm>(emptyStock());
   const [specValues, setSpecValues] = useState<Record<string, string>>({});
-  const [specDefs, setSpecDefs] = useState<SpecDefinition[]>([]);
-  // Every spec field in the organisation, for the parametric search conditions. Deliberately not
-  // `specDefs`, which is loaded only while the create modal is open and is scoped to the chosen
-  // category — searching must offer every field, whatever category the part is in.
+  // Spec keys kept on the create form even while empty — see PartSpecEditor.
+  const [shownSpecKeys, setShownSpecKeys] = useState<string[]>([]);
+  // Every spec field in the organisation, for the parametric search conditions.
   const [searchSpecDefs, setSearchSpecDefs] = useState<SpecDefinition[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -335,28 +225,6 @@ export default function PartsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // When modal category changes, reload spec definitions
-  useEffect(() => {
-    if (!modalOpen) return;
-    getSpecsForCategory(form.categoryId ?? null)
-      .then((defs) => {
-        setSpecDefs(defs);
-        // Keep everything already typed and just make sure the new category's fields exist.
-        // Rebuilding the map from `defs` alone would discard values the user entered before
-        // switching category — the field disappears from the form, so the value is gone with no
-        // way to get it back.
-        setSpecValues((prev) => {
-          const next: Record<string, string> = { ...prev };
-          for (const def of defs) {
-            next[def.jsonName] = prev[def.jsonName] ?? '';
-          }
-          return next;
-        });
-      })
-      .catch(() => setSpecDefs([]));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.categoryId, modalOpen]);
-
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (!hasCriteria(criteria)) {
@@ -382,7 +250,7 @@ export default function PartsPage() {
           : '',
     });
     setSpecValues({});
-    setSpecDefs([]);
+    setShownSpecKeys([]);
     setFormError(null);
     setModalOpen(true);
   };
@@ -895,26 +763,12 @@ export default function PartsPage() {
             )}
           </div>
 
-          {/* Dynamic spec fields */}
-          {specDefs.length > 0 ? (
-            <div className="mt-2">
-              <p className="mb-2 text-sm font-medium text-gray-700">Specifications</p>
-              {specDefs.map((spec) => (
-                <SpecField
-                  key={spec.id}
-                  spec={spec}
-                  value={specValues[spec.jsonName] ?? ''}
-                  onChange={(val) => setSpecValues((prev) => ({ ...prev, [spec.jsonName]: val }))}
-                />
-              ))}
-            </div>
-          ) : (
-            form.categoryId !== null && (
-              <p className="mb-4 text-xs text-gray-400">
-                No spec fields defined for this category.
-              </p>
-            )
-          )}
+          <PartSpecEditor
+            values={specValues}
+            onValuesChange={setSpecValues}
+            shownKeys={shownSpecKeys}
+            onShownKeysChange={setShownSpecKeys}
+          />
         </div>
         {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
         <div className="flex justify-end gap-3 pt-2">

@@ -162,9 +162,14 @@ value), mirrored in the URL so a search is bookmarkable.
   searched numerically and only numerically — it has no text rows to fall back to, and a term that
   is not a number matches nothing rather than quietly widening into a substring search. Text fields
   answer `eq` and `contains`; an ordering comparison on one means nothing and returns nothing.
-- **The Parts screen loads every spec definition separately** (`searchSpecDefs`) — `specDefs` is
-  loaded only while the create modal is open and is scoped to the chosen category, while searching
-  must offer every field whatever category a part is in.
+- **Which fields a part gets is decided per part, not per category.** Both the create (Parts) and
+  edit (`PartEditModal`) dialogs render `components/PartSpecEditor`: only the specs the part
+  actually carries, grouped by spec group, each removable, plus a type-ahead over every definition
+  in the organisation to add one. There is no category → spec field mapping any more — the
+  `category_spec` table, `Category.specs`, `CategoryDTO.specIds`, `getInheritedSpecs` and
+  `GET /spec-definitions/for-category/{id}` were dropped in **V60**. A category-scoped list was
+  never the right pre-fill (a part carries what its datasheet says, not what its category lists)
+  and with ~1000 definitions the no-category fallback showed all of them at once.
 
 ### Upgrading an installation
 

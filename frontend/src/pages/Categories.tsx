@@ -4,10 +4,9 @@ import {
   deleteCategory,
   getCategories,
   getCategoryTree,
-  getSpecDefinitions,
   updateCategory,
 } from '../api';
-import type { Category, CategoryRequest, CategoryTree, SpecDefinition } from '../api/types';
+import type { Category, CategoryRequest, CategoryTree } from '../api/types';
 import CategoryPicker from '../components/CategoryPicker';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
@@ -78,22 +77,20 @@ function TreeNode({ node, onEdit, onDelete, categories }: TreeNodeProps) {
 export default function CategoriesPage() {
   const [tree, setTree] = useState<CategoryTree[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [allSpecs, setAllSpecs] = useState<SpecDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
-  const [form, setForm] = useState<CategoryRequest>({ name: '', description: '', parentId: null, specIds: [] });
+  const [form, setForm] = useState<CategoryRequest>({ name: '', description: '', parentId: null });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
-    Promise.all([getCategoryTree(), getCategories(), getSpecDefinitions()])
-      .then(([t, c, s]) => {
+    Promise.all([getCategoryTree(), getCategories()])
+      .then(([t, c]) => {
         setTree(t);
         setCategories(c);
-        setAllSpecs(s);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -103,7 +100,7 @@ export default function CategoriesPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ name: '', description: '', parentId: null, specIds: [] });
+    setForm({ name: '', description: '', parentId: null });
     setFormError(null);
     setModalOpen(true);
   };
@@ -114,7 +111,6 @@ export default function CategoriesPage() {
       name: cat.name,
       description: cat.description ?? '',
       parentId: cat.parentId ?? null,
-      specIds: cat.specIds ?? [],
     });
     setFormError(null);
     setModalOpen(true);
@@ -146,14 +142,6 @@ export default function CategoriesPage() {
     } catch (e: unknown) {
       alert((e as Error).message);
     }
-  };
-
-  const toggleSpecId = (specId: number) => {
-    const current = form.specIds ?? [];
-    const next = current.includes(specId)
-      ? current.filter((id) => id !== specId)
-      : [...current, specId];
-    setForm({ ...form, specIds: next });
   };
 
   return (
@@ -215,40 +203,6 @@ export default function CategoriesPage() {
           emptyLabel="— None (root) —"
           excludeId={editing?.id ?? null}
         />
-
-        {allSpecs.length > 0 && (
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Spec Fields
-            </label>
-            <p className="text-xs text-gray-400 mb-2">
-              Parts in this category will show these fields. Child categories inherit parent specs.
-            </p>
-            <div className="max-h-40 overflow-y-auto rounded-md border border-gray-200 p-2 space-y-1">
-              {allSpecs.map((spec) => {
-                const checked = (form.specIds ?? []).includes(spec.id);
-                return (
-                  <label
-                    key={spec.id}
-                    className="flex items-center gap-2 cursor-pointer rounded px-2 py-1 hover:bg-gray-50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleSpecId(spec.id)}
-                      className="rounded border-gray-300 text-blue-600"
-                    />
-                    <span className="text-sm text-gray-800">{spec.name}</span>
-                    <span className="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
-                      {spec.dataType.toLowerCase()}
-                      {spec.unit ? ` (${spec.unit})` : ''}
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
         <div className="flex justify-end gap-3">

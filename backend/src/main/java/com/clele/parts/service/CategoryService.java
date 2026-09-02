@@ -2,9 +2,7 @@ package com.clele.parts.service;
 
 import com.clele.parts.dto.*;
 import com.clele.parts.model.Category;
-import com.clele.parts.model.SpecDefinition;
 import com.clele.parts.repository.CategoryRepository;
-import com.clele.parts.repository.SpecDefinitionRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -22,7 +20,6 @@ import java.util.stream.Collectors;
 public class CategoryService {
 
     private final CategoryRepository categoryRepository;
-    private final SpecDefinitionRepository specDefinitionRepository;
     private final CurrentOrganisationService currentOrganisationService;
 
     public List<CategoryDTO> findAll() {
@@ -66,7 +63,6 @@ public class CategoryService {
         if (request.getParentId() != null) {
             category.setParent(requireCategory(request.getParentId()));
         }
-        applySpecIds(category, request.getSpecIds());
         return toDTO(categoryRepository.save(category));
     }
 
@@ -82,9 +78,6 @@ public class CategoryService {
             category.setParent(requireCategory(request.getParentId()));
         } else {
             category.setParent(null);
-        }
-        if (request.getSpecIds() != null) {
-            applySpecIds(category, request.getSpecIds());
         }
         return toDTO(categoryRepository.save(category));
     }
@@ -103,20 +96,6 @@ public class CategoryService {
         categoryRepository.delete(category);
     }
 
-    private void applySpecIds(Category category, List<Long> specIds) {
-        if (specIds == null) {
-            category.setSpecs(new ArrayList<>());
-            return;
-        }
-        // Only spec fields of the same organisation may be linked.
-        Long organisationId = currentOrganisationService.currentId();
-        List<SpecDefinition> specs = specIds.stream()
-                .map(specId -> specDefinitionRepository.findByIdAndOrganisationId(specId, organisationId)
-                        .orElseThrow(() -> new EntityNotFoundException("Spec field not found: " + specId)))
-                .collect(Collectors.toList());
-        category.setSpecs(specs);
-    }
-
     private String buildBreadcrumb(Category category) {
         List<String> parts = new ArrayList<>();
         Category current = category;
@@ -128,9 +107,6 @@ public class CategoryService {
     }
 
     private CategoryDTO toDTO(Category category) {
-        List<Long> specIds = category.getSpecs().stream()
-                .map(SpecDefinition::getId)
-                .collect(Collectors.toList());
         return CategoryDTO.builder()
                 .id(category.getId())
                 .name(category.getName())
@@ -138,7 +114,6 @@ public class CategoryService {
                 .parentId(category.getParent() != null ? category.getParent().getId() : null)
                 .parentName(category.getParent() != null ? category.getParent().getName() : null)
                 .breadcrumb(buildBreadcrumb(category))
-                .specIds(specIds)
                 .build();
     }
 

@@ -429,11 +429,6 @@ export const convertSpecToNumber = (id: number, body: ConvertToNumberRequest) =>
     .post<ConvertToNumberResult>(`/spec-definitions/${id}/convert-to-number`, body)
     .then((r) => r.data);
 
-export const getSpecsForCategory = (categoryId: number | null) =>
-  categoryId != null
-    ? client.get<SpecDefinition[]>(`/spec-definitions/for-category/${categoryId}`).then((r) => r.data)
-    : client.get<SpecDefinition[]>('/spec-definitions').then((r) => r.data);
-
 // Part search (AI-powered)
 export const searchPartsOnline = (q: string) =>
   client.get<PartSearchResult[]>('/parts-search', { params: { q } }).then((r) => r.data);

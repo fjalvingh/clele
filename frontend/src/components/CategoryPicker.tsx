@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { CategoryTree } from '../api/types';
+import { useAnchoredPosition } from './useAnchoredPosition';
 
 interface FlatCategory {
   id: number;
@@ -28,6 +30,9 @@ function flatten(nodes: CategoryTree[], excludeId: number | null | undefined, tr
 }
 
 const MAX_SHOWN = 50;
+
+/** How wide the list may grow past its input, in px — `max-w-[26rem]` as a number. */
+const MAX_LIST_WIDTH = 416;
 
 interface CategoryPickerProps {
   label?: string;
@@ -59,6 +64,9 @@ export default function CategoryPicker({
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  // The list is a portal: inside a dialog body (`overflow-y-auto`) an absolute list is clipped by
+  // it, which showed as a scrollbar and no list at all.
+  const listRef = useAnchoredPosition<HTMLUListElement>(inputRef, open, { maxWidth: MAX_LIST_WIDTH });
 
   // Keep the input's text in sync with the current selection while the user isn't actively typing.
   // Show the leaf name, not the full breadcrumb: the input is often narrow (48 in the Parts filter
@@ -146,11 +154,21 @@ export default function CategoryPicker({
             ×
           </button>
         )}
-        {open && (
-          // z-50: must beat DataTable's sticky `thead` (z-10), which sits later in the DOM.
-          // min-w-full + w-max: the input can be narrow (w-48 in the Parts filter bar) while
-          // category paths are long, so the list is allowed to outgrow it up to a cap.
-          <ul className="absolute z-50 mt-1 max-h-64 min-w-full w-max max-w-[26rem] overflow-y-auto rounded-md border border-gray-200 bg-surface shadow-lg">
+        {open && createPortal(
+          // min-w + w-max: the input can be narrow (w-48 in the Parts filter bar) while category
+          // paths are long, so the list is allowed to outgrow it up to a cap.
+          <ul
+            ref={listRef}
+            style={{
+              position: 'fixed',
+              // Hidden until the layout effect has measured the input; that runs before paint.
+              visibility: 'hidden',
+              maxWidth: MAX_LIST_WIDTH,
+              // Above the dialog, which Modal renders at z-50.
+              zIndex: 60,
+            }}
+            className="w-max overflow-y-auto rounded-md border border-gray-200 bg-surface shadow-lg"
+          >
             <li>
               <button
                 type="button"
@@ -185,7 +203,8 @@ export default function CategoryPicker({
                 +{matches.length - shown.length} more — keep typing to narrow
               </li>
             )}
-          </ul>
+          </ul>,
+          document.body,
         )}
       </div>
     </div>
