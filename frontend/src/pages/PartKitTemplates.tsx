@@ -17,6 +17,7 @@ import type {
 } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import { useSettings } from '../settings/SettingsContext';
+import { NumberTextInput } from '../components/NumberInput';
 import Modal from '../components/Modal';
 
 const formatWhen = (iso: string) =>
@@ -358,11 +359,9 @@ function GenerateModal({
           </p>
 
           <label className="block text-sm font-medium text-gray-700">Quantity per value *</label>
-          <input
-            type="number"
-            min={0}
+          <NumberTextInput
             value={quantity}
-            onChange={(e) => setQuantity(e.target.value)}
+            onChange={setQuantity}
             className="mb-4 mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
 
@@ -379,12 +378,10 @@ function GenerateModal({
           </select>
 
           <label className="block text-sm font-medium text-gray-700">Unit price (optional)</label>
-          <input
-            type="number"
-            step="any"
-            min={0}
+          <NumberTextInput
+            decimal
             value={unitPrice}
-            onChange={(e) => setUnitPrice(e.target.value)}
+            onChange={setUnitPrice}
             className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
 

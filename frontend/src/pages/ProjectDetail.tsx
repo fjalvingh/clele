@@ -25,7 +25,13 @@ import {
   type PullStockRequest,
 } from '../api/types';
 import Modal from '../components/Modal';
+import NumberInput from '../components/NumberInput';
 import { useSettings } from '../settings/SettingsContext';
+
+// The quantity boxes are empty while being retyped, so the form holds them as nullable and the
+// submit handlers coerce; the request types themselves stay strictly numeric.
+type BomFormState = Omit<ProjectBomRequest, 'qtyPerInstance'> & { qtyPerInstance: number | null };
+type PullFormState = Omit<PullStockRequest, 'quantity'> & { quantity: number | null };
 
 const STATUS_LABELS: Record<ProjectStatus, string> = {
   PLANNING: 'Planning',
@@ -55,13 +61,13 @@ export default function ProjectDetailPage() {
   const [partSearch, setPartSearch] = useState('');
   const [searchResults, setSearchResults] = useState<Part[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [bomForm, setBomForm] = useState<ProjectBomRequest>({ partId: 0, qtyPerInstance: 1 });
+  const [bomForm, setBomForm] = useState<BomFormState>({ partId: 0, qtyPerInstance: 1 });
   const [editingBomId, setEditingBomId] = useState<number | null>(null);
   const [bomSaving, setBomSaving] = useState(false);
 
   // Pull stock modal state
   const [showPull, setShowPull] = useState(false);
-  const [pullForm, setPullForm] = useState<PullStockRequest>({ partId: 0, locationId: 0, quantity: 1 });
+  const [pullForm, setPullForm] = useState<PullFormState>({ partId: 0, locationId: 0, quantity: 1 });
   const [myLocations, setMyLocations] = useState<Location[]>([]);
   const [pullSaving, setPullSaving] = useState(false);
 
@@ -143,13 +149,14 @@ export default function ProjectDetailPage() {
   };
 
   const handleAddBom = async () => {
-    if (!bomForm.partId) return;
+    const qtyPerInstance = bomForm.qtyPerInstance ?? 0;
+    if (!bomForm.partId || qtyPerInstance < 1) return;
     setBomSaving(true);
     try {
       if (editingBomId !== null) {
-        await updateBomEntry(projectId, editingBomId, bomForm);
+        await updateBomEntry(projectId, editingBomId, { ...bomForm, qtyPerInstance });
       } else {
-        await addBomEntry(projectId, bomForm);
+        await addBomEntry(projectId, { ...bomForm, qtyPerInstance });
       }
       setShowBom(false);
       setBomForm({ partId: 0, qtyPerInstance: 1 });
@@ -169,10 +176,11 @@ export default function ProjectDetailPage() {
   };
 
   const handlePullStock = async () => {
-    if (!pullForm.partId || !pullForm.locationId) return;
+    const quantity = pullForm.quantity ?? 0;
+    if (!pullForm.partId || !pullForm.locationId || quantity < 1) return;
     setPullSaving(true);
     try {
-      await pullStock(projectId, pullForm);
+      await pullStock(projectId, { ...pullForm, quantity });
       setShowPull(false);
       setPullForm({ partId: 0, locationId: 0, quantity: 1 });
       load();
@@ -529,12 +537,10 @@ export default function ProjectDetailPage() {
           )}
           <div>
             <label className="block text-sm font-medium text-gray-700">Qty per instance</label>
-            <input
-              type="number"
-              min={1}
+            <NumberInput
               className="mt-1 w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               value={bomForm.qtyPerInstance}
-              onChange={(e) => setBomForm((f) => ({ ...f, qtyPerInstance: parseInt(e.target.value) || 1 }))}
+              onChange={(v) => setBomForm((f) => ({ ...f, qtyPerInstance: v }))}
             />
           </div>
           <div>
@@ -554,7 +560,7 @@ export default function ProjectDetailPage() {
             </button>
             <button
               onClick={handleAddBom}
-              disabled={bomSaving || (!editingBomId && !bomForm.partId)}
+              disabled={bomSaving || (!editingBomId && !bomForm.partId) || !bomForm.qtyPerInstance}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {bomSaving ? 'Saving…' : editingBomId ? 'Update' : 'Add'}
@@ -586,11 +592,11 @@ export default function ProjectDetailPage() {
           {pullForm.partId === -1 && (
             <div>
               <label className="block text-sm font-medium text-gray-700">Part ID</label>
-              <input
-                type="number"
+              <NumberInput
                 className="mt-1 w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                 placeholder="ID"
-                onChange={(e) => setPullForm((f) => ({ ...f, partId: Number(e.target.value) }))}
+                value={pullForm.partId > 0 ? pullForm.partId : null}
+                onChange={(v) => setPullForm((f) => ({ ...f, partId: v ?? -1 }))}
               />
             </div>
           )}
@@ -609,23 +615,20 @@ export default function ProjectDetailPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Quantity</label>
-            <input
-              type="number"
-              min={1}
+            <NumberInput
               className="mt-1 w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               value={pullForm.quantity}
-              onChange={(e) => setPullForm((f) => ({ ...f, quantity: parseInt(e.target.value) || 1 }))}
+              onChange={(v) => setPullForm((f) => ({ ...f, quantity: v }))}
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Unit Price (optional)</label>
-            <input
-              type="number"
-              step="0.0001"
-              min={0}
+            <NumberInput
+              decimal
               className="mt-1 w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               placeholder="Leave blank to use WAC"
-              onChange={(e) => setPullForm((f) => ({ ...f, unitPrice: e.target.value ? Number(e.target.value) : null }))}
+              value={pullForm.unitPrice ?? null}
+              onChange={(v) => setPullForm((f) => ({ ...f, unitPrice: v }))}
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
@@ -637,7 +640,7 @@ export default function ProjectDetailPage() {
             </button>
             <button
               onClick={handlePullStock}
-              disabled={pullSaving || !pullForm.partId || !pullForm.locationId}
+              disabled={pullSaving || !pullForm.partId || !pullForm.locationId || !pullForm.quantity}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {pullSaving ? 'Pulling…' : 'Pull Stock'}

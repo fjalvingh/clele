@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createProject, deleteProject, getProjects } from '../api';
 import { type Project, type ProjectRequest, type ProjectStatus } from '../api/types';
+import NumberInput from '../components/NumberInput';
 import { useSettings } from '../settings/SettingsContext';
+
+// The instance count is empty while being retyped, so the form holds it as nullable and the
+// submit handler coerces; ProjectRequest itself stays strictly numeric.
+type ProjectFormState = Omit<ProjectRequest, 'instanceCount'> & { instanceCount: number | null };
 
 const STATUS_LABELS: Record<ProjectStatus, string> = {
   PLANNING: 'Planning',
@@ -24,7 +29,7 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState<ProjectRequest>({ name: '', description: '', instanceCount: 1 });
+  const [form, setForm] = useState<ProjectFormState>({ name: '', description: '', instanceCount: 1 });
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
@@ -42,7 +47,7 @@ export default function ProjectsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const p = await createProject(form);
+      const p = await createProject({ ...form, instanceCount: form.instanceCount ?? 1 });
       setProjects((prev) => [p, ...prev]);
       setShowCreate(false);
       setForm({ name: '', description: '', instanceCount: 1 });
@@ -193,12 +198,10 @@ export default function ProjectsPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Number of Instances</label>
-                <input
-                  type="number"
-                  min={1}
+                <NumberInput
                   className="mt-1 w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                   value={form.instanceCount}
-                  onChange={(e) => setForm((f) => ({ ...f, instanceCount: parseInt(e.target.value) || 1 }))}
+                  onChange={(v) => setForm((f) => ({ ...f, instanceCount: v }))}
                   required
                 />
               </div>
@@ -212,7 +215,7 @@ export default function ProjectsPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={saving || !form.name.trim()}
+                  disabled={saving || !form.name.trim() || !form.instanceCount}
                   className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   {saving ? 'Creating…' : 'Create'}

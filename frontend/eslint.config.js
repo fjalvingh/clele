@@ -19,5 +19,18 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Number spinners are banned in this app: they cannot be cleared while typing and the
+      // up/down buttons are useless for the counts we ask for. Use components/NumberInput.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'JSXAttribute[name.name="type"][value.value="number"]',
+          message:
+            'Do not use <input type="number"> — it renders spinner buttons and fights the value being retyped. Use NumberInput / NumberTextInput / NumberField from components/NumberInput.',
+        },
+      ],
+    },
   },
 ])

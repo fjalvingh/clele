@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { SpecDefinition } from '../api/types';
 import { joinSpecNumber, splitSpecNumber, type SpecNumberParts } from '../utils/specs';
 import { mantissaForPrefix, prefixOptions, splitMetric, toBaseValue, unitFamily } from '../utils/units';
+import { NumberTextInput } from './NumberInput';
 import { SpecTypeIcon } from './SpecFieldLabel';
 
 /**
@@ -121,11 +122,11 @@ export default function SpecNumberField({
       <div className="mt-1 flex gap-2">
         {boxes.map((box) => (
           <div key={box.key} className="min-w-0 flex-1">
-            <input
-              type="number"
-              step="any"
+            <NumberTextInput
+              decimal
+              allowNegative
               value={shown(parts[box.key])}
-              onChange={(e) => setPart(box.key, e.target.value)}
+              onChange={(v) => setPart(box.key, v)}
               placeholder={showRange ? box.hint.toLowerCase() : undefined}
               title={box.hint}
               aria-label={`${box.hint}${prefixUnit ? ` (${prefix}${prefixUnit})` : ''}`}

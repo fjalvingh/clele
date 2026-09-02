@@ -4,6 +4,7 @@ import { findLocalParts, getCategoryTree, getComponentCacheStatus, identifyPartF
 import type { CategoryTree, ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest, SpecDefinition } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import CategoryPicker from '../components/CategoryPicker';
+import { NumberTextInput } from '../components/NumberInput';
 import SpecFieldLabel from '../components/SpecFieldLabel';
 import SpecNumberField from '../components/SpecNumberField';
 import TagInput from '../components/TagInput';
@@ -780,12 +781,12 @@ export default function QuickAddPage() {
           <>
             <label className="block text-sm font-medium text-gray-700 mb-1"><SpecFieldLabel spec={spec} /></label>
             <div className="flex gap-2">
-              <input
-                type="number"
-                step="any"
+              <NumberTextInput
+                decimal
+                allowNegative
                 value={numPart}
-                onChange={(e) =>
-                  setSpecValues((prev) => ({ ...prev, [spec.jsonName]: e.target.value ? e.target.value + ' ' + unitPart : '' }))
+                onChange={(v) =>
+                  setSpecValues((prev) => ({ ...prev, [spec.jsonName]: v ? v + ' ' + unitPart : '' }))
                 }
                 className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
@@ -1220,25 +1221,21 @@ export default function QuickAddPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Quantity <span className="text-red-500">*</span>
                 </label>
-                <input
+                <NumberTextInput
                   name="quantity"
                   value={form.quantity}
-                  onChange={handleFormChange}
-                  type="number"
-                  min="0"
+                  onChange={(v) => setForm((f) => ({ ...f, quantity: v }))}
                   required
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Unit price</label>
-                <input
+                <NumberTextInput
                   name="unitPrice"
+                  decimal
                   value={form.unitPrice}
-                  onChange={handleFormChange}
-                  type="number"
-                  min="0"
-                  step="0.01"
+                  onChange={(v) => setForm((f) => ({ ...f, unitPrice: v }))}
                   placeholder="Optional"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />

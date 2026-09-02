@@ -30,6 +30,7 @@ import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
 import SpecFieldLabel from '../components/SpecFieldLabel';
 import SpecNumberField from '../components/SpecNumberField';
+import { NumberTextInput } from '../components/NumberInput';
 import Modal from '../components/Modal';
 import TagInput from '../components/TagInput';
 
@@ -120,11 +121,11 @@ function SpecField({
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></label>
           <div className="mt-1 flex gap-2">
-            <input
-              type="number"
-              step="any"
+            <NumberTextInput
+              decimal
+              allowNegative
               value={numPart}
-              onChange={(e) => onChange(e.target.value ? e.target.value + ' ' + unitPart : '')}
+              onChange={(v) => onChange(v ? v + ' ' + unitPart : '')}
               className="block flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <select
@@ -854,11 +855,9 @@ export default function PartsPage() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Amount
                 </label>
-                <input
-                  type="number"
-                  min="0"
+                <NumberTextInput
                   value={stock.quantity}
-                  onChange={(e) => setStock({ ...stock, quantity: e.target.value })}
+                  onChange={(v) => setStock({ ...stock, quantity: v })}
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
@@ -881,12 +880,10 @@ export default function PartsPage() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Price each ({settings.currencySymbol})
                 </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                <NumberTextInput
+                  decimal
                   value={stock.unitPrice}
-                  onChange={(e) => setStock({ ...stock, unitPrice: e.target.value })}
+                  onChange={(v) => setStock({ ...stock, unitPrice: v })}
                   className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>

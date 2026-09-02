@@ -3,6 +3,7 @@ import { getCategoryTree, getSpecDefinitions, getSpecGroups, updatePart } from '
 import type { CategoryTree, Part, PartRequest, SpecDefinition, SpecGroup } from '../api/types';
 import CategoryPicker from './CategoryPicker';
 import FormField from './FormField';
+import { NumberTextInput } from './NumberInput';
 import Modal from './Modal';
 import SpecFieldLabel from './SpecFieldLabel';
 import SpecNumberField from './SpecNumberField';
@@ -67,11 +68,11 @@ function SpecField({
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700"><SpecFieldLabel spec={spec} /></label>
           <div className="mt-1 flex gap-2">
-            <input
-              type="number"
-              step="any"
+            <NumberTextInput
+              decimal
+              allowNegative
               value={numPart}
-              onChange={(e) => onChange(e.target.value ? e.target.value + ' ' + unitPart : '')}
+              onChange={(v) => onChange(v ? v + ' ' + unitPart : '')}
               className="block flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
             <select

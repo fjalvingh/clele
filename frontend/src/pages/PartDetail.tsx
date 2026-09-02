@@ -59,6 +59,7 @@ import Badge from '../components/Badge';
 import DataTable from '../components/DataTable';
 import type { Column } from '../components/DataTable';
 import FormField from '../components/FormField';
+import { NumberField } from '../components/NumberInput';
 import FindImageModal from '../components/FindImageModal';
 import Modal from '../components/Modal';
 import PartEditModal from '../components/PartEditModal';
@@ -72,7 +73,7 @@ type StockOp = 'add' | 'take' | 'move';
 interface StockOpForm {
   locationId: number; // add (top-level): target; take/move: source (fixed to the line)
   destLocationId: number; // move: destination (may belong to any user)
-  quantity: number;
+  quantity: number | null;
   unitPrice: number | null;
   comment: string;
 }
@@ -80,7 +81,7 @@ interface StockOpForm {
 const emptyOpForm: StockOpForm = {
   locationId: 0,
   destLocationId: 0,
-  quantity: 0,
+  quantity: null,
   unitPrice: null,
   comment: '',
 };
@@ -393,7 +394,10 @@ export default function PartDetailPage() {
   const [thresholds, setThresholds] = useState<StockThreshold[]>([]);
   const [thresholdModalOpen, setThresholdModalOpen] = useState(false);
   const [editingThreshold, setEditingThreshold] = useState<StockThreshold | null>(null);
-  const [thresholdForm, setThresholdForm] = useState({ locationId: 0, minimumQuantity: 0 });
+  const [thresholdForm, setThresholdForm] = useState<{
+    locationId: number;
+    minimumQuantity: number | null;
+  }>({ locationId: 0, minimumQuantity: 0 });
   const [thresholdError, setThresholdError] = useState<string | null>(null);
 
   const splitAttachments = (atts: PartAttachment[]) => {
@@ -791,7 +795,8 @@ export default function PartDetailPage() {
   };
 
   const handleSubmitStockOp = async () => {
-    if (!stockOp) return;
+    const quantity = opForm.quantity ?? 0;
+    if (!stockOp || quantity < 1) return;
     setSaving(true);
     setFormError(null);
     try {
@@ -799,7 +804,7 @@ export default function PartDetailPage() {
         await addStock({
           partId,
           locationId: opEntry ? opEntry.locationId : opForm.locationId,
-          quantity: opForm.quantity,
+          quantity,
           unitPrice: opForm.unitPrice,
           comments: opForm.comment || null,
         });
@@ -809,7 +814,7 @@ export default function PartDetailPage() {
         await takeStock({
           partId,
           locationId: opForm.locationId,
-          quantity: opForm.quantity,
+          quantity,
           comments: opForm.comment || null,
         });
       } else {
@@ -817,7 +822,7 @@ export default function PartDetailPage() {
           partId,
           fromLocationId: opForm.locationId,
           toLocationId: opForm.destLocationId,
-          quantity: opForm.quantity,
+          quantity,
           comments: opForm.comment || null,
         });
       }
@@ -845,13 +850,13 @@ export default function PartDetailPage() {
   };
 
   const handleSubmitThreshold = async () => {
-    if (!thresholdForm.locationId) return;
+    if (!thresholdForm.locationId || thresholdForm.minimumQuantity === null) return;
     setThresholdError(null);
     try {
       await upsertStockThreshold({
         partId,
         locationId: thresholdForm.locationId,
-        minimumQuantity: thresholdForm.minimumQuantity,
+        minimumQuantity: thresholdForm.minimumQuantity ?? 0,
       });
       setThresholdModalOpen(false);
       getStockThresholds(partId).then(setThresholds).catch(() => {});
@@ -1901,12 +1906,10 @@ export default function PartDetailPage() {
               </option>
             ))}
         </FormField>
-        <FormField
+        <NumberField
           label="Minimum quantity *"
-          type="number"
-          min={0}
           value={thresholdForm.minimumQuantity}
-          onChange={(e) => setThresholdForm({ ...thresholdForm, minimumQuantity: Number(e.target.value) })}
+          onChange={(v) => setThresholdForm({ ...thresholdForm, minimumQuantity: v })}
         />
         {thresholdError && <p className="mb-3 text-sm text-red-600">{thresholdError}</p>}
         <div className="flex justify-end gap-2">
@@ -1918,7 +1921,7 @@ export default function PartDetailPage() {
           </button>
           <button
             onClick={handleSubmitThreshold}
-            disabled={!thresholdForm.locationId}
+            disabled={!thresholdForm.locationId || thresholdForm.minimumQuantity === null}
             className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-40"
           >
             Save
@@ -2002,7 +2005,7 @@ export default function PartDetailPage() {
               </FormField>
             )}
 
-            <FormField
+            <NumberField
               label={
                 stockOp === 'add'
                   ? 'Quantity to add *'
@@ -2010,28 +2013,18 @@ export default function PartDetailPage() {
                     ? 'Quantity to take *'
                     : 'Quantity to move *'
               }
-              type="number"
-              min={1}
-              max={stockOp === 'add' ? undefined : opEntry?.quantity}
-              value={opForm.quantity || ''}
-              onChange={(e) => setOpForm({ ...opForm, quantity: Number(e.target.value) })}
+              value={opForm.quantity}
+              onChange={(v) => setOpForm({ ...opForm, quantity: v })}
             />
 
             {/* Price only makes sense when adding. */}
             {stockOp === 'add' && (
-              <FormField
+              <NumberField
                 label="Unit Price"
-                type="number"
-                min={0}
-                step={0.01}
+                decimal
                 placeholder="Optional"
-                value={opForm.unitPrice ?? ''}
-                onChange={(e) =>
-                  setOpForm({
-                    ...opForm,
-                    unitPrice: e.target.value !== '' ? Number(e.target.value) : null,
-                  })
-                }
+                value={opForm.unitPrice}
+                onChange={(v) => setOpForm({ ...opForm, unitPrice: v })}
               />
             )}
 
@@ -2055,10 +2048,11 @@ export default function PartDetailPage() {
                 onClick={handleSubmitStockOp}
                 disabled={
                   saving ||
+                  !opForm.quantity ||
                   opForm.quantity < 1 ||
                   (stockOp === 'add' && !opEntry && !opForm.locationId) ||
                   (stockOp === 'move' && !opForm.destLocationId) ||
-                  (stockOp !== 'add' && !!opEntry && opForm.quantity > opEntry.quantity)
+                  (stockOp !== 'add' && !!opEntry && (opForm.quantity ?? 0) > opEntry.quantity)
                 }
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               >

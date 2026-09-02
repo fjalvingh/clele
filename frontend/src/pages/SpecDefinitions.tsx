@@ -9,9 +9,14 @@ import {
 } from '../api';
 import type { SpecGroup, SpecGroupRequest } from '../api/types';
 import FormField from '../components/FormField';
+import { NumberField } from '../components/NumberInput';
 import Modal from '../components/Modal';
 
-const emptyForm = (order: number): SpecGroupRequest => ({
+// The display-order box is empty while being retyped, so the form holds it as nullable and the
+// save handler coerces; SpecGroupRequest itself stays strictly numeric.
+type GroupFormState = Omit<SpecGroupRequest, 'displayOrder'> & { displayOrder: number | null };
+
+const emptyForm = (order: number): GroupFormState => ({
   name: '',
   description: '',
   displayOrder: order,
@@ -29,7 +34,7 @@ export default function SpecDefinitionsPage() {
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SpecGroup | null>(null);
-  const [form, setForm] = useState<SpecGroupRequest>(emptyForm(0));
+  const [form, setForm] = useState<GroupFormState>(emptyForm(0));
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [rescanning, setRescanning] = useState(false);
@@ -67,10 +72,11 @@ export default function SpecDefinitionsPage() {
     setSaving(true);
     setFormError(null);
     try {
+      const payload: SpecGroupRequest = { ...form, displayOrder: form.displayOrder ?? 0 };
       if (editing) {
-        await updateSpecGroup(editing.id, form);
+        await updateSpecGroup(editing.id, payload);
       } else {
-        await createSpecGroup(form);
+        await createSpecGroup(payload);
       }
       setModalOpen(false);
       load();
@@ -220,12 +226,10 @@ export default function SpecDefinitionsPage() {
           onChange={(e) => setForm({ ...form, description: e.target.value })}
           placeholder="What this group covers"
         />
-        <FormField
+        <NumberField
           label="Display Order"
-          type="number"
-          min={0}
           value={form.displayOrder}
-          onChange={(e) => setForm({ ...form, displayOrder: Number(e.target.value) })}
+          onChange={(v) => setForm({ ...form, displayOrder: v })}
         />
 
         {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}

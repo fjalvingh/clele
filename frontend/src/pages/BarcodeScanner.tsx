@@ -14,6 +14,7 @@ import CameraScanner, {
   cameraScanUnavailableReason,
   isCameraScanSupported,
 } from '../components/CameraScanner';
+import { NumberTextInput } from '../components/NumberInput';
 import PrintLabelModal from '../components/PrintLabelModal';
 import { parsePartBarcode } from '../utils/code128';
 import { parseAiSpecs } from '../utils/specs';
@@ -112,13 +113,11 @@ function StockForm({
         </div>
         <div className="col-span-2">
           <label className="mb-1 block text-xs font-medium text-gray-500">Unit price</label>
-          <input
-            type="number"
-            min={0}
-            step="0.01"
+          <NumberTextInput
+            decimal
             placeholder="0.00"
             value={unitPrice}
-            onChange={(e) => onUnitPriceChange(e.target.value)}
+            onChange={onUnitPriceChange}
             className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>

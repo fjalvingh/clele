@@ -137,6 +137,16 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
 - **Flyway**: `flyway-core` alone handles PostgreSQL in Flyway 9.x — do not add `flyway-database-postgresql` (not managed by Spring Boot 3.2 BOM)
 - **Multipart upload limit**: 10MB configured in `application.yml`
 - **Image proxy** (`/api/image-proxy?url=`): proxies external images through the backend with browser-like headers. Accepts any HTTP(S) host. Used by Quick Add to avoid CORS and Cloudflare bot-protection issues.
+- **Number entry**: never use `<input type="number">` — the spinner buttons are useless for the
+  counts this app asks for, and a spinner bound to numeric state cannot be cleared while typing
+  (deleting the last digit parses back to the fallback, which then sits in front of the next
+  keystroke: "1" + "2" = "12"). Use `components/NumberInput`: `NumberInput` (numeric value,
+  `null` when empty), `NumberField` (the same with `FormField`'s label markup), or
+  `NumberTextInput` for forms that keep the raw text themselves. `decimal` allows a decimal
+  point, `allowNegative` a leading minus; anything else is filtered out as it is typed. Form
+  state for such a field must allow `null`/`''` so the box can be empty — coerce on submit, not
+  on keystroke. `npm run lint` fails on `type="number"` (a `no-restricted-syntax` rule in
+  `frontend/eslint.config.js`).
 - **Icons**: always use inline SVG icons in the UI, never Unicode/emoji glyphs (📄, 📎, ⬇, …) — they
   render as empty boxes when the platform font lacks the glyph. Use a `currentColor` stroke SVG so it
   inherits the surrounding text color.

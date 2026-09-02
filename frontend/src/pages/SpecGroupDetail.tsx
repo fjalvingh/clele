@@ -13,11 +13,16 @@ import {
 import type { SpecDefinition, SpecDefinitionRequest, SpecGroup } from '../api/types';
 import ConvertToNumberModal from '../components/ConvertToNumberModal';
 import FormField from '../components/FormField';
+import { NumberField } from '../components/NumberInput';
 import Modal from '../components/Modal';
 
 const DATA_TYPES = ['TEXT', 'NUMBER', 'BOOLEAN', 'SELECT'] as const;
 
-const emptyForm = (groupId: number): SpecDefinitionRequest => ({
+// The display-order box is empty while being retyped, so the form holds it as nullable and the
+// save handler coerces; SpecDefinitionRequest itself stays strictly numeric.
+type SpecFormState = Omit<SpecDefinitionRequest, 'displayOrder'> & { displayOrder: number | null };
+
+const emptyForm = (groupId: number): SpecFormState => ({
   jsonName: '',
   name: '',
   dataType: 'TEXT',
@@ -72,7 +77,7 @@ export default function SpecGroupDetailPage() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<SpecDefinition | null>(null);
-  const [form, setForm] = useState<SpecDefinitionRequest>(emptyForm(0));
+  const [form, setForm] = useState<SpecFormState>(emptyForm(0));
   const [optionsText, setOptionsText] = useState('');
   const [aliasText, setAliasText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -149,6 +154,7 @@ export default function SpecGroupDetailPage() {
     const isSingleUnit = unit.trim() !== '' && !unit.includes(',');
     const payload: SpecDefinitionRequest = {
       ...form,
+      displayOrder: form.displayOrder ?? 0,
       unit,
       metricPrefix: isSingleUnit ? !!form.metricPrefix : false,
       options: parsedOptions,
@@ -549,12 +555,10 @@ export default function SpecGroupDetailPage() {
           </p>
         </div>
 
-        <FormField
+        <NumberField
           label="Display Order"
-          type="number"
-          min={0}
           value={form.displayOrder}
-          onChange={(e) => setForm({ ...form, displayOrder: Number(e.target.value) })}
+          onChange={(v) => setForm({ ...form, displayOrder: v })}
         />
 
         {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
