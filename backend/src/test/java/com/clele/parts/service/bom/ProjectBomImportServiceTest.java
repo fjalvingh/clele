@@ -61,7 +61,7 @@ class ProjectBomImportServiceTest {
         project.setId(PROJECT_ID);
         project.setName("Test board");
         project.setInstanceCount(1);
-        project.setStatus(ProjectStatus.PLANNING);
+        project.setStatus(ProjectStatus.ACTIVE);
 
         storedLines = new ArrayList<>();
         bom = null;

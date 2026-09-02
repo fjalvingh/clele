@@ -19,7 +19,8 @@ loaded every session.
 | `docs/attachments.md` | the shared `part_attachment` table, part ownership, and the datasheet download/preflight CLI |
 | `docs/component-cache.md` | the read-only `cc_*` distributor snapshot consulted before any web lookup (schema in `CCSTRUCTURE.md`) |
 | `docs/ai.md` | the Claude lookup and what it costs, datasheet spec extraction, local Ollama categorization, OctoPart/Nexar, and why distributor APIs are off the table |
-| `docs/bom-import.md` | uploading an EDA BOM export into a project and matching its lines to parts |
+| `docs/projects.md` | the two phases (active/cancelled), the project parts list and how it allocates stock, returning parts, deleting a project |
+| `docs/bom-import.md` | uploading an EDA BOM export into a project and matching its lines to the project parts list |
 | `docs/part-kits.md` | kit templates (`${…}` value expansion), generating parts in bulk, and undoing a generation |
 | `docs/partsbox-import.md` | the one-off Partsbox WebSocket-capture importer |
 | `docs/mcp.md` | the read-only MCP endpoint an AI assistant reads the catalogue through — its tools, its API keys, and the OAuth flow (this app is its own authorization server) that lets Claude Desktop connect with a URL alone |
@@ -119,9 +120,9 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
 
 - PostgreSQL: database `partsdb`, user `partsuser`, password `partspass`
 - Schema managed by Flyway migrations (V1–V10) in `backend/src/main/resources/db/migration/`
-- Last version is V58
+- Last version is V59
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V59** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V60** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover

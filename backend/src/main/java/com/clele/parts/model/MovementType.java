@@ -17,8 +17,8 @@ public enum MovementType {
     MOVE,
     /** Written by the Partsbox importer replaying historical transactions. */
     IMPORT,
-    /** Stock pulled from a location into a project during the BUILDING phase. */
+    /** Stock taken out of a location and allocated to an active project. */
     PROJECT_OUT,
-    /** Stock returned from a cancelled project back to its source location. */
+    /** Stock given back by a project to the location it was allocated from. */
     PROJECT_RETURN
 }

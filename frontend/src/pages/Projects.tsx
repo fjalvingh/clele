@@ -10,17 +10,13 @@ import { useSettings } from '../settings/SettingsContext';
 type ProjectFormState = Omit<ProjectRequest, 'instanceCount'> & { instanceCount: number | null };
 
 const STATUS_LABELS: Record<ProjectStatus, string> = {
-  PLANNING: 'Planning',
-  BUILDING: 'Building',
-  COMPLETED: 'Completed',
+  ACTIVE: 'Active',
   CANCELLED: 'Cancelled',
 };
 
 const STATUS_COLORS: Record<ProjectStatus, string> = {
-  PLANNING: 'bg-blue-100 text-blue-800',
-  BUILDING: 'bg-yellow-100 text-yellow-800',
-  COMPLETED: 'bg-green-100 text-green-800',
-  CANCELLED: 'bg-gray-100 text-gray-500',
+  ACTIVE: 'bg-green-500/15 text-green-700',
+  CANCELLED: 'bg-gray-500/15 text-gray-500',
 };
 
 export default function ProjectsPage() {
@@ -73,7 +69,9 @@ export default function ProjectsPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Projects</h1>
-          <p className="mt-1 text-sm text-gray-500">Track builds that consume parts from stock</p>
+          <p className="mt-1 text-sm text-gray-500">
+            An active project holds its parts out of stock; cancelling gives them back
+          </p>
         </div>
         <button
           onClick={() => setShowCreate(true)}
@@ -103,8 +101,8 @@ export default function ProjectsPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Instances</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">BOM Parts</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock Value</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Parts</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Allocated Value</th>
                 <th className="px-6 py-3" />
               </tr>
             </thead>
@@ -123,9 +121,14 @@ export default function ProjectsPage() {
                     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[p.status]}`}>
                       {STATUS_LABELS[p.status]}
                     </span>
+                    {p.status === 'ACTIVE' && p.anyShortfall && (
+                      <span className="ml-1.5 inline-flex items-center rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                        Short
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-700">{p.instanceCount}</td>
-                  <td className="px-6 py-4 text-sm text-gray-700">{p.bomPartCount}</td>
+                  <td className="px-6 py-4 text-sm text-gray-700">{p.partCount}</td>
                   <td className="px-6 py-4 text-sm text-gray-700">
                     {p.totalStockValue != null && p.totalStockValue > 0 ? formatMoney(p.totalStockValue) : '—'}
                   </td>
@@ -137,7 +140,7 @@ export default function ProjectsPage() {
                       >
                         View
                       </Link>
-                      {p.status === 'PLANNING' && (
+                      {p.status === 'CANCELLED' && (
                         deleteConfirm === p.id ? (
                           <span className="flex items-center gap-1 text-xs">
                             <button

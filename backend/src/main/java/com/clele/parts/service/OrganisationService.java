@@ -101,7 +101,7 @@ public class OrganisationService {
         }
         long parts = partRepository.countByOrganisationId(id);
         long locations = locationRepository.countByOrganisationId(id);
-        long projects = projectRepository.countByOrganisationId(id);
+        long projects = projectRepository.countByOrganisationIdAndDeletedFalse(id);
         if (parts > 0 || locations > 0 || projects > 0) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Organisation still holds " + parts + " part(s), " + locations

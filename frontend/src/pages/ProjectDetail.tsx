@@ -1,28 +1,24 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  addBomEntry,
+  activateProject,
+  addProjectPart,
   cancelProject,
-  completeProject,
-  getMyLocations,
+  deleteProject,
   getImportedBom,
   getParts,
   getProject,
-  pullStock,
-  removeBomEntry,
-  startBuild,
-  updateBomEntry,
+  removeProjectPart,
+  returnProjectPart,
+  updateProjectPart,
 } from '../api';
 import {
   type ImportedBom,
-  type Location,
   type Part,
   type Project,
-  type ProjectBomEntry,
-  type ProjectBomRequest,
+  type ProjectPart,
+  type ProjectPartRequest,
   type ProjectStatus,
-  type ProjectStockEntry,
-  type PullStockRequest,
 } from '../api/types';
 import Modal from '../components/Modal';
 import NumberInput from '../components/NumberInput';
@@ -30,54 +26,45 @@ import { useSettings } from '../settings/SettingsContext';
 
 // The quantity boxes are empty while being retyped, so the form holds them as nullable and the
 // submit handlers coerce; the request types themselves stay strictly numeric.
-type BomFormState = Omit<ProjectBomRequest, 'qtyPerInstance'> & { qtyPerInstance: number | null };
-type PullFormState = Omit<PullStockRequest, 'quantity'> & { quantity: number | null };
+type PartFormState = Omit<ProjectPartRequest, 'qtyPerInstance'> & { qtyPerInstance: number | null };
 
 const STATUS_LABELS: Record<ProjectStatus, string> = {
-  PLANNING: 'Planning',
-  BUILDING: 'Building',
-  COMPLETED: 'Completed',
+  ACTIVE: 'Active',
   CANCELLED: 'Cancelled',
 };
 
 const STATUS_COLORS: Record<ProjectStatus, string> = {
-  PLANNING: 'bg-blue-100 text-blue-800',
-  BUILDING: 'bg-yellow-100 text-yellow-800',
-  COMPLETED: 'bg-green-100 text-green-800',
-  CANCELLED: 'bg-gray-100 text-gray-500',
+  ACTIVE: 'bg-green-500/15 text-green-700',
+  CANCELLED: 'bg-gray-500/15 text-gray-500',
 };
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const projectId = Number(id);
+  const navigate = useNavigate();
   const { formatMoney } = useSettings();
 
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // BOM modal state
-  const [showBom, setShowBom] = useState(false);
+  // Add / edit part modal state
+  const [showPart, setShowPart] = useState(false);
   const [partSearch, setPartSearch] = useState('');
   const [searchResults, setSearchResults] = useState<Part[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [bomForm, setBomForm] = useState<BomFormState>({ partId: 0, qtyPerInstance: 1 });
-  const [editingBomId, setEditingBomId] = useState<number | null>(null);
-  const [bomSaving, setBomSaving] = useState(false);
+  const [partForm, setPartForm] = useState<PartFormState>({ partId: 0, qtyPerInstance: 1 });
+  const [editingPartId, setEditingPartId] = useState<number | null>(null);
+  const [partSaving, setPartSaving] = useState(false);
 
-  // Pull stock modal state
-  const [showPull, setShowPull] = useState(false);
-  const [pullForm, setPullForm] = useState<PullFormState>({ partId: 0, locationId: 0, quantity: 1 });
-  const [myLocations, setMyLocations] = useState<Location[]>([]);
-  const [pullSaving, setPullSaving] = useState(false);
-
-  // Cancel modal state
+  // Return / remove / phase modal state
+  const [returning, setReturning] = useState<ProjectPart | null>(null);
+  const [returnQty, setReturnQty] = useState<number | null>(1);
+  const [removing, setRemoving] = useState<ProjectPart | null>(null);
   const [showCancel, setShowCancel] = useState(false);
-  const [returnIds, setReturnIds] = useState<Set<number>>(new Set());
-  const [cancelSaving, setCancelSaving] = useState(false);
-
-  // Transition state
-  const [transitioning, setTransitioning] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   // The imported BOM, if one has been uploaded. Fetched separately from the project because it is
   // its own resource and answers 204 when there is none — the common case for an older project.
@@ -94,7 +81,7 @@ export default function ProjectDetailPage() {
 
   useEffect(load, [projectId]);
 
-  // Part search for BOM
+  // Part search for the part list
   useEffect(() => {
     if (!partSearch.trim()) { setSearchResults([]); return; }
     const t = setTimeout(() => {
@@ -107,85 +94,91 @@ export default function ProjectDetailPage() {
     return () => clearTimeout(t);
   }, [partSearch]);
 
-  // My locations for pull stock
-  useEffect(() => {
-    if (showPull) {
-      getMyLocations().then(setMyLocations).catch(() => {});
-    }
-  }, [showPull]);
-
   // ------------------------------------------------------------------
   // Actions
   // ------------------------------------------------------------------
 
-  const handleStartBuild = async () => {
-    setTransitioning(true);
+  const handleSavePart = async () => {
+    const qtyPerInstance = partForm.qtyPerInstance ?? 0;
+    if (!partForm.partId || qtyPerInstance < 1) return;
+    setPartSaving(true);
     try {
-      const updated = await startBuild(projectId);
-      setProject((p) => p ? { ...p, ...updated } : p);
-    } catch (e) { setError((e as Error).message); }
-    finally { setTransitioning(false); }
-  };
-
-  const handleComplete = async () => {
-    setTransitioning(true);
-    try {
-      const updated = await completeProject(projectId);
-      setProject((p) => p ? { ...p, ...updated } : p);
-    } catch (e) { setError((e as Error).message); }
-    finally { setTransitioning(false); }
-  };
-
-  const handleCancel = async () => {
-    setCancelSaving(true);
-    try {
-      const updated = await cancelProject(projectId, { returnStockIds: Array.from(returnIds) });
-      setProject((p) => p ? { ...p, ...updated } : p);
-      setShowCancel(false);
-      setReturnIds(new Set());
-      load();
-    } catch (e) { setError((e as Error).message); }
-    finally { setCancelSaving(false); }
-  };
-
-  const handleAddBom = async () => {
-    const qtyPerInstance = bomForm.qtyPerInstance ?? 0;
-    if (!bomForm.partId || qtyPerInstance < 1) return;
-    setBomSaving(true);
-    try {
-      if (editingBomId !== null) {
-        await updateBomEntry(projectId, editingBomId, { ...bomForm, qtyPerInstance });
-      } else {
-        await addBomEntry(projectId, { ...bomForm, qtyPerInstance });
+      const saved = editingPartId !== null
+        ? await updateProjectPart(projectId, editingPartId, { ...partForm, qtyPerInstance })
+        : await addProjectPart(projectId, { ...partForm, qtyPerInstance });
+      if (saved.shortfall > 0) {
+        setNotice(
+          `${saved.partNumber}: only ${saved.qtyAllocated} of ${saved.totalNeeded} could be taken ` +
+          'from stock. The rest is short.',
+        );
       }
-      setShowBom(false);
-      setBomForm({ partId: 0, qtyPerInstance: 1 });
-      setEditingBomId(null);
+      setShowPart(false);
+      setPartForm({ partId: 0, qtyPerInstance: 1 });
+      setEditingPartId(null);
       setPartSearch('');
       setSearchResults([]);
       load();
     } catch (e) { setError((e as Error).message); }
-    finally { setBomSaving(false); }
+    finally { setPartSaving(false); }
   };
 
-  const handleRemoveBom = async (bomId: number) => {
+  const handleReturn = async () => {
+    if (!returning) return;
+    const quantity = returnQty ?? 0;
+    if (quantity < 1) return;
+    setBusy(true);
     try {
-      await removeBomEntry(projectId, bomId);
+      await returnProjectPart(projectId, returning.id, { quantity });
+      setReturning(null);
       load();
     } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
   };
 
-  const handlePullStock = async () => {
-    const quantity = pullForm.quantity ?? 0;
-    if (!pullForm.partId || !pullForm.locationId || quantity < 1) return;
-    setPullSaving(true);
+  const handleRemove = async () => {
+    if (!removing) return;
+    setBusy(true);
     try {
-      await pullStock(projectId, { ...pullForm, quantity });
-      setShowPull(false);
-      setPullForm({ partId: 0, locationId: 0, quantity: 1 });
+      await removeProjectPart(projectId, removing.id);
+      setRemoving(null);
       load();
     } catch (e) { setError((e as Error).message); }
-    finally { setPullSaving(false); }
+    finally { setBusy(false); }
+  };
+
+  const handleCancel = async () => {
+    setBusy(true);
+    try {
+      await cancelProject(projectId);
+      setShowCancel(false);
+      setNotice('Project cancelled. Every allocated part went back to the location it came from.');
+      load();
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const handleActivate = async () => {
+    setBusy(true);
+    try {
+      const updated = await activateProject(projectId);
+      const short = (updated.parts ?? []).filter((p) => p.shortfall > 0).length;
+      setNotice(
+        short > 0
+          ? `Project reactivated, but ${short} part${short === 1 ? '' : 's'} could not be taken ` +
+            'from stock in full.'
+          : 'Project reactivated. Every part was taken from stock again.',
+      );
+      load();
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(false); }
+  };
+
+  const handleDelete = async () => {
+    setBusy(true);
+    try {
+      await deleteProject(projectId);
+      navigate('/projects');
+    } catch (e) { setError((e as Error).message); setBusy(false); }
   };
 
   // ------------------------------------------------------------------
@@ -195,15 +188,9 @@ export default function ProjectDetailPage() {
   if (loading) return <div className="p-8 text-gray-400 text-sm">Loading…</div>;
   if (!project) return <div className="p-8 text-red-600">{error ?? 'Project not found'}</div>;
 
-  const bom: ProjectBomEntry[] = project.bom ?? [];
-  const stock: ProjectStockEntry[] = project.stock ?? [];
-  const totalStockValue = stock
-    .filter((s) => s.unitPrice != null)
-    .reduce((sum, s) => sum + (s.unitPrice ?? 0) * s.quantity, 0);
-
-  const canEdit = project.status === 'PLANNING';
-  const canBuild = project.status === 'BUILDING';
-  const isActive = project.status === 'PLANNING' || project.status === 'BUILDING';
+  const parts: ProjectPart[] = project.parts ?? [];
+  const isActive = project.status === 'ACTIVE';
+  const shortCount = parts.filter((p) => p.shortfall > 0).length;
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
@@ -215,9 +202,16 @@ export default function ProjectDetailPage() {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-500/10 px-4 py-3 text-sm text-red-700">
           {error}
           <button className="ml-2 underline" onClick={() => setError(null)}>Dismiss</button>
+        </div>
+      )}
+
+      {notice && (
+        <div className="rounded-lg border border-amber-200 bg-amber-500/10 px-4 py-3 text-sm text-amber-800">
+          {notice}
+          <button className="ml-2 underline" onClick={() => setNotice(null)}>Dismiss</button>
         </div>
       )}
 
@@ -237,53 +231,57 @@ export default function ProjectDetailPage() {
             <p className="mt-2 text-sm text-gray-600">
               <span className="font-medium">{project.instanceCount}</span>{' '}
               {project.instanceCount === 1 ? 'instance' : 'instances'} ·{' '}
-              <span className="font-medium">{project.bomPartCount}</span> BOM parts
-              {totalStockValue > 0 && (
-                <> · <span className="font-medium">{formatMoney(totalStockValue)}</span> in stock</>
+              <span className="font-medium">{project.partCount}</span>{' '}
+              {project.partCount === 1 ? 'part' : 'parts'}
+              {project.totalStockValue != null && project.totalStockValue > 0 && (
+                <> · <span className="font-medium">{formatMoney(project.totalStockValue)}</span> allocated</>
               )}
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              {isActive
+                ? 'Parts on the list below are out of stock and held by this project.'
+                : 'Cancelled: every part has gone back to stock. Nothing can be changed until it is reactivated.'}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {project.status === 'PLANNING' && (
-              <button
-                onClick={handleStartBuild}
-                disabled={transitioning}
-                className="rounded-lg bg-yellow-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-600 disabled:opacity-50"
-              >
-                Start Build
-              </button>
-            )}
-            {project.status === 'BUILDING' && (
+            {isActive ? (
               <>
                 <button
-                  onClick={() => setShowPull(true)}
+                  onClick={() => { setShowPart(true); setEditingPartId(null); setPartForm({ partId: 0, qtyPerInstance: 1 }); setPartSearch(''); }}
                   className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
                 >
-                  Pull Stock
+                  Add Part
                 </button>
                 <button
-                  onClick={handleComplete}
-                  disabled={transitioning}
-                  className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                  onClick={() => setShowCancel(true)}
+                  className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-500/10"
                 >
-                  Complete
+                  Cancel Project
                 </button>
               </>
-            )}
-            {isActive && (
-              <button
-                onClick={() => { setShowCancel(true); setReturnIds(new Set()); }}
-                className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
-              >
-                Cancel Project
-              </button>
+            ) : (
+              <>
+                <button
+                  onClick={handleActivate}
+                  disabled={busy}
+                  className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+                >
+                  Reactivate
+                </button>
+                <button
+                  onClick={() => setShowDelete(true)}
+                  className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-500/10"
+                >
+                  Delete
+                </button>
+              </>
             )}
           </div>
         </div>
       </div>
 
-      {/* Imported BOM card — the uploaded file and its matching progress, separate from the
-          project BOM below, which is what Pull Stock actually reads. */}
+      {/* Imported BOM card — the uploaded file and its matching progress. Applying it feeds the
+          project parts list below; the two are different lists and deliberately look it. */}
       <div className="rounded-lg border border-gray-200 bg-surface shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-6 py-4">
           <h2 className="font-semibold text-gray-900">Imported BOM</h2>
@@ -302,26 +300,26 @@ export default function ProjectDetailPage() {
               {' · imported '}{new Date(importedBom.importedAt).toLocaleDateString()}
             </p>
             <div className="mt-2 flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full bg-green-100 px-2.5 py-0.5 font-medium text-green-700">
+              <span className="rounded-full bg-green-500/15 px-2.5 py-0.5 font-medium text-green-700">
                 {importedBom.matchedCount} matched
               </span>
               {importedBom.unmatchedCount > 0 && (
-                <span className="rounded-full bg-amber-100 px-2.5 py-0.5 font-medium text-amber-800">
+                <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 font-medium text-amber-800">
                   {importedBom.unmatchedCount} still to match
                 </span>
               )}
               {importedBom.providedCount > 0 && (
-                <span className="rounded-full bg-blue-100 px-2.5 py-0.5 font-medium text-blue-700">
+                <span className="rounded-full bg-blue-500/15 px-2.5 py-0.5 font-medium text-blue-700">
                   {importedBom.providedCount} provided
                 </span>
               )}
               {importedBom.excludedCount > 0 && (
-                <span className="rounded-full bg-gray-100 px-2.5 py-0.5 font-medium text-gray-500">
+                <span className="rounded-full bg-gray-500/15 px-2.5 py-0.5 font-medium text-gray-500">
                   {importedBom.excludedCount} excluded
                 </span>
               )}
               {importedBom.changedCount > 0 && (
-                <span className="rounded-full bg-purple-100 px-2.5 py-0.5 font-medium text-purple-700">
+                <span className="rounded-full bg-purple-500/15 px-2.5 py-0.5 font-medium text-purple-700">
                   {importedBom.changedCount} changed — review
                 </span>
               )}
@@ -335,22 +333,30 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      {/* BOM card */}
+      {/* Project parts list */}
       <div className="rounded-lg border border-gray-200 bg-surface shadow-sm">
-        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-          <h2 className="font-semibold text-gray-900">Bill of Materials</h2>
-          {canEdit && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-6 py-4">
+          <div>
+            <h2 className="font-semibold text-gray-900">Project parts list</h2>
+            {shortCount > 0 && (
+              <p className="mt-0.5 text-xs text-amber-700">
+                {shortCount} part{shortCount === 1 ? '' : 's'} could not be taken from stock in full.
+              </p>
+            )}
+          </div>
+          {isActive && (
             <button
-              onClick={() => { setShowBom(true); setEditingBomId(null); setBomForm({ partId: 0, qtyPerInstance: 1 }); setPartSearch(''); }}
+              onClick={() => { setShowPart(true); setEditingPartId(null); setPartForm({ partId: 0, qtyPerInstance: 1 }); setPartSearch(''); }}
               className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
             >
               Add Part
             </button>
           )}
         </div>
-        {bom.length === 0 ? (
+        {parts.length === 0 ? (
           <div className="px-6 py-8 text-center text-sm text-gray-400">
-            No parts in BOM yet.{canEdit && ' Use "Add Part" to define what this project needs.'}
+            No parts on the list yet.
+            {isActive && ' Use "Add Part" — it comes out of stock straight away.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -358,134 +364,89 @@ export default function ProjectDetailPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty/Instance</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Needed</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pulled</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Qty/Instance</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Needed</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Allocated</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                  {canEdit && <th className="px-6 py-3" />}
+                  {isActive && <th className="px-6 py-3" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {bom.map((entry) => {
-                  const remaining = entry.totalNeeded - entry.pulledTotal;
-                  const done = entry.pulledTotal >= entry.totalNeeded;
-                  return (
-                    <tr key={entry.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-3">
-                        <Link to={`/parts/${entry.partId}`} className="font-medium text-blue-600 hover:underline text-sm">
-                          {entry.partNumber}
-                        </Link>
-                        <div className="text-xs text-gray-400">{entry.partName}</div>
-                        {entry.notes && <div className="text-xs text-gray-400 italic">{entry.notes}</div>}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-gray-700">{entry.qtyPerInstance}</td>
-                      <td className="px-6 py-3 text-sm text-gray-700">{entry.totalNeeded}</td>
-                      <td className="px-6 py-3 text-sm text-gray-700">{entry.pulledTotal}</td>
-                      <td className="px-6 py-3">
-                        {done ? (
-                          <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">Done</span>
-                        ) : entry.pulledTotal > 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-700">
-                            Need {remaining} more
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">Not pulled</span>
-                        )}
-                      </td>
-                      {canEdit && (
-                        <td className="px-6 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => {
-                                setEditingBomId(entry.id);
-                                setBomForm({ partId: entry.partId, qtyPerInstance: entry.qtyPerInstance, notes: entry.notes });
-                                setShowBom(true);
-                              }}
-                              className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleRemoveBom(entry.id)}
-                              className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </td>
+                {parts.map((entry) => (
+                  <tr key={entry.id} className={entry.shortfall > 0 ? 'bg-amber-500/10' : 'hover:bg-gray-50'}>
+                    <td className="px-6 py-3">
+                      <Link to={`/parts/${entry.partId}`} className="font-medium text-blue-600 hover:underline text-sm">
+                        {entry.partNumber}
+                      </Link>
+                      {entry.partName && <div className="text-xs text-gray-400">{entry.partName}</div>}
+                      {entry.notes && <div className="text-xs text-gray-400 italic">{entry.notes}</div>}
+                    </td>
+                    <td className="px-6 py-3 text-right text-sm text-gray-700">{entry.qtyPerInstance}</td>
+                    <td className="px-6 py-3 text-right text-sm text-gray-700">{entry.totalNeeded}</td>
+                    <td className="px-6 py-3 text-right text-sm font-medium text-gray-900">{entry.qtyAllocated}</td>
+                    <td className="px-6 py-3">
+                      {entry.shortfall > 0 ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-800">
+                          <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                            <line x1="12" y1="9" x2="12" y2="13" />
+                            <line x1="12" y1="17" x2="12.01" y2="17" />
+                          </svg>
+                          {entry.shortfall} short
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-700">
+                          Allocated
+                        </span>
                       )}
-                    </tr>
-                  );
-                })}
+                    </td>
+                    {isActive && (
+                      <td className="px-6 py-3 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          {entry.qtyAllocated > 0 && (
+                            <button
+                              onClick={() => { setReturning(entry); setReturnQty(entry.qtyAllocated); }}
+                              className="rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+                            >
+                              Return
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
+                              setEditingPartId(entry.id);
+                              setPartForm({ partId: entry.partId, qtyPerInstance: entry.qtyPerInstance, notes: entry.notes });
+                              setShowPart(true);
+                            }}
+                            className="rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-500/10"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setRemoving(entry)}
+                            className="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-500/10"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* Stock card — only shown if any stock has been pulled */}
-      {(stock.length > 0 || project.status !== 'PLANNING') && (
-        <div className="rounded-lg border border-gray-200 bg-surface shadow-sm">
-          <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-            <h2 className="font-semibold text-gray-900">Parts in Project</h2>
-            {canBuild && (
-              <button
-                onClick={() => setShowPull(true)}
-                className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-              >
-                Pull More Stock
-              </button>
-            )}
-          </div>
-          {stock.length === 0 ? (
-            <div className="px-6 py-8 text-center text-sm text-gray-400">
-              No stock pulled yet. Use "Pull Stock" to move parts from a location into the project.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-100">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Part</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">From</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Qty</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Price</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Added</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {stock.map((s) => (
-                    <tr key={s.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-3">
-                        <Link to={`/parts/${s.partId}`} className="font-medium text-blue-600 hover:underline text-sm">
-                          {s.partNumber}
-                        </Link>
-                        <div className="text-xs text-gray-400">{s.partName}</div>
-                      </td>
-                      <td className="px-6 py-3 text-sm text-gray-600" title={s.locationBreadcrumb}>
-                        {s.locationBreadcrumb || s.locationName}
-                      </td>
-                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{s.quantity}</td>
-                      <td className="px-6 py-3 text-sm text-gray-600">
-                        {s.unitPrice != null ? formatMoney(s.unitPrice) : '—'}
-                      </td>
-                      <td className="px-6 py-3 text-xs text-gray-400">
-                        {new Date(s.addedAt).toLocaleDateString()}
-                        {s.addedByName && <span className="ml-1">by {s.addedByName}</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Add/Edit BOM entry modal */}
-      <Modal open={showBom} onClose={() => setShowBom(false)} title={editingBomId ? 'Edit BOM Entry' : 'Add Part to BOM'} wide>
+      {/* Add / edit part modal */}
+      <Modal
+        open={showPart}
+        onClose={() => setShowPart(false)}
+        title={editingPartId ? 'Edit part list entry' : 'Add part to project'}
+        wide
+      >
         <div className="space-y-4">
-          {editingBomId === null && (
+          {editingPartId === null && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Search Part</label>
               <input
@@ -511,11 +472,11 @@ export default function ProjectDetailPage() {
                         <tr
                           key={p.id}
                           onClick={() => {
-                            setBomForm((f) => ({ ...f, partId: p.id }));
+                            setPartForm((f) => ({ ...f, partId: p.id }));
                             setPartSearch(p.partNumber);
                             setSearchResults([]);
                           }}
-                          className={`cursor-pointer hover:bg-blue-50 ${bomForm.partId === p.id ? 'bg-blue-50' : ''}`}
+                          className={`cursor-pointer hover:bg-blue-500/10 ${partForm.partId === p.id ? 'bg-blue-500/10' : ''}`}
                         >
                           <td className="px-3 py-2 text-sm font-medium text-gray-900 whitespace-nowrap">{p.partNumber}</td>
                           <td className="px-3 py-2 text-sm text-gray-500 max-w-xs truncate">{p.description ?? '—'}</td>
@@ -530,8 +491,8 @@ export default function ProjectDetailPage() {
                   </table>
                 </div>
               )}
-              {bomForm.partId > 0 && (
-                <p className="mt-1 text-xs text-green-600">Part selected (ID {bomForm.partId})</p>
+              {partForm.partId > 0 && (
+                <p className="mt-1 text-xs text-green-600">Part selected (ID {partForm.partId})</p>
               )}
             </div>
           )}
@@ -539,168 +500,129 @@ export default function ProjectDetailPage() {
             <label className="block text-sm font-medium text-gray-700">Qty per instance</label>
             <NumberInput
               className="mt-1 w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              value={bomForm.qtyPerInstance}
-              onChange={(v) => setBomForm((f) => ({ ...f, qtyPerInstance: v }))}
+              value={partForm.qtyPerInstance}
+              onChange={(v) => setPartForm((f) => ({ ...f, qtyPerInstance: v }))}
             />
+            <p className="mt-1 text-xs text-gray-400">
+              {(partForm.qtyPerInstance ?? 0) * project.instanceCount} will be taken from stock for{' '}
+              {project.instanceCount} {project.instanceCount === 1 ? 'instance' : 'instances'}.
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Notes</label>
             <input
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              value={bomForm.notes ?? ''}
-              onChange={(e) => setBomForm((f) => ({ ...f, notes: e.target.value }))}
+              value={partForm.notes ?? ''}
+              onChange={(e) => setPartForm((f) => ({ ...f, notes: e.target.value }))}
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button
-              onClick={() => setShowBom(false)}
+              onClick={() => setShowPart(false)}
               className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
             >
               Cancel
             </button>
             <button
-              onClick={handleAddBom}
-              disabled={bomSaving || (!editingBomId && !bomForm.partId) || !bomForm.qtyPerInstance}
+              onClick={handleSavePart}
+              disabled={partSaving || (!editingPartId && !partForm.partId) || !partForm.qtyPerInstance}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {bomSaving ? 'Saving…' : editingBomId ? 'Update' : 'Add'}
+              {partSaving ? 'Saving…' : editingPartId ? 'Update' : 'Add'}
             </button>
           </div>
         </div>
       </Modal>
 
-      {/* Pull stock modal */}
-      <Modal open={showPull} onClose={() => setShowPull(false)} title="Pull Stock into Project">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Part (from BOM)</label>
-            <select
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-              value={pullForm.partId || ''}
-              onChange={(e) => setPullForm((f) => ({ ...f, partId: Number(e.target.value) }))}
-            >
-              <option value="">Select a part…</option>
-              {bom.map((b) => (
-                <option key={b.partId} value={b.partId}>
-                  {b.partNumber} — {b.partName}
-                </option>
-              ))}
-              <option disabled>──────────</option>
-              <option value="-1">Other part (enter ID manually)</option>
-            </select>
-          </div>
-          {pullForm.partId === -1 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Part ID</label>
-              <NumberInput
-                className="mt-1 w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                placeholder="ID"
-                value={pullForm.partId > 0 ? pullForm.partId : null}
-                onChange={(v) => setPullForm((f) => ({ ...f, partId: v ?? -1 }))}
-              />
+      {/* Return modal — asks how many when the project holds more than one, confirms otherwise. */}
+      <Modal open={returning !== null} onClose={() => setReturning(null)} title="Return part to stock">
+        {returning && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              {returning.qtyAllocated === 1 ? (
+                <>Return the one <span className="font-medium">{returning.partNumber}</span> this
+                project holds to the location it came from?</>
+              ) : (
+                <>This project holds <span className="font-medium">{returning.qtyAllocated}</span> ×{' '}
+                <span className="font-medium">{returning.partNumber}</span>. How many go back to the
+                locations they came from?</>
+              )}
+            </p>
+            {returning.qtyAllocated > 1 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Quantity</label>
+                <NumberInput
+                  className="mt-1 w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  value={returnQty}
+                  onChange={setReturnQty}
+                  autoFocus
+                />
+              </div>
+            )}
+            <p className="text-xs text-gray-400">
+              The line stays on the list with its need intact, so it will show as short until the
+              parts are fetched again.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setReturning(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReturn}
+                disabled={busy || !returnQty || returnQty > returning.qtyAllocated}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {busy ? 'Returning…' : 'Return'}
+              </button>
             </div>
-          )}
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Source Location</label>
-            <select
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-              value={pullForm.locationId || ''}
-              onChange={(e) => setPullForm((f) => ({ ...f, locationId: Number(e.target.value) }))}
-            >
-              <option value="">Select a location…</option>
-              {myLocations.map((l) => (
-                <option key={l.id} value={l.id}>{l.breadcrumb}</option>
-              ))}
-            </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Quantity</label>
-            <NumberInput
-              className="mt-1 w-32 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-              value={pullForm.quantity}
-              onChange={(v) => setPullForm((f) => ({ ...f, quantity: v }))}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Unit Price (optional)</label>
-            <NumberInput
-              decimal
-              className="mt-1 w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-              placeholder="Leave blank to use WAC"
-              value={pullForm.unitPrice ?? null}
-              onChange={(v) => setPullForm((f) => ({ ...f, unitPrice: v }))}
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              onClick={() => setShowPull(false)}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handlePullStock}
-              disabled={pullSaving || !pullForm.partId || !pullForm.locationId || !pullForm.quantity}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              {pullSaving ? 'Pulling…' : 'Pull Stock'}
-            </button>
-          </div>
-        </div>
+        )}
       </Modal>
 
-      {/* Cancel modal */}
-      <Modal open={showCancel} onClose={() => setShowCancel(false)} title="Cancel Project">
+      {/* Remove-from-list confirmation */}
+      <Modal open={removing !== null} onClose={() => setRemoving(null)} title="Remove part from project">
+        {removing && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Take <span className="font-medium">{removing.partNumber}</span> off the project parts
+              list?
+              {removing.qtyAllocated > 0 && (
+                <> The {removing.qtyAllocated} the project holds will go back to the locations they
+                came from.</>
+              )}
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setRemoving(null)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
+              >
+                Keep it
+              </button>
+              <button
+                onClick={handleRemove}
+                disabled={busy}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {busy ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Cancel confirmation */}
+      <Modal open={showCancel} onClose={() => setShowCancel(false)} title="Cancel project">
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
-            Choose which pulled parts to return to their original locations. Unchecked parts remain consumed.
+            Every part this project holds goes back to the location it was taken from. The parts list
+            keeps what the project needs, so reactivating fetches it all again.
           </p>
-          {stock.length === 0 ? (
-            <p className="text-sm text-gray-400">No stock to return.</p>
-          ) : (
-            <div className="max-h-64 overflow-auto space-y-2">
-              {stock.map((s) => (
-                <label key={s.id} className="flex items-center gap-3 rounded-lg border border-gray-200 px-3 py-2 cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={returnIds.has(s.id)}
-                    onChange={(e) => {
-                      setReturnIds((prev) => {
-                        const next = new Set(prev);
-                        if (e.target.checked) next.add(s.id);
-                        else next.delete(s.id);
-                        return next;
-                      });
-                    }}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium text-gray-900">{s.partNumber}</span>
-                    <span className="text-sm text-gray-500 ml-1">{s.partName}</span>
-                    <div className="text-xs text-gray-400">
-                      {s.quantity} × from {s.locationBreadcrumb || s.locationName}
-                    </div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          )}
-          {stock.length > 0 && (
-            <div className="flex gap-2 text-xs text-gray-500">
-              <button
-                onClick={() => setReturnIds(new Set(stock.map((s) => s.id)))}
-                className="underline hover:text-gray-700"
-              >
-                Select all
-              </button>
-              <button
-                onClick={() => setReturnIds(new Set())}
-                className="underline hover:text-gray-700"
-              >
-                Clear
-              </button>
-            </div>
-          )}
+          <p className="text-sm text-gray-600">
+            A cancelled project is read-only until it is reactivated.
+          </p>
           <div className="flex justify-end gap-2 pt-2">
             <button
               onClick={() => setShowCancel(false)}
@@ -710,10 +632,38 @@ export default function ProjectDetailPage() {
             </button>
             <button
               onClick={handleCancel}
-              disabled={cancelSaving}
+              disabled={busy}
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
             >
-              {cancelSaving ? 'Cancelling…' : 'Cancel Project'}
+              {busy ? 'Cancelling…' : 'Cancel Project'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete confirmation */}
+      <Modal open={showDelete} onClose={() => setShowDelete(false)} title="Delete project">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Delete <span className="font-medium">{project.name}</span> for good? Its parts list and
+            its imported BOM go with it, and this cannot be undone.
+          </p>
+          <p className="text-xs text-gray-400">
+            The stock movements this project caused stay in the ledger and go on naming it.
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              onClick={() => setShowDelete(false)}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
+            >
+              Keep it
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={busy}
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {busy ? 'Deleting…' : 'Delete Project'}
             </button>
           </div>
         </div>

@@ -31,6 +31,13 @@ public class Project {
     @Column(name = "instance_count", nullable = false)
     private int instanceCount;
 
+    /**
+     * Logically deleted. The row survives so {@code stock_movement.project_id} can still name the
+     * project a PROJECT_OUT or PROJECT_RETURN belonged to; everything the project owned is gone.
+     */
+    @Column(nullable = false)
+    private boolean deleted;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "owner_id", nullable = false)
     private AppUser owner;

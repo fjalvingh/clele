@@ -217,7 +217,7 @@ export default function ProjectBomPage() {
     try {
       await deleteImportedBom(projectId);
       setConfirmDelete(false);
-      setNotice('The imported BOM was deleted. The project BOM itself is untouched.');
+      setNotice('The imported BOM was deleted. The project parts list itself is untouched.');
       await load();
     } catch (err: unknown) {
       setError((err as Error).message);
@@ -323,21 +323,21 @@ export default function ProjectBomPage() {
                   disabled={applying || !bom.canApply || bom.matchedCount === 0}
                   title={
                     !bom.canApply
-                      ? 'The project BOM can only be changed while the project is in Planning'
+                      ? 'A cancelled project accepts no input — reactivate it first'
                       : bom.matchedCount === 0
                       ? 'Match at least one line first'
                       : undefined
                   }
                   className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-                  {applying ? 'Applying…' : 'Apply to project BOM'}
+                  {applying ? 'Applying…' : 'Apply to project parts list'}
                 </button>
               </div>
             </div>
             {bom.unmatchedCount > 0 && (
               <p className="mt-4 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
-                Applying writes only the matched lines into the project BOM. You can stop and come
-                back — every decision here is saved as you make it.
+                Applying writes only the matched lines into the project parts list, taking them out
+                of stock. You can stop and come back — every decision here is saved as you make it.
               </p>
             )}
           </header>
@@ -713,11 +713,11 @@ export default function ProjectBomPage() {
       </Modal>
 
       {/* Apply result */}
-      <Modal open={applyResult !== null} onClose={() => { setApplyResult(null); void load(); }} title="Applied to project BOM">
+      <Modal open={applyResult !== null} onClose={() => { setApplyResult(null); void load(); }} title="Applied to project parts list">
         {applyResult && (
           <div className="space-y-4 text-sm">
             <ul className="space-y-1 text-gray-700">
-              <li>{applyResult.created} part{applyResult.created === 1 ? '' : 's'} added to the project BOM</li>
+              <li>{applyResult.created} part{applyResult.created === 1 ? '' : 's'} added to the project parts list</li>
               <li>{applyResult.updated} quantit{applyResult.updated === 1 ? 'y' : 'ies'} updated</li>
               <li>{applyResult.unchanged} already correct</li>
             </ul>
@@ -727,10 +727,16 @@ export default function ProjectBomPage() {
                 {' '}{applyResult.skippedExcluded} excluded.
               </p>
             )}
+            {applyResult.shortParts > 0 && (
+              <p className="rounded-lg border border-amber-200 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
+                {applyResult.shortParts} part{applyResult.shortParts === 1 ? '' : 's'} could not be
+                taken from stock in full. They are on the list, allocated short.
+              </p>
+            )}
             {applyResult.unaccountedProjectParts > 0 && (
-              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <p className="rounded-lg border border-amber-200 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
                 {applyResult.unaccountedProjectParts} part
-                {applyResult.unaccountedProjectParts === 1 ? '' : 's'} in the project BOM
+                {applyResult.unaccountedProjectParts === 1 ? '' : 's'} in the project parts list
                 {applyResult.unaccountedProjectParts === 1 ? ' is' : ' are'} not in this file. They
                 were left alone — remove them on the project page if they no longer belong.
               </p>
@@ -748,7 +754,7 @@ export default function ProjectBomPage() {
         <div className="space-y-4 text-sm text-gray-700">
           <p>
             This removes the uploaded file and every line, including all matching decisions. Parts
-            already applied to the project BOM stay where they are.
+            already applied to the project parts list stay where they are.
           </p>
           <div className="flex justify-end gap-2">
             <button onClick={() => setConfirmDelete(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">

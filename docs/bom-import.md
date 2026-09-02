@@ -7,6 +7,10 @@ Part of the Clele documentation — `CLAUDE.md` holds the overview and the index
 Upload an EDA tool's BOM export into a project, keep it in the database, and match its lines to
 catalogue parts at leisure. Replaces adding sixty parts one search at a time on Project Detail.
 
+**"BOM" means this uploaded file and nothing else.** The project's own list of parts is the *project
+parts list* (`project_part`, see `docs/projects.md`); the two used to share the name and it was
+never clear which one a screen meant.
+
 **Matching is work the user stops and resumes**, which is the constraint the whole design answers
 to: the file, every line and every decision are persisted, and an unmatched line is a normal state
 rather than an error. Package `com.clele.parts.service.bom`.
@@ -57,14 +61,18 @@ also separate public methods rather than one with a flag, since self-invocation 
 annotation inert. `ProjectBomImportServiceTest` pins the detach — mocks cannot reproduce a flush, so
 what is pinned is the mechanism that prevents it.
 
-- **The imported BOM is separate from `project_part`.** `ProjectBomService.apply` (PLANNING only,
-  same guard as `addBomEntry`) pushes the matched lines into `project_part` — the table Pull Stock
-  and the build flow actually read. Several lines can resolve to the same part (two 100nF caps in
-  different footprints), so quantities are **summed**: `project_part` is unique per (project, part).
-  PROVIDED/EXCLUDED/UNMATCHED lines are skipped, and existing `project_part` rows no line accounts
-  for are **reported, never deleted** — the imported BOM is not the only way parts get into a project.
-  Keeping this an explicit step matters: matching is exploratory and half-finished for most of its
-  life, while `project_part` is what the build runs on.
+- **The imported BOM is separate from the project parts list.** `ProjectBomService.apply` (active
+  projects only, `requireActiveProject` like every other write to a project) pushes the matched
+  lines into `project_part` **and allocates each one out of stock**, exactly as adding the part by
+  hand does — it goes through `ProjectService.syncAllocation`, so there is one definition of what
+  putting a part on the list means. Lines the shelf cannot cover are allocated short and counted as
+  `shortParts` in the result rather than failing the apply. Several lines can resolve to the same
+  part (two 100nF caps in different footprints), so quantities are **summed**: `project_part` is
+  unique per (project, part). PROVIDED/EXCLUDED/UNMATCHED lines are skipped, and existing
+  `project_part` rows no line accounts for are **reported, never deleted** — the imported BOM is not
+  the only way parts get into a project. Keeping this an explicit step matters: matching is
+  exploratory and half-finished for most of its life, while the parts list is what the build runs
+  on, and applying it moves real stock.
 - **Suggestions are computed per line, on demand** (`PartRepository.fuzzyByPartNumberOrMpn`, a
   sibling of Quick Add's `fuzzyByPartNumber` that also covers `mpn` and returns the similarity as a
   score). Filling a column for a hundred-line BOM on load would be a hundred trigram queries for
@@ -78,4 +86,5 @@ what is pinned is the mechanism that prevents it.
   **Exclude** / **Add to catalogue** (which links to `/quick-add?q=` — QuickAdd reads `q` to
   pre-fill its search). Project Detail gains an *Imported BOM* card above the existing BOM card.
   Row tints use translucent colours (`bg-purple-500/10`), never `bg-purple-50` — a fixed light
-  colour sits on top of the row in dark mode and washes the text out.
+  colour sits on top of the row in dark mode and washes the text out. The apply button says
+  **Apply to project parts list**, never "apply to project BOM".

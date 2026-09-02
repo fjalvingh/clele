@@ -19,7 +19,7 @@ public class ProjectBomDTO {
     /** Multiplies every line's quantity into what the build actually needs. */
     private int instanceCount;
 
-    /** True while the project is in PLANNING — the only state in which the BOM can be applied. */
+    /** True while the project is ACTIVE — a cancelled project accepts no input. */
     private boolean canApply;
 
     private String filename;

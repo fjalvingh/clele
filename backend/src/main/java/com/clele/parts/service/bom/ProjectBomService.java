@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
 
 /**
  * Reads and edits a project's imported BOM: the matching screen's whole backend, plus the step that
- * pushes what has been matched into the project's own BOM.
+ * pushes what has been matched into the project's part list.
  *
  * <p>Matching is deliberately incremental. Every decision is one call and is stored immediately, so
  * the user can close the screen at any point and pick it up days later with nothing lost.
@@ -161,12 +161,13 @@ public class ProjectBomService {
     // ------------------------------------------------------------------
 
     /**
-     * Pushes the matched lines into the project's own BOM ({@code project_part}) — the table Pull
-     * Stock and the build flow actually read.
+     * Pushes the matched lines into the project's <b>part list</b> ({@code project_part}) — and, as
+     * for any other way a part reaches that list, takes what the build needs out of stock there and
+     * then. Lines the shelf cannot cover are allocated short and counted in the result.
      *
      * <p>Kept as a separate, explicit step rather than a side effect of matching: matching is
-     * exploratory and half-finished for most of its life, while {@code project_part} is what the
-     * build runs on. Several BOM lines can resolve to the same part (two 100nF caps in different
+     * exploratory and half-finished for most of its life, while the part list is what the build
+     * runs on. Several BOM lines can resolve to the same part (two 100nF caps in different
      * footprints), so quantities are <b>summed</b> — {@code project_part} is unique per
      * (project, part).
      *
@@ -175,11 +176,7 @@ public class ProjectBomService {
      */
     @Transactional
     public BomApplyResultDTO apply(Long projectId) {
-        Project project = projectService.requireOwnProject(projectId);
-        if (project.getStatus() != ProjectStatus.PLANNING) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "The BOM can only be applied while the project is in PLANNING status");
-        }
+        Project project = projectService.requireActiveProject(projectId);
         ProjectBom bom = bomRepository.findByProjectId(projectId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "No BOM has been imported for this project"));
@@ -212,21 +209,29 @@ public class ProjectBomService {
         int created = 0;
         int updated = 0;
         int unchanged = 0;
+        int shortParts = 0;
         for (Map.Entry<Long, Integer> entry : qtyByPart.entrySet()) {
             ProjectPart pp = existing.get(entry.getKey());
             if (pp == null) {
-                projectPartRepository.save(ProjectPart.builder()
+                pp = ProjectPart.builder()
                         .project(project)
                         .part(partsById.get(entry.getKey()))
                         .qtyPerInstance(entry.getValue())
-                        .build());
+                        .qtyAllocated(0)
+                        .build();
                 created++;
             } else if (pp.getQtyPerInstance() != entry.getValue()) {
                 pp.setQtyPerInstance(entry.getValue());
-                projectPartRepository.save(pp);
                 updated++;
             } else {
                 unchanged++;
+            }
+            // Allocate (or hand back) whatever the new quantity changed, exactly as adding the part
+            // by hand would. A line the shelf cannot cover stays on the list, allocated short.
+            projectService.syncAllocation(project, pp);
+            projectPartRepository.save(pp);
+            if (pp.getQtyAllocated() < pp.totalNeeded(project.getInstanceCount())) {
+                shortParts++;
             }
         }
 
@@ -241,11 +246,12 @@ public class ProjectBomService {
                 .skippedUnmatched(skippedUnmatched)
                 .skippedProvided(skippedProvided)
                 .skippedExcluded(skippedExcluded)
+                .shortParts(shortParts)
                 .unaccountedProjectParts(unaccounted)
                 .build();
     }
 
-    /** Drops the imported BOM and every line and decision on it. Leaves {@code project_part}. */
+    /** Drops the imported BOM and every line and decision on it. Leaves the part list alone. */
     @Transactional
     public void delete(Long projectId) {
         projectService.requireOwnProject(projectId);
@@ -312,7 +318,7 @@ public class ProjectBomService {
                 .projectId(project.getId())
                 .projectName(project.getName())
                 .instanceCount(project.getInstanceCount())
-                .canApply(project.getStatus() == ProjectStatus.PLANNING)
+                .canApply(project.getStatus() == ProjectStatus.ACTIVE)
                 .filename(bom.getFilename())
                 .contentType(bom.getContentType())
                 .importedAt(bom.getImportedAt())

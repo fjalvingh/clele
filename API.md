@@ -122,6 +122,20 @@ in the feature documents under `docs/` — the section names referenced below ("
   generated part is given; `GET /{id}/generations` lists the past runs, each saying whether it can
   still be undone and — when it cannot — why, and `POST /{id}/generations/{generationId}/undo`
   takes one back (the newest only, 409 with the reason otherwise — see Undoing a generation)
+- **Projects and their part lists** (`/projects`, all `PARTS_EDIT` — see Projects): `GET` lists the
+  caller's own projects, `POST` creates one (it starts ACTIVE), `GET /{id}` returns it with its part
+  list, `PUT /{id}` updates name/description/instance count (ACTIVE only; changing the instance
+  count re-allocates every line), `DELETE /{id}` deletes a **cancelled** project — its part list,
+  allocations and imported BOM go for real while the project row is kept, logically deleted, so
+  `stock_movement.project_id` still names it. The part list is the `/parts` sub-resource, and every
+  write to it moves stock: `POST /{id}/parts` `{partId, qtyPerInstance, notes?}` adds a line and
+  allocates `qtyPerInstance × instanceCount` out of stock, `PUT /{id}/parts/{projectPartId}`
+  allocates or returns the difference, `DELETE /{id}/parts/{projectPartId}` returns everything the
+  line holds and removes it, and `POST /{id}/parts/{projectPartId}/return` `{quantity}` gives part
+  of the allocation back while keeping the need. `POST /{id}/cancel` returns every allocation to the
+  locations it came from and makes the project read-only; `POST /{id}/activate` takes it all out of
+  stock again. Allocation is best-effort — a line stock cannot cover comes back with
+  `qtyAllocated < totalNeeded` and a `shortfall`, never an error
 - **Project BOM import** (`/projects/{projectId}/bom`, all `PARTS_EDIT` — see BOM Import):
   `GET` returns the imported BOM with every line and its match, or **204** when none has been
   imported (the normal starting state, not an error); `POST /import` (multipart `file` + optional
@@ -131,8 +145,9 @@ in the feature documents under `docs/` — the section names referenced below ("
   `GET /file` downloads the file as uploaded; `GET /lines/{lineId}/candidates` returns ranked part
   suggestions with a pg_trgm similarity; `PUT /lines/{lineId}` `{partId?, status?, notes?}` records
   one line's decision (MATCHED / PROVIDED / EXCLUDED / UNMATCHED) and clears its `changed` flag;
-  `POST /apply` pushes the matched lines into `project_part`, summing quantities per part
-  (PLANNING only); `DELETE` drops the imported BOM, leaving `project_part` alone
+  `POST /apply` pushes the matched lines into the project parts list (`project_part`), summing
+  quantities per part and allocating each out of stock (ACTIVE projects only; the result reports
+  `shortParts`); `DELETE` drops the imported BOM, leaving the part list alone
 - `GET /dashboard`
 - `GET /dashboard/recent-parts?page=&size=` — the organisation's parts newest first (the dashboard's
   "Recently Added" list), as `{items, total, page, size}`. Each item carries `partNumber`,

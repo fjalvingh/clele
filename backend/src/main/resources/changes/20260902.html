@@ -1,0 +1,46 @@
+<h4>Projects now hold their parts</h4>
+<p>
+  A project used to walk a ladder of states — Planning, Building, Completed — and pulling parts out
+  of stock was a separate chore, done one dialog at a time. That is gone. A project is now either
+  <strong>active</strong> or <strong>cancelled</strong>, and the difference is a physical one:
+  <strong>an active project holds its parts</strong>. Put a part on the list and it comes off the
+  shelf then and there.
+</p>
+<p>
+  Cancelling a project gives every one of those parts back to the location it came from, while
+  keeping a record of what the project needed. Reactivating it fetches them all out of stock again.
+  If the shelf can no longer cover a line — the parts went into something else in the meantime — the
+  line is filled as far as it goes and marked <strong>short</strong> on the project screen, rather
+  than the whole thing refusing to happen.
+</p>
+<p>
+  A cancelled project accepts no changes at all until you reactivate it. It can also be
+  <strong>deleted</strong>, which removes the project, its parts list and its imported BOM for good.
+  The stock movements it caused stay in the ledger and go on naming it, so the history of your stock
+  never develops a hole.
+</p>
+
+<h4>Returning parts as you go</h4>
+<p>
+  Every line of a project's parts list has a <strong>Return</strong> button. It asks how many when
+  the project holds more than one, and simply confirms when it holds one, then puts them back where
+  they came from. The line stays on the list with what it needs intact, so it reads as short until
+  you fetch the parts again.
+</p>
+
+<h4>Two lists, and only one of them is a BOM</h4>
+<p>
+  "BOM" meant two different things and it was never clear which. From now on:
+</p>
+<ul>
+  <li>the <strong>project parts list</strong> is the project's own list of parts — what it needs and
+    what it is holding;</li>
+  <li>the <strong>BOM</strong> is the file you upload from your EDA tool, and the screen where its
+    lines are matched to parts.</li>
+</ul>
+<p>
+  The button at the end of the matching screen is now <strong>Apply to project parts list</strong>,
+  and pressing it does what putting a part on the list does anywhere else: the matched lines go onto
+  the parts list and come out of stock. Anything the shelf cannot cover is reported instead of
+  silently skipped.
+</p>

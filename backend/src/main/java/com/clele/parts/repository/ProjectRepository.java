@@ -8,9 +8,11 @@ import java.util.Optional;
 
 public interface ProjectRepository extends JpaRepository<Project, Long> {
 
-    List<Project> findByOrganisationIdAndOwnerIdOrderByUpdatedAtDesc(Long organisationId, Long ownerId);
+    List<Project> findByOrganisationIdAndOwnerIdAndDeletedFalseOrderByUpdatedAtDesc(
+            Long organisationId, Long ownerId);
 
-    Optional<Project> findByIdAndOrganisationIdAndOwnerId(Long id, Long organisationId, Long ownerId);
+    Optional<Project> findByIdAndOrganisationIdAndOwnerIdAndDeletedFalse(
+            Long id, Long organisationId, Long ownerId);
 
-    long countByOrganisationId(Long organisationId);
+    long countByOrganisationIdAndDeletedFalse(Long organisationId);
 }

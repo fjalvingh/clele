@@ -78,10 +78,17 @@ Part of the Clele documentation — `CLAUDE.md` holds the overview and the index
   entries with unit price; total on-hand quantity + total stock value summary; a collapsible
   "Stock Movements" history (ledger sorted newest-first, showing quantity, location, price, comments,
   timestamp, and who made the move) backed by `GET /parts/{id}/movements`
+- **Projects**: a build with a parts list. A project is *active* or *cancelled*, and the difference
+  is physical — an active project holds its parts, taken out of stock the moment they went on the
+  list. Cancelling gives every one of them back to the location it came from and keeps what the
+  project needed; reactivating fetches it all out again, showing which lines the shelf can no longer
+  cover. Individual parts can be returned as you go, and a cancelled project can be deleted (see
+  Projects above)
 - **BOM import**: upload an EDA tool's CSV export into a project, then match its lines to catalogue
   parts a few at a time over as long as it takes — the file and every decision are stored, exact
-  hits match themselves, and re-uploading a revised export merges rather than starting over (see
-  BOM Import & Matching above)
+  hits match themselves, and re-uploading a revised export merges rather than starting over.
+  Applying the matched lines writes them onto the project parts list and allocates them from stock
+  (see BOM Import & Matching above)
 - **Part kits**: define a pack bought as a set — a resistor kit, a capacitor assortment — as one
   part template plus the list of values it varies over (including the photos every part gets), then
   generate every part with its stock in one action — and take that run back again while nothing it

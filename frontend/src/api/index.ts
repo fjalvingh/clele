@@ -5,7 +5,6 @@ import type {
   AiApplyRequest,
   AppSettings,
   AuthUser,
-  CancelRequest,
   CategorizationStatus,
   Category,
   CategoryRequest,
@@ -57,11 +56,10 @@ import type {
   PartRequest,
   PartSearchResult,
   Project,
-  ProjectBomEntry,
-  ProjectBomRequest,
+  ProjectPart,
+  ProjectPartRequest,
   ProjectRequest,
-  ProjectStockEntry,
-  PullStockRequest,
+  ReturnPartRequest,
   QuickAddRequest,
   QuickAddResponse,
   RecentPartsPage,
@@ -582,29 +580,43 @@ export const createProject = (data: ProjectRequest) =>
 export const updateProject = (id: number, data: ProjectRequest) =>
   client.put<Project>(`/projects/${id}`, data).then((r) => r.data);
 
+/** Cancelled projects only — deletes the part list, the allocations and the imported BOM. */
 export const deleteProject = (id: number) =>
   client.delete(`/projects/${id}`);
 
-export const addBomEntry = (projectId: number, data: ProjectBomRequest) =>
-  client.post<ProjectBomEntry>(`/projects/${projectId}/bom`, data).then((r) => r.data);
+// Project part list — adding a part allocates it out of stock immediately.
+export const addProjectPart = (projectId: number, data: ProjectPartRequest) =>
+  client.post<ProjectPart>(`/projects/${projectId}/parts`, data).then((r) => r.data);
 
-export const updateBomEntry = (projectId: number, bomId: number, data: ProjectBomRequest) =>
-  client.put<ProjectBomEntry>(`/projects/${projectId}/bom/${bomId}`, data).then((r) => r.data);
+export const updateProjectPart = (
+  projectId: number,
+  projectPartId: number,
+  data: ProjectPartRequest,
+) =>
+  client
+    .put<ProjectPart>(`/projects/${projectId}/parts/${projectPartId}`, data)
+    .then((r) => r.data);
 
-export const removeBomEntry = (projectId: number, bomId: number) =>
-  client.delete(`/projects/${projectId}/bom/${bomId}`);
+/** Removes the line and returns everything it holds to the locations it came from. */
+export const removeProjectPart = (projectId: number, projectPartId: number) =>
+  client.delete(`/projects/${projectId}/parts/${projectPartId}`);
 
-export const startBuild = (projectId: number) =>
-  client.post<Project>(`/projects/${projectId}/start-build`).then((r) => r.data);
+export const returnProjectPart = (
+  projectId: number,
+  projectPartId: number,
+  data: ReturnPartRequest,
+) =>
+  client
+    .post<ProjectPart>(`/projects/${projectId}/parts/${projectPartId}/return`, data)
+    .then((r) => r.data);
 
-export const pullStock = (projectId: number, data: PullStockRequest) =>
-  client.post<ProjectStockEntry>(`/projects/${projectId}/pull-stock`, data).then((r) => r.data);
+/** Returns every allocation to stock; the needed quantities stay. */
+export const cancelProject = (projectId: number) =>
+  client.post<Project>(`/projects/${projectId}/cancel`).then((r) => r.data);
 
-export const completeProject = (projectId: number) =>
-  client.post<Project>(`/projects/${projectId}/complete`).then((r) => r.data);
-
-export const cancelProject = (projectId: number, data: CancelRequest) =>
-  client.post<Project>(`/projects/${projectId}/cancel`, data).then((r) => r.data);
+/** Fetches the whole part list out of stock again; lines stock cannot cover come back short. */
+export const activateProject = (projectId: number) =>
+  client.post<Project>(`/projects/${projectId}/activate`).then((r) => r.data);
 
 // Imported BOM
 

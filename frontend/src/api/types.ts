@@ -466,7 +466,11 @@ export interface StockMovement {
 }
 
 // Projects
-export type ProjectStatus = 'PLANNING' | 'BUILDING' | 'COMPLETED' | 'CANCELLED';
+//
+// A project has two phases. While ACTIVE every line of its part list is physically held by the
+// project — taken out of stock the moment it was added. CANCELLED gives all of it back to stock and
+// keeps the needed quantities, and accepts no input at all.
+export type ProjectStatus = 'ACTIVE' | 'CANCELLED';
 
 export interface Project {
   id: number;
@@ -476,40 +480,35 @@ export interface Project {
   instanceCount: number;
   ownerId: number;
   ownerName?: string;
-  bomPartCount: number;
+  partCount: number;
   totalStockValue?: number | null;
+  /** Some part list line holds less than the build needs — stock ran short. */
+  anyShortfall: boolean;
   createdAt: string;
   updatedAt: string;
-  /** Populated only by the detail endpoint. */
-  bom?: ProjectBomEntry[];
-  /** Populated only by the detail endpoint. */
-  stock?: ProjectStockEntry[];
+  /** The project part list. Populated only by the detail endpoint. */
+  parts?: ProjectPart[];
 }
 
-export interface ProjectBomEntry {
+/**
+ * One line of the project part list — a `project_part` row.
+ *
+ * Distinct from ImportedBomLine below, which is a line of an uploaded BOM file waiting to be
+ * matched to a part. Applying an imported BOM writes ProjectPart rows.
+ */
+export interface ProjectPart {
   id: number;
   partId: number;
   partName: string;
   partNumber: string;
   qtyPerInstance: number;
+  /** qtyPerInstance × the project's instance count. */
   totalNeeded: number;
-  pulledTotal: number;
+  /** Out of stock and held by the project right now. Zero while cancelled. */
+  qtyAllocated: number;
+  /** totalNeeded − qtyAllocated, never negative. */
+  shortfall: number;
   notes?: string;
-}
-
-export interface ProjectStockEntry {
-  id: number;
-  partId: number;
-  partName: string;
-  partNumber: string;
-  locationId: number;
-  locationName: string;
-  locationBreadcrumb: string;
-  quantity: number;
-  unitPrice?: number | null;
-  movementId?: number | null;
-  addedAt: string;
-  addedByName?: string;
 }
 
 export interface ProjectRequest {
@@ -518,28 +517,21 @@ export interface ProjectRequest {
   instanceCount: number;
 }
 
-export interface ProjectBomRequest {
+export interface ProjectPartRequest {
   partId: number;
   qtyPerInstance: number;
   notes?: string;
 }
 
-export interface PullStockRequest {
-  partId: number;
-  locationId: number;
+export interface ReturnPartRequest {
   quantity: number;
-  unitPrice?: number | null;
-}
-
-export interface CancelRequest {
-  returnStockIds: number[];
 }
 
 // Imported BOM
 //
-// Distinct from ProjectBomEntry above, which is a `project_part` row — the project's own BOM, what
-// Pull Stock reads. An ImportedBom is the uploaded CSV and the matching work on it; applying it
-// writes ProjectBomEntry rows.
+// Distinct from ProjectPart above, which is a `project_part` row — a line of the project part list.
+// An ImportedBom is the uploaded CSV and the matching work on it; applying it writes ProjectPart
+// rows and allocates them out of stock.
 
 export type BomLineStatus = 'UNMATCHED' | 'MATCHED' | 'PROVIDED' | 'EXCLUDED';
 export type BomMatchSource = 'AUTO' | 'MANUAL';
@@ -594,7 +586,7 @@ export interface ImportedBom {
   projectId: number;
   projectName: string;
   instanceCount: number;
-  /** False outside PLANNING — the BOM can only be applied then. */
+  /** False while the project is cancelled — a cancelled project accepts no input. */
   canApply: boolean;
   filename?: string | null;
   contentType?: string | null;
@@ -662,6 +654,8 @@ export interface BomApplyResult {
   skippedUnmatched: number;
   skippedProvided: number;
   skippedExcluded: number;
+  /** Part list lines that could not be allocated in full — stock ran short. */
+  shortParts: number;
   unaccountedProjectParts: number;
 }
 

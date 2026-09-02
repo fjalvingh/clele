@@ -11,10 +11,20 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * A project and its <b>part list</b>.
+ *
+ * <p>Two phases, and the difference between them is where the parts physically are. While a project
+ * is {@link ProjectStatus#ACTIVE} every line of its part list is held by the project, taken out of
+ * stock the moment it was added; cancelling gives all of it back and keeps the needed quantities,
+ * and reactivating takes it out again. Nothing can be entered while cancelled.
+ *
+ * <p>The part list is <b>not</b> the BOM. The BOM is the file uploaded into
+ * {@link com.clele.parts.service.bom.ProjectBomService}, whose "apply" step feeds this list.
+ */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -23,16 +33,15 @@ public class ProjectService {
     private final ProjectRepository projectRepository;
     private final ProjectPartRepository projectPartRepository;
     private final ProjectStockRepository projectStockRepository;
+    private final ProjectBomRepository projectBomRepository;
     private final PartRepository partRepository;
-    private final LocationRepository locationRepository;
-    private final StockEntryRepository stockEntryRepository;
-    private final StockMovementService stockMovementService;
+    private final ProjectAllocationService allocationService;
     private final CurrentUserService currentUserService;
     private final CurrentOrganisationService currentOrganisationService;
 
     public List<ProjectDTO> findAll() {
         AppUser me = currentUserService.current();
-        return projectRepository.findByOrganisationIdAndOwnerIdOrderByUpdatedAtDesc(
+        return projectRepository.findByOrganisationIdAndOwnerIdAndDeletedFalseOrderByUpdatedAtDesc(
                         currentOrganisationService.currentId(), me.getId()).stream()
                 .map(this::toSummaryDTO)
                 .collect(Collectors.toList());
@@ -40,9 +49,7 @@ public class ProjectService {
 
     public ProjectDTO findById(Long id) {
         Project project = requireOwnProject(id);
-        List<ProjectPart> bom = projectPartRepository.findByProjectIdWithPart(id);
-        List<ProjectStock> stock = projectStockRepository.findByProjectIdWithDetails(id);
-        return toDetailDTO(project, bom, stock);
+        return toDetailDTO(project, projectPartRepository.findByProjectIdWithPart(id));
     }
 
     @Transactional
@@ -52,182 +59,165 @@ public class ProjectService {
                 .name(request.getName())
                 .description(request.getDescription())
                 .instanceCount(request.getInstanceCount())
-                .status(ProjectStatus.PLANNING)
+                .status(ProjectStatus.ACTIVE)
                 .owner(me)
                 .organisation(currentOrganisationService.current())
                 .build();
         return toSummaryDTO(projectRepository.save(project));
     }
 
+    /**
+     * Renames a project or changes what it builds. Raising the instance count raises every line's
+     * need, so the allocation is topped up in the same step — the alternative is a project that
+     * silently claims to be short of parts that are sitting on the shelf.
+     */
     @Transactional
     public ProjectDTO update(Long id, ProjectRequest request) {
-        Project project = requireOwnProject(id);
-        if (project.getStatus() != ProjectStatus.PLANNING) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Can only edit projects in PLANNING status");
-        }
+        Project project = requireActiveProject(id);
         project.setName(request.getName());
         project.setDescription(request.getDescription());
+        boolean instancesChanged = project.getInstanceCount() != request.getInstanceCount();
         project.setInstanceCount(request.getInstanceCount());
-        return toSummaryDTO(projectRepository.save(project));
+        projectRepository.save(project);
+
+        if (instancesChanged) {
+            List<ProjectPart> parts = projectPartRepository.findByProjectIdWithPart(id);
+            parts.forEach(pp -> syncAllocation(project, pp));
+            projectPartRepository.saveAll(parts);
+        }
+        return toSummaryDTO(project);
     }
 
+    /**
+     * Deletes a cancelled project and everything it owns.
+     *
+     * <p>The project row itself is only <b>logically</b> deleted: {@code stock_movement.project_id}
+     * still points at it, so the ledger can go on saying which project a PROJECT_OUT or
+     * PROJECT_RETURN belonged to. The part list, the allocation batches and the imported BOM are
+     * deleted for real — a cancelled project holds no stock, so nothing is lost by that.
+     */
     @Transactional
     public void delete(Long id) {
         Project project = requireOwnProject(id);
-        if (project.getStatus() != ProjectStatus.PLANNING) {
+        if (project.getStatus() != ProjectStatus.CANCELLED) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Can only delete projects in PLANNING status");
+                    "Only a cancelled project can be deleted");
         }
-        projectRepository.delete(project);
+        projectBomRepository.findByProjectId(id).ifPresent(projectBomRepository::delete);
+        projectStockRepository.deleteByProjectId(id);
+        projectPartRepository.deleteByProjectId(id);
+        project.setDeleted(true);
+        projectRepository.save(project);
     }
 
     // ------------------------------------------------------------------
-    // BOM management
+    // Part list
     // ------------------------------------------------------------------
 
+    /** Adds a part to the list and immediately takes what the build needs out of stock. */
     @Transactional
-    public ProjectBomEntryDTO addBomEntry(Long projectId, ProjectBomRequest request) {
-        Project project = requireOwnProject(projectId);
-        if (project.getStatus() != ProjectStatus.PLANNING) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "BOM can only be modified in PLANNING status");
-        }
+    public ProjectPartDTO addPart(Long projectId, ProjectPartRequest request) {
+        Project project = requireActiveProject(projectId);
         if (projectPartRepository.existsByProjectIdAndPartId(projectId, request.getPartId())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Part is already in the BOM");
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "That part is already on the project's part list");
         }
         Part part = partRepository.findByIdAndOrganisationId(
                         request.getPartId(), currentOrganisationService.currentId())
                 .orElseThrow(() -> new EntityNotFoundException("Part not found: " + request.getPartId()));
+
         ProjectPart pp = ProjectPart.builder()
                 .project(project)
                 .part(part)
                 .qtyPerInstance(request.getQtyPerInstance())
+                .qtyAllocated(0)
                 .notes(request.getNotes())
                 .build();
-        return toBomDTO(projectPartRepository.save(pp), project);
+        syncAllocation(project, pp);
+        return toPartDTO(projectPartRepository.save(pp), project.getInstanceCount());
     }
 
+    /** Changes how many the build needs, allocating the difference or giving the excess back. */
     @Transactional
-    public ProjectBomEntryDTO updateBomEntry(Long projectId, Long bomId, ProjectBomRequest request) {
-        Project project = requireOwnProject(projectId);
-        ProjectPart pp = projectPartRepository.findById(bomId)
-                .orElseThrow(() -> new EntityNotFoundException("BOM entry not found: " + bomId));
-        if (!pp.getProject().getId().equals(projectId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "BOM entry does not belong to this project");
-        }
+    public ProjectPartDTO updatePart(Long projectId, Long projectPartId, ProjectPartRequest request) {
+        Project project = requireActiveProject(projectId);
+        ProjectPart pp = requireOwnPart(projectId, projectPartId);
         pp.setQtyPerInstance(request.getQtyPerInstance());
         pp.setNotes(request.getNotes());
-        return toBomDTO(projectPartRepository.save(pp), project);
+        syncAllocation(project, pp);
+        return toPartDTO(projectPartRepository.save(pp), project.getInstanceCount());
     }
 
+    /** Takes a part off the list, returning everything the project held of it. */
     @Transactional
-    public void removeBomEntry(Long projectId, Long bomId) {
-        Project project = requireOwnProject(projectId);
-        if (project.getStatus() != ProjectStatus.PLANNING) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "BOM can only be modified in PLANNING status");
-        }
-        ProjectPart pp = projectPartRepository.findById(bomId)
-                .orElseThrow(() -> new EntityNotFoundException("BOM entry not found: " + bomId));
-        if (!pp.getProject().getId().equals(projectId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "BOM entry does not belong to this project");
-        }
+    public void removePart(Long projectId, Long projectPartId) {
+        Project project = requireActiveProject(projectId);
+        ProjectPart pp = requireOwnPart(projectId, projectPartId);
+        allocationService.release(project, pp.getPart(), pp.getQtyAllocated());
         projectPartRepository.delete(pp);
     }
 
+    /**
+     * Gives some of one line's allocation back to the locations it came from. The line stays on the
+     * list with its need intact, so the shortfall is visible until the parts are fetched again.
+     */
+    @Transactional
+    public ProjectPartDTO returnPart(Long projectId, Long projectPartId, ReturnPartRequest request) {
+        Project project = requireActiveProject(projectId);
+        ProjectPart pp = requireOwnPart(projectId, projectPartId);
+        if (request.getQuantity() > pp.getQtyAllocated()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The project only holds " + pp.getQtyAllocated() + " of that part");
+        }
+        int returned = allocationService.release(project, pp.getPart(), request.getQuantity());
+        pp.setQtyAllocated(pp.getQtyAllocated() - returned);
+        return toPartDTO(projectPartRepository.save(pp), project.getInstanceCount());
+    }
+
     // ------------------------------------------------------------------
-    // State transitions
+    // Phase transitions
     // ------------------------------------------------------------------
 
+    /** Cancels the project: every allocation goes back to stock, every needed quantity stays. */
     @Transactional
-    public ProjectDTO startBuild(Long id) {
+    public ProjectDTO cancel(Long id) {
         Project project = requireOwnProject(id);
-        if (project.getStatus() != ProjectStatus.PLANNING) {
+        if (project.getStatus() == ProjectStatus.CANCELLED) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Project must be in PLANNING status to start build");
+                    "The project is already cancelled");
         }
-        project.setStatus(ProjectStatus.BUILDING);
-        return toSummaryDTO(projectRepository.save(project));
-    }
-
-    @Transactional
-    public ProjectStockEntryDTO pullStock(Long projectId, PullStockRequest request) {
-        Project project = requireOwnProject(projectId);
-        if (project.getStatus() != ProjectStatus.BUILDING) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Project must be in BUILDING status to pull stock");
+        List<ProjectPart> parts = projectPartRepository.findByProjectIdWithPart(id);
+        for (ProjectPart pp : parts) {
+            allocationService.release(project, pp.getPart(), pp.getQtyAllocated());
+            pp.setQtyAllocated(0);
         }
-        Part part = partRepository.findByIdAndOrganisationId(
-                        request.getPartId(), currentOrganisationService.currentId())
-                .orElseThrow(() -> new EntityNotFoundException("Part not found: " + request.getPartId()));
-        Location location = locationRepository.findByIdAndOrganisationId(
-                        request.getLocationId(), currentOrganisationService.currentId())
-                .orElseThrow(() -> new EntityNotFoundException("Location not found: " + request.getLocationId()));
-
-        BigDecimal price = request.getUnitPrice();
-        if (price == null) {
-            price = stockEntryRepository.findByPartIdAndLocationId(part.getId(), location.getId())
-                    .map(StockEntry::getUnitPrice).orElse(null);
-        }
-
-        StockMovement movement = stockMovementService.applyForProject(
-                part, location, -request.getQuantity(), price,
-                "Pulled for project: " + project.getName(),
-                MovementType.PROJECT_OUT, project);
-
-        AppUser me = currentUserService.current();
-        ProjectStock ps = ProjectStock.builder()
-                .project(project)
-                .part(part)
-                .location(location)
-                .quantity(request.getQuantity())
-                .unitPrice(price)
-                .movement(movement)
-                .addedAt(LocalDateTime.now())
-                .addedByUser(me)
-                .build();
-        return toStockDTO(projectStockRepository.save(ps));
-    }
-
-    @Transactional
-    public ProjectDTO complete(Long id) {
-        Project project = requireOwnProject(id);
-        if (project.getStatus() != ProjectStatus.BUILDING) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Project must be in BUILDING status to complete");
-        }
-        project.setStatus(ProjectStatus.COMPLETED);
-        return toSummaryDTO(projectRepository.save(project));
-    }
-
-    @Transactional
-    public ProjectDTO cancel(Long id, CancelRequest request) {
-        Project project = requireOwnProject(id);
-        if (project.getStatus() == ProjectStatus.COMPLETED || project.getStatus() == ProjectStatus.CANCELLED) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Project cannot be cancelled in its current state");
-        }
-
-        if (request.getReturnStockIds() != null) {
-            for (Long psId : request.getReturnStockIds()) {
-                ProjectStock ps = projectStockRepository.findById(psId)
-                        .orElseThrow(() -> new EntityNotFoundException("Project stock entry not found: " + psId));
-                if (!ps.getProject().getId().equals(id)) {
-                    throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                            "Stock entry does not belong to this project");
-                }
-                stockMovementService.applyForProject(
-                        ps.getPart(), ps.getLocation(), ps.getQuantity(), ps.getUnitPrice(),
-                        "Returned from cancelled project: " + project.getName(),
-                        MovementType.PROJECT_RETURN, project);
-            }
-        }
-
+        projectPartRepository.saveAll(parts);
         project.setStatus(ProjectStatus.CANCELLED);
-        return toSummaryDTO(projectRepository.save(project));
+        projectRepository.save(project);
+        return toDetailDTO(project, parts);
+    }
+
+    /**
+     * Reactivates a cancelled project, fetching every part list line out of stock again.
+     *
+     * <p>The parts are taken from wherever they are now, not from the location they were returned
+     * to — stock moves while a project sits cancelled. Lines the shelf can no longer cover come back
+     * short, which is reported rather than refused.
+     */
+    @Transactional
+    public ProjectDTO activate(Long id) {
+        Project project = requireOwnProject(id);
+        if (project.getStatus() == ProjectStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "The project is already active");
+        }
+        project.setStatus(ProjectStatus.ACTIVE);
+        projectRepository.save(project);
+
+        List<ProjectPart> parts = projectPartRepository.findByProjectIdWithPart(id);
+        parts.forEach(pp -> syncAllocation(project, pp));
+        projectPartRepository.saveAll(parts);
+        return toDetailDTO(project, parts);
     }
 
     // ------------------------------------------------------------------
@@ -235,56 +225,84 @@ public class ProjectService {
     // ------------------------------------------------------------------
 
     /**
+     * Brings one line's allocation in line with what the build needs: fetch the difference, or give
+     * the excess back. Public because {@code ProjectBomService.apply} pushes quantities straight
+     * into {@code project_part} and must settle the stock the same way.
+     */
+    public void syncAllocation(Project project, ProjectPart pp) {
+        int needed = pp.totalNeeded(project.getInstanceCount());
+        int held = pp.getQtyAllocated();
+        if (held < needed) {
+            pp.setQtyAllocated(held + allocationService.allocate(project, pp.getPart(), needed - held));
+        } else if (held > needed) {
+            pp.setQtyAllocated(held - allocationService.release(project, pp.getPart(), held - needed));
+        }
+    }
+
+    /**
      * Resolves a project the caller may act on — scoped to the organisation in force <em>and</em>
-     * to the caller, since projects are private to their owner. A project belonging to someone else
-     * or to another organisation is reported as 404, not 403: as far as this caller is concerned it
-     * does not exist.
+     * to the caller, since projects are private to their owner. A project belonging to someone else,
+     * to another organisation, or logically deleted is reported as 404, not 403: as far as this
+     * caller is concerned it does not exist.
      *
      * <p>Public because the BOM-import services enforce the same rule; one definition of it is the
      * point.
      */
     public Project requireOwnProject(Long id) {
         AppUser me = currentUserService.current();
-        return projectRepository.findByIdAndOrganisationIdAndOwnerId(
+        return projectRepository.findByIdAndOrganisationIdAndOwnerIdAndDeletedFalse(
                         id, currentOrganisationService.currentId(), me.getId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
                         "Project not found: " + id));
     }
 
+    /** The same, refusing anything that would write to a cancelled project. */
+    public Project requireActiveProject(Long id) {
+        Project project = requireOwnProject(id);
+        if (project.getStatus() != ProjectStatus.ACTIVE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "A cancelled project cannot be changed — reactivate it first");
+        }
+        return project;
+    }
+
+    private ProjectPart requireOwnPart(Long projectId, Long projectPartId) {
+        ProjectPart pp = projectPartRepository.findById(projectPartId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Part list entry not found: " + projectPartId));
+        if (!pp.getProject().getId().equals(projectId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Part list entry not found: " + projectPartId);
+        }
+        return pp;
+    }
+
     private ProjectDTO toSummaryDTO(Project p) {
-        int bomCount = projectPartRepository.countByProjectId(p.getId());
-        return ProjectDTO.builder()
-                .id(p.getId())
-                .name(p.getName())
-                .description(p.getDescription())
-                .status(p.getStatus())
-                .instanceCount(p.getInstanceCount())
-                .ownerId(p.getOwner().getId())
-                .ownerName(displayName(p.getOwner()))
-                .bomPartCount(bomCount)
-                .createdAt(p.getCreatedAt())
-                .updatedAt(p.getUpdatedAt())
+        return baseDTO(p)
+                .partCount(projectPartRepository.countByProjectId(p.getId()))
+                .anyShortfall(projectPartRepository.existsShortfall(p.getId(), p.getInstanceCount()))
                 .build();
     }
 
-    private ProjectDTO toDetailDTO(Project p, List<ProjectPart> bom, List<ProjectStock> stock) {
-        List<ProjectBomEntryDTO> bomDTOs = bom.stream()
-                .map(pp -> {
-                    int pulled = projectStockRepository.sumQuantityByProjectIdAndPartId(
-                            p.getId(), pp.getPart().getId());
-                    return toBomDTOWithPulled(pp, p.getInstanceCount(), pulled);
-                })
+    private ProjectDTO toDetailDTO(Project p, List<ProjectPart> parts) {
+        List<ProjectPartDTO> partDTOs = parts.stream()
+                .map(pp -> toPartDTO(pp, p.getInstanceCount()))
                 .collect(Collectors.toList());
 
-        List<ProjectStockEntryDTO> stockDTOs = stock.stream()
-                .map(this::toStockDTO)
-                .collect(Collectors.toList());
-
-        BigDecimal totalValue = stock.stream()
+        BigDecimal totalValue = projectStockRepository.findByProjectIdWithDetails(p.getId()).stream()
                 .filter(ps -> ps.getUnitPrice() != null)
                 .map(ps -> ps.getUnitPrice().multiply(BigDecimal.valueOf(ps.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        return baseDTO(p)
+                .partCount(parts.size())
+                .anyShortfall(partDTOs.stream().anyMatch(dto -> dto.getShortfall() > 0))
+                .totalStockValue(totalValue)
+                .parts(partDTOs)
+                .build();
+    }
+
+    private ProjectDTO.ProjectDTOBuilder baseDTO(Project p) {
         return ProjectDTO.builder()
                 .id(p.getId())
                 .name(p.getName())
@@ -293,49 +311,22 @@ public class ProjectService {
                 .instanceCount(p.getInstanceCount())
                 .ownerId(p.getOwner().getId())
                 .ownerName(displayName(p.getOwner()))
-                .bomPartCount(bom.size())
-                .totalStockValue(totalValue)
-                .bom(bomDTOs)
-                .stock(stockDTOs)
                 .createdAt(p.getCreatedAt())
-                .updatedAt(p.getUpdatedAt())
-                .build();
+                .updatedAt(p.getUpdatedAt());
     }
 
-    private ProjectBomEntryDTO toBomDTO(ProjectPart pp, Project project) {
-        int pulled = projectStockRepository.sumQuantityByProjectIdAndPartId(
-                project.getId(), pp.getPart().getId());
-        return toBomDTOWithPulled(pp, project.getInstanceCount(), pulled);
-    }
-
-    private ProjectBomEntryDTO toBomDTOWithPulled(ProjectPart pp, int instanceCount, int pulledTotal) {
-        return ProjectBomEntryDTO.builder()
+    private ProjectPartDTO toPartDTO(ProjectPart pp, int instanceCount) {
+        int needed = pp.totalNeeded(instanceCount);
+        return ProjectPartDTO.builder()
                 .id(pp.getId())
                 .partId(pp.getPart().getId())
-                .partName(pp.getPart().getPartNumber())
+                .partName(pp.getPart().getDescription())
                 .partNumber(pp.getPart().getPartNumber())
                 .qtyPerInstance(pp.getQtyPerInstance())
-                .totalNeeded(pp.getQtyPerInstance() * instanceCount)
-                .pulledTotal(pulledTotal)
+                .totalNeeded(needed)
+                .qtyAllocated(pp.getQtyAllocated())
+                .shortfall(Math.max(0, needed - pp.getQtyAllocated()))
                 .notes(pp.getNotes())
-                .build();
-    }
-
-    private ProjectStockEntryDTO toStockDTO(ProjectStock ps) {
-        String addedByName = ps.getAddedByUser() != null ? displayName(ps.getAddedByUser()) : null;
-        return ProjectStockEntryDTO.builder()
-                .id(ps.getId())
-                .partId(ps.getPart().getId())
-                .partName(ps.getPart().getPartNumber())
-                .partNumber(ps.getPart().getPartNumber())
-                .locationId(ps.getLocation().getId())
-                .locationName(ps.getLocation().getName())
-                .locationBreadcrumb(ps.getLocation().breadcrumb())
-                .quantity(ps.getQuantity())
-                .unitPrice(ps.getUnitPrice())
-                .movementId(ps.getMovement() != null ? ps.getMovement().getId() : null)
-                .addedAt(ps.getAddedAt())
-                .addedByName(addedByName)
                 .build();
     }
 

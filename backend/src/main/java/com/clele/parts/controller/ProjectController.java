@@ -1,6 +1,7 @@
 package com.clele.parts.controller;
 
 import com.clele.parts.dto.*;
+import com.clele.parts.model.Permissions;
 import com.clele.parts.service.ProjectService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -13,11 +14,18 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
+/**
+ * Projects and their part lists.
+ *
+ * <p>The part list lives at {@code /parts}; {@code /bom} next door is the <i>imported</i> BOM and
+ * belongs to {@link ProjectBomController}. Keeping the two paths distinct is the point — they are
+ * different lists and were confusing while both were called a BOM.
+ */
 @RestController
 @RequestMapping("/api/projects")
 @RequiredArgsConstructor
-@Tag(name = "Projects", description = "Project / build management")
-@PreAuthorize("hasAuthority('PARTS_EDIT')")
+@Tag(name = "Projects", description = "Projects and their part lists")
+@PreAuthorize("hasAuthority('" + Permissions.PARTS_EDIT + "')")
 public class ProjectController {
 
     private final ProjectService projectService;
@@ -29,85 +37,80 @@ public class ProjectController {
     }
 
     @PostMapping
-    @Operation(summary = "Create a project (starts in PLANNING)")
+    @Operation(summary = "Create a project (starts ACTIVE)")
     public ResponseEntity<ProjectDTO> createProject(@Valid @RequestBody ProjectRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(projectService.create(request));
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Get project with BOM and stock")
+    @Operation(summary = "Get a project with its part list")
     public ProjectDTO getProject(@PathVariable Long id) {
         return projectService.findById(id);
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "Update project name/description/instanceCount (PLANNING only)")
+    @Operation(summary = "Update name/description/instance count (ACTIVE only; re-allocates)")
     public ProjectDTO updateProject(@PathVariable Long id, @Valid @RequestBody ProjectRequest request) {
         return projectService.update(id, request);
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Delete project (PLANNING only)")
+    @Operation(summary = "Delete a cancelled project and everything belonging to it")
     public ResponseEntity<Void> deleteProject(@PathVariable Long id) {
         projectService.delete(id);
         return ResponseEntity.noContent().build();
     }
 
     // ------------------------------------------------------------------
-    // BOM
+    // Part list
     // ------------------------------------------------------------------
 
-    @PostMapping("/{id}/bom")
-    @Operation(summary = "Add a part to the BOM")
-    public ResponseEntity<ProjectBomEntryDTO> addBomEntry(
+    @PostMapping("/{id}/parts")
+    @Operation(summary = "Add a part to the project's part list, allocating it from stock")
+    public ResponseEntity<ProjectPartDTO> addPart(
             @PathVariable Long id,
-            @Valid @RequestBody ProjectBomRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(projectService.addBomEntry(id, request));
+            @Valid @RequestBody ProjectPartRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(projectService.addPart(id, request));
     }
 
-    @PutMapping("/{id}/bom/{bomId}")
-    @Operation(summary = "Update a BOM entry")
-    public ProjectBomEntryDTO updateBomEntry(
+    @PutMapping("/{id}/parts/{projectPartId}")
+    @Operation(summary = "Change a part list line's quantity, allocating or returning the difference")
+    public ProjectPartDTO updatePart(
             @PathVariable Long id,
-            @PathVariable Long bomId,
-            @Valid @RequestBody ProjectBomRequest request) {
-        return projectService.updateBomEntry(id, bomId, request);
+            @PathVariable Long projectPartId,
+            @Valid @RequestBody ProjectPartRequest request) {
+        return projectService.updatePart(id, projectPartId, request);
     }
 
-    @DeleteMapping("/{id}/bom/{bomId}")
-    @Operation(summary = "Remove a part from the BOM")
-    public ResponseEntity<Void> removeBomEntry(@PathVariable Long id, @PathVariable Long bomId) {
-        projectService.removeBomEntry(id, bomId);
+    @DeleteMapping("/{id}/parts/{projectPartId}")
+    @Operation(summary = "Remove a part list line, returning everything it holds to stock")
+    public ResponseEntity<Void> removePart(@PathVariable Long id, @PathVariable Long projectPartId) {
+        projectService.removePart(id, projectPartId);
         return ResponseEntity.noContent().build();
     }
 
-    // ------------------------------------------------------------------
-    // State transitions
-    // ------------------------------------------------------------------
-
-    @PostMapping("/{id}/start-build")
-    @Operation(summary = "Transition project from PLANNING to BUILDING")
-    public ProjectDTO startBuild(@PathVariable Long id) {
-        return projectService.startBuild(id);
-    }
-
-    @PostMapping("/{id}/pull-stock")
-    @Operation(summary = "Pull parts from a stock location into the project (BUILDING only)")
-    public ResponseEntity<ProjectStockEntryDTO> pullStock(
+    @PostMapping("/{id}/parts/{projectPartId}/return")
+    @Operation(summary = "Return some of a part list line's allocation to the locations it came from")
+    public ProjectPartDTO returnPart(
             @PathVariable Long id,
-            @Valid @RequestBody PullStockRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(projectService.pullStock(id, request));
+            @PathVariable Long projectPartId,
+            @Valid @RequestBody ReturnPartRequest request) {
+        return projectService.returnPart(id, projectPartId, request);
     }
 
-    @PostMapping("/{id}/complete")
-    @Operation(summary = "Mark project as COMPLETED")
-    public ProjectDTO complete(@PathVariable Long id) {
-        return projectService.complete(id);
-    }
+    // ------------------------------------------------------------------
+    // Phase transitions
+    // ------------------------------------------------------------------
 
     @PostMapping("/{id}/cancel")
-    @Operation(summary = "Cancel project, optionally returning selected stock to source locations")
-    public ProjectDTO cancel(@PathVariable Long id, @RequestBody CancelRequest request) {
-        return projectService.cancel(id, request);
+    @Operation(summary = "Cancel the project, returning every allocation to stock")
+    public ProjectDTO cancel(@PathVariable Long id) {
+        return projectService.cancel(id);
+    }
+
+    @PostMapping("/{id}/activate")
+    @Operation(summary = "Reactivate a cancelled project, allocating its part list from stock again")
+    public ProjectDTO activate(@PathVariable Long id) {
+        return projectService.activate(id);
     }
 }
