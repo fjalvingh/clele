@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { getMe, login as apiLogin, logout as apiLogout } from '../api';
 import type { AuthUser } from '../api/types';
+import { markSeen } from '../utils/lastSeen';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -27,6 +28,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const u = await apiLogin(email, password);
+    // Signing in is itself activity: without this stamp a returning user would meet the
+    // "welcome back" greeting right behind the login screen that just showed the same photo.
+    markSeen(u.id);
     setUser(u);
   };
 

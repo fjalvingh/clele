@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { getUnreadChanges, markChangesRead, switchOrganisation } from '../api';
 import { useAuth } from '../auth/AuthContext';
 import ChangesPanel from './ChangesPanel';
+import WelcomeBack from './WelcomeBack';
 
 // Shared stroke style for the nav glyphs — matches the icons on the Dashboard
 // so the whole app speaks one visual language instead of mixing emoji in.
@@ -417,6 +418,9 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Greets a user returning after a long absence — the session may have outlived it. */}
+      <WelcomeBack />
 
       {changesPanel && (
         <ChangesPanel
