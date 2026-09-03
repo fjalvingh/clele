@@ -25,6 +25,17 @@ public class AppProperties {
     private String publicName = "Sortiment";
 
     /**
+     * Secret used to encrypt the secrets this app stores for a tenant — today an organisation's
+     * Anthropic API key. Any long random string; it never leaves the server and is never exposed
+     * by {@code /api/settings}. Blank means the installation cannot hold such secrets at all: see
+     * {@code SecretCipher}, which says so rather than falling back to a constant.
+     *
+     * <p>Changing it makes already-stored secrets undecryptable, which surfaces as
+     * {@code KEY_UNREADABLE} and is fixed by entering the key again.
+     */
+    private String secretKey = "";
+
+    /**
      * Public base URL of this installation (e.g. {@code https://parts.example.com}), used to build
      * the link in an invitation mail. Blank means "derive it from the current request".
      */

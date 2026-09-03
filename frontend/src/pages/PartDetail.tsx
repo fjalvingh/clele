@@ -11,6 +11,7 @@ import {
   deleteStockEntry,
   deleteStockThreshold,
   extractDatasheetSpecs,
+  getAiStatus,
   getComponentCacheStatus,
   getLocations,
   getMyLocations,
@@ -34,6 +35,7 @@ import {
 } from '../api';
 import type {
   AiApplyRequest,
+  AiStatus,
   AttachmentType,
   ComponentCacheDetail,
   ComponentCacheMatch,
@@ -361,6 +363,13 @@ export default function PartDetailPage() {
   // applies through the same endpoint, but it is free and local: no cost warning, and it runs the
   // search as soon as the modal opens rather than waiting for a button.
   const [ccAvailable, setCcAvailable] = useState(false);
+
+  // Does this organisation have working AI? Its key, its bill — so "no key" and "out of credit" are
+  // ordinary states. The AI buttons say why they are unavailable rather than failing when pressed,
+  // the way the OctoPart quota button next door already does. Null = could not ask, behave as before.
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const aiUsable = aiStatus === null || aiStatus.usable;
+  const aiReason = aiUsable ? undefined : (aiStatus?.message ?? undefined);
   const [ccModalOpen, setCcModalOpen] = useState(false);
   const [ccQuery, setCcQuery] = useState('');
   const [ccResults, setCcResults] = useState<ComponentCacheMatch[]>([]);
@@ -450,6 +459,9 @@ export default function PartDetailPage() {
     getComponentCacheStatus()
       .then((s) => setCcAvailable(s.available))
       .catch(() => setCcAvailable(false));
+    getAiStatus()
+      .then(setAiStatus)
+      .catch(() => setAiStatus(null));
   }, [canEdit]);
 
   // Load the user's OctoPart quota once we know the part has no link yet and the user can edit.
@@ -1337,8 +1349,9 @@ export default function PartDetailPage() {
                 {canEdit && (
                   <button
                     onClick={openAiLookup}
-                    title="Look this part up and fill in missing details"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+                    disabled={!aiUsable}
+                    title={aiReason ?? 'Look this part up and fill in missing details'}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
                   >
                     {SearchIcon}
                     Look up specs
@@ -1494,8 +1507,12 @@ export default function PartDetailPage() {
                       <>
                         <button
                           onClick={() => openDatasheetExtract(d)}
-                          title="Read this PDF and propose specifications and a description from it"
-                          className="shrink-0 text-xs text-blue-600 hover:underline"
+                          disabled={!aiUsable}
+                          title={
+                            aiReason ??
+                            'Read this PDF and propose specifications and a description from it'
+                          }
+                          className="shrink-0 text-xs text-blue-600 hover:underline disabled:text-gray-400 disabled:no-underline"
                         >
                           Get specs
                         </button>

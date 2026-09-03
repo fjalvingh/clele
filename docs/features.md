@@ -22,6 +22,10 @@ Part of the Clele documentation — `CLAUDE.md` holds the overview and the index
   - **Three sources, cheapest first**: the organisation's own catalogue, then the local **component
     cache** (585k parts in `cc_*`, free and offline — see `docs/component-cache.md`), then the AI web
     search. A cache hit pre-fills the confirm step exactly as an AI result does
+  - **The AI key is per organisation** (encrypted, set by an Organisation Admin under Admin Actions
+    → AI lookup), so each organisation pays for its own lookups. An organisation without one — or
+    whose Anthropic credits ran out — keeps the free sources and gets a banner saying which of the
+    two it is, with a one-token "Check again". See `docs/ai.md`
   - **Local-match first**: before hitting the Internet, the typed term is fuzzy-matched against
     existing parts by part number (`GET /api/parts/local-match?q=` → `PartRepository.fuzzyByPartNumber`,
     pg_trgm similarity + substring, top 10). If any local parts match, they're shown with a

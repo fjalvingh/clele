@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { findLocalParts, getCategoryTree, getComponentCacheStatus, identifyPartFromDatasheet, getMyLocations, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsByUrl, searchPartsOnline, uploadPartAttachment } from '../api';
-import type { CategoryTree, ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest } from '../api/types';
+import { checkAiStatus, findLocalParts, getAiStatus, getCategoryTree, getComponentCacheStatus, identifyPartFromDatasheet, getMyLocations, loadComponentCachePart, quickAddPart, searchComponentCache, searchPartImages, searchPartsByUrl, searchPartsOnline, uploadPartAttachment } from '../api';
+import type { AiStatus, CategoryTree, ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import CategoryPicker from '../components/CategoryPicker';
 import { NumberTextInput } from '../components/NumberInput';
@@ -278,6 +278,13 @@ export default function QuickAddPage() {
   // Component-cache hits, the stage between the catalogue and the Internet.
   const [cacheMatches, setCacheMatches] = useState<ComponentCacheMatch[]>([]);
   const [cacheAvailable, setCacheAvailable] = useState(false);
+
+  // Does this organisation have working AI? The key is its own and it pays per lookup, so "no key"
+  // and "out of credit" are ordinary states, not faults — and both have to be visible, because from
+  // the outside they look identical to a search that found nothing. Null means the question could
+  // not be asked, in which case behave exactly as before and let the lookup speak for itself.
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const aiUsable = aiStatus === null || aiStatus.usable;
   const [loadingLcsc, setLoadingLcsc] = useState<string | null>(null);
 
   // Step 3
@@ -325,6 +332,9 @@ export default function QuickAddPage() {
     getComponentCacheStatus()
       .then((s) => setCacheAvailable(s.available))
       .catch(() => setCacheAvailable(false));
+    getAiStatus()
+      .then(setAiStatus)
+      .catch(() => setAiStatus(null));
   }, []);
 
   // Load locations + all spec definitions when entering step 3
@@ -372,7 +382,15 @@ export default function QuickAddPage() {
   // ── Step 1 handlers ──────────────────────────────────────────────────────
 
   // Run the online (AI) search and advance to the result-selection step.
+  //
+  // Refuses before spending a request when this organisation has no usable key: the free sources
+  // have already been consulted by the time we get here, so the honest end of the cascade is the
+  // reason AI is unavailable, not a 503 dressed up as a failed search.
   async function runOnlineSearch() {
+    if (aiStatus && !aiStatus.usable) {
+      setSearchError(aiStatus.message ?? 'AI lookup is not available for this organisation.');
+      return;
+    }
     const data = await searchPartsOnline(query.trim());
     setResults(data);
     setLocalMatches([]);
@@ -720,6 +738,10 @@ export default function QuickAddPage() {
 
       <StepIndicator step={step} />
 
+      {step === 1 && aiStatus && !aiStatus.usable && (
+        <AiUnavailableNotice status={aiStatus} onChecked={setAiStatus} />
+      )}
+
       {/* ── Step 1: Search ── */}
       {step === 1 && localMatches.length === 0 && cacheMatches.length === 0 && (
         <div className="rounded-lg border border-gray-200 bg-surface p-6 shadow-sm">
@@ -742,9 +764,13 @@ export default function QuickAddPage() {
             </button>
           </form>
           <p className="mt-3 text-xs text-gray-400">
-            {cacheAvailable
-              ? "We'll check your existing catalogue first, then the local component cache, and only search the Internet if neither has it."
-              : "We'll check your existing catalogue first, then search the Internet if there's no match."}
+            {!aiUsable
+              ? cacheAvailable
+                ? "We'll check your existing catalogue and the local component cache. The AI search is unavailable — see above."
+                : "We'll check your existing catalogue. The AI search is unavailable — see above."
+              : cacheAvailable
+                ? "We'll check your existing catalogue first, then the local component cache, and only search the Internet if neither has it."
+                : "We'll check your existing catalogue first, then search the Internet if there's no match."}
           </p>
 
           {/* The way out when the search cannot find it: point at the page that describes it. */}
@@ -764,7 +790,8 @@ export default function QuickAddPage() {
               />
               <button
                 type="submit"
-                disabled={readingUrl || searching || !pageUrl.trim()}
+                disabled={readingUrl || searching || !pageUrl.trim() || !aiUsable}
+                title={aiUsable ? undefined : (aiStatus?.message ?? undefined)}
                 className="rounded-lg border border-blue-600 px-5 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 transition-colors"
               >
                 {readingUrl ? 'Reading…' : 'Read page'}
@@ -800,7 +827,8 @@ export default function QuickAddPage() {
               </span>
               <button
                 type="submit"
-                disabled={readingDatasheet || searching || !datasheetFile}
+                disabled={readingDatasheet || searching || !datasheetFile || !aiUsable}
+                title={aiUsable ? undefined : (aiStatus?.message ?? undefined)}
                 className="shrink-0 rounded-lg border border-blue-600 px-5 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-50 transition-colors"
               >
                 {readingDatasheet ? 'Reading…' : 'Read datasheet'}
@@ -870,7 +898,8 @@ export default function QuickAddPage() {
             <span className="text-sm text-gray-500">None of these is the part you want?</span>
             <button
               onClick={handleRejectLocalMatches}
-              disabled={searching}
+              disabled={searching || (!aiUsable && !cacheAvailable)}
+              title={aiUsable ? undefined : (aiStatus?.message ?? undefined)}
               className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
               {searching ? 'Searching…' : cacheAvailable ? 'Look up a new part' : 'Search the Internet instead'}
@@ -918,7 +947,8 @@ export default function QuickAddPage() {
             <span className="text-sm text-gray-500">None of these is the part you want?</span>
             <button
               onClick={handleSearchOnlineAnyway}
-              disabled={searching}
+              disabled={searching || !aiUsable}
+              title={aiUsable ? undefined : (aiStatus?.message ?? undefined)}
               className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
               {searching ? 'Searching…' : 'Search the Internet instead'}
@@ -1281,6 +1311,66 @@ export default function QuickAddPage() {
           </div>
         </form>
       )}
+    </div>
+  );
+}
+
+/**
+ * Why the AI sources are missing from this screen, and what to do about it.
+ *
+ * Shown rather than letting the buttons fail, because the two states behind it are indistinguishable
+ * from a search that found nothing: nobody has given this organisation an Anthropic key, or the
+ * account behind that key has run out of credit. The first is somebody's five-minute job, the second
+ * is a payment, and neither is a bug in the app — so both are said in as many words, next to a
+ * re-check for the case where it has just been fixed.
+ */
+function AiUnavailableNotice({
+  status,
+  onChecked,
+}: {
+  status: AiStatus;
+  onChecked: (status: AiStatus) => void;
+}) {
+  const [checking, setChecking] = useState(false);
+
+  const recheck = async () => {
+    setChecking(true);
+    try {
+      onChecked(await checkAiStatus());
+    } catch {
+      // The check reports through the status it returns; a transport failure leaves it as it was.
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="mb-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <svg
+        className="mt-0.5 h-5 w-5 shrink-0"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      >
+        <path d="M12 9v4" strokeLinecap="round" />
+        <path d="M12 17h.01" strokeLinecap="round" />
+        <circle cx="12" cy="12" r="9" />
+      </svg>
+      <div className="min-w-0 flex-1">
+        <p className="font-medium">AI part lookup is unavailable</p>
+        <p className="mt-0.5">{status.message}</p>
+        {status.state !== 'NOT_CONFIGURED' && (
+          <button
+            onClick={recheck}
+            disabled={checking}
+            className="mt-2 rounded-md border border-amber-300 px-3 py-1 text-xs font-medium hover:bg-amber-100 disabled:opacity-50"
+            title="Re-test the stored key — costs a fraction of a cent"
+          >
+            {checking ? 'Checking…' : 'Check again'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -193,6 +193,7 @@ public class DatasheetSpecExtractionService {
     private final DatasheetAnalyzer datasheetAnalyzer;
     private final SpecDefinitionService specDefinitionService;
     private final SpecFieldCatalog specFieldCatalog;
+    private final AiCredentialsService aiCredentials;
     private final ObjectMapper objectMapper;
 
     /**
@@ -202,12 +203,6 @@ public class DatasheetSpecExtractionService {
      * qualifier onto the generated parameter and the wrong bean would be injected silently.
      */
     private final RestTemplate restTemplate;
-
-    @Value("${anthropic.api-key:}")
-    private String apiKey;
-
-    @Value("${anthropic.model:claude-haiku-4-5-20251001}")
-    private String model;
 
     @Value("${anthropic.pricing.input-per-mtok:1.00}")
     private double inputPerMTok;
@@ -220,6 +215,7 @@ public class DatasheetSpecExtractionService {
                                           DatasheetAnalyzer datasheetAnalyzer,
                                           SpecDefinitionService specDefinitionService,
                                           SpecFieldCatalog specFieldCatalog,
+                                          AiCredentialsService aiCredentials,
                                           ObjectMapper objectMapper,
                                           @Qualifier("aiDocumentRestTemplate") RestTemplate restTemplate) {
         this.partService = partService;
@@ -227,6 +223,7 @@ public class DatasheetSpecExtractionService {
         this.datasheetAnalyzer = datasheetAnalyzer;
         this.specDefinitionService = specDefinitionService;
         this.specFieldCatalog = specFieldCatalog;
+        this.aiCredentials = aiCredentials;
         this.objectMapper = objectMapper;
         this.restTemplate = restTemplate;
     }
@@ -542,26 +539,28 @@ public class DatasheetSpecExtractionService {
      * read rather than an error.
      */
     private ResponseEntity<String> callAnthropic(String system, String user, String what) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "AI extraction not configured. Set anthropic.api-key in application.yml.");
-        }
+        // The organisation's own key and model — it pays for this call. 503 when it has none, saying
+        // which of the unusable states it is in.
+        AiCredentialsService.Credentials credentials = aiCredentials.require();
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", apiKey);
+        headers.set("x-api-key", credentials.apiKey());
         headers.set("anthropic-version", API_VERSION);
 
         Map<String, Object> body = Map.of(
-                "model", model,
+                "model", credentials.model(),
                 "max_tokens", 4096,
                 "system", system,
                 "messages", List.of(Map.of("role", "user", "content", user))
         );
         try {
-            return restTemplate.exchange(API_URL, HttpMethod.POST,
+            ResponseEntity<String> response = restTemplate.exchange(API_URL, HttpMethod.POST,
                     new HttpEntity<>(body, headers), String.class);
+            aiCredentials.noteSuccess();
+            return response;
         } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, what + ": " + e.getMessage());
+            throw aiCredentials.translate(e, what);
         }
     }
 
@@ -641,7 +640,11 @@ public class DatasheetSpecExtractionService {
                           DatasheetAnalyzer.Analysis analysis, SpecFieldCatalog.Fields fields,
                           String excerpt, int specCount, long millis) {
         try {
-            JsonNode usage = objectMapper.readTree(body).path("usage");
+            JsonNode root = objectMapper.readTree(body);
+            // Off the response, not the request: this is the model that actually served the call,
+            // which is what the cost estimate below should be read against.
+            String model = root.path("model").asText("unknown");
+            JsonNode usage = root.path("usage");
             long input = usage.path("input_tokens").asLong(0);
             long output = usage.path("output_tokens").asLong(0);
             double cost = (input * inputPerMTok + output * outputPerMTok) / 1_000_000d;

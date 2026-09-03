@@ -155,7 +155,23 @@ in the feature documents under `docs/` — the section names referenced below ("
   largest holding first — empty for a part that was catalogued without stock). `page` is zero-based
   and clamped into the available range, so the `page` returned may be lower than the one asked for;
   `size` defaults to 10 and is capped at 100
-- `GET /parts-search?q=` — AI part search (requires `PARTS_EDIT`)
+- `GET /ai/status` — whether AI lookups work for the organisation in force, and if not, why:
+  `{state, usable, message, model, since, canConfigure}` where `state` is an `AiState` name
+  (`READY`, `NOT_CONFIGURED`, `SERVER_SECRET_MISSING`, `KEY_UNREADABLE`, `KEY_REJECTED`,
+  `NO_CREDITS`). Authenticated — every screen that offers an AI source asks it first so it can fall
+  back to the free sources and say which case it is, instead of offering a button that 503s.
+  Carries no key material
+- `POST /ai/status/check` — re-test the stored key with a one-token call (a fraction of a cent) and
+  return the fresh `/ai/status` (requires `PARTS_EDIT`, not `ORG_ADMIN`: the person who hit the wall
+  can clear it). Ignores a recorded failure, and a success clears it — the way back for a
+  topped-up account. Never an HTTP error: the status *is* the answer
+- `GET /ai/config`, `PUT /ai/config` `{apiKey, clearApiKey, model}` — the organisation's Anthropic
+  key and model (requires `ORG_ADMIN`; the Admin Actions screen). The key is stored encrypted and
+  **never returned** — the response carries `hasApiKey`, a four-character `keyHint`, the state and
+  `serverSecretConfigured`. A blank `apiKey` keeps the stored one; `clearApiKey` removes it. 503
+  when the server has no `APP_SECRET_KEY` to encrypt with. See *Who pays* in `docs/ai.md`
+- `GET /parts-search?q=` — AI part search on the **organisation's own** key (requires `PARTS_EDIT`).
+  503 naming the state when that organisation has no usable key
 - `POST /parts/{id}/ai-apply` — apply a chosen AI-lookup result to an existing part; specs merge onto
   the part and a null column field leaves that column alone, since both arrive filtered to what the
   user confirmed. Free — the search already happened (requires `PARTS_EDIT`). Also the apply path for

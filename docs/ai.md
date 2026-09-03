@@ -2,9 +2,67 @@
 
 Part of the Clele documentation — `CLAUDE.md` holds the overview and the index of these files; `API.md` lists the REST endpoints.
 
+## Who pays — the key is per organisation
+
+**There is no app-wide Anthropic key.** A part search costs 5-13 cents, so an installation-wide key
+put one tenant's enthusiasm on everybody's bill with nothing to attribute it to. Each organisation
+brings its own contract:
+
+- `organisation.ai_api_key` holds the key **encrypted** (`config/SecretCipher` — AES-256-GCM,
+  PBKDF2-derived from `app.secret-key` / `APP_SECRET_KEY`, fresh IV per value, so a database dump
+  carries no usable credential). `ai_key_hint` keeps the last four characters for the admin screen;
+  `ai_model` is the organisation's model choice, null meaning the installation default
+  (`anthropic.model`, still app-wide — the model is not the spending decision, the key is).
+- **`app.secret-key` is required and has no fallback.** Unset, `SecretCipher.available()` is false,
+  saving a key is refused with the variable named, and the state reads `SERVER_SECRET_MISSING`.
+  Falling back to a constant baked into the jar would be plaintext with extra steps. Changing the
+  secret makes stored keys undecryptable — deliberately visible as `KEY_UNREADABLE`, fixed by
+  pasting the key in again.
+- `AiCredentialsService` is the only place that resolves them. `require()` returns
+  `Credentials(apiKey, model)` for the organisation in force or throws 503 with the reason;
+  `isUsable()` is the cheap check the best-effort paths (image and datasheet suggestions) use before
+  spending anything.
+- **ORG_ADMIN sets it**, per organisation, under Admin Actions → AI lookup — the point of the
+  feature is that a tenant onboards and pays for its own contract without a global administrator in
+  the loop.
+
+### Not configured, out of credit, and the fallback
+
+Both end as a lookup that produces nothing, and the fixes have nothing in common: paste a key,
+versus pay a bill on an account somebody else owns. So the reason is classified from Anthropic's own
+error and stored on the organisation (`ai_status_code|message|at`, an `AiState` name):
+
+| state | what happened | usable |
+|---|---|---|
+| `READY` | a key is stored and nothing has rejected it | yes |
+| `NOT_CONFIGURED` | no key — the default for a new organisation | no |
+| `SERVER_SECRET_MISSING` | `APP_SECRET_KEY` unset, so the stored key cannot be read | no |
+| `KEY_UNREADABLE` | the secret changed after the key was saved | no |
+| `KEY_REJECTED` | 401/403, or an `authentication_error` body | no |
+| `NO_CREDITS` | a **400** whose message names the credit balance | no |
+
+⚠️ **Only lasting failures are classified.** A 429, a 529 or a plain bad request returns null from
+`AiCredentialsService.classify` and stays a 502: those come right on their own, and turning the
+feature off over one would need an admin to turn it back on.
+
+**The fallback is the rest of the cascade.** `GET /api/ai/status` is asked by every screen that
+offers an AI source; when `usable` is false the SPA stops offering them, keeps the free ones (the
+organisation's own catalogue, the component cache, the DuckDuckGo searches) and shows `message`
+verbatim — Quick Add as a banner above step 1, Part Detail as the disabled buttons' tooltip. Quick
+Add's cascade therefore ends at the cache instead of escalating into a 503.
+
+**Recovery is automatic or a click.** Any successful call clears the recorded failure
+(`noteSuccess()`, which writes only when there is something to clear), so a topped-up account comes
+back on its own. `POST /api/ai/status/check` (PARTS_EDIT) is the deliberate version:
+`AiPartSearchService.probe()` sends one token — a fraction of a cent, the only way to tell a good
+key from a revoked one without a real lookup — and resolves credentials through
+`requireForProbe()`, which **ignores** the recorded failure, because finding out whether it still
+applies is the point.
+
 ## AI Integration
 
-- Provider: Anthropic Claude (model configured in `application.yml`, default `claude-haiku-4-5-20251001`)
+- Provider: Anthropic Claude (the organisation's key; model from `organisation.ai_model`, else
+  `anthropic.model`, default `claude-haiku-4-5-20251001`)
 - `AiPartSearchService` calls the Anthropic Messages API via RestTemplate (no SDK dependency)
 - `DuckDuckGoImageService` searches for part images via DuckDuckGo
 - The AI system prompt is built dynamically from `spec_definition` table — each spec's `json_name` (the exact key) plus its title, type, unit, and SELECT options are included so the AI returns specs using exact `part.specs` JSON keys for automatic pre-fill
@@ -58,7 +116,7 @@ datasheet*.
 
 `AiPartSearchService.search` logs one INFO line per call (`ai-part-search …`) with tokens, cache
 figures, web-search count, spec-definition count, elapsed time and an estimated cost. Rates live in
-`anthropic.pricing.*` — **change them with the model**, since the line prices whatever `anthropic.model`
+`anthropic.pricing.*` (app-wide; they bill nothing) — **change them with the model**, since the line prices whatever `anthropic.model`
 is set to and a stale rate is worse than no figure at all. `input_tokens` from the API is only the
 *uncached* remainder, so the line's `promptTok` is `input + cacheWrite + cacheRead`.
 

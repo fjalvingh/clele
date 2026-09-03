@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -32,13 +31,16 @@ class AiPartSearchServiceTest {
 
     private final RestTemplate restTemplate = mock(RestTemplate.class);
     private final SpecFieldCatalog specFieldCatalog = mock(SpecFieldCatalog.class);
+    private final AiCredentialsService aiCredentials = mock(AiCredentialsService.class);
 
     private AiPartSearchService service() {
         AiPartSearchService service = new AiPartSearchService(
                 mock(DuckDuckGoImageService.class), mock(DuckDuckGoDatasheetService.class),
-                specFieldCatalog, restTemplate, new ObjectMapper());
-        ReflectionTestUtils.setField(service, "apiKey", "test-key");
-        ReflectionTestUtils.setField(service, "model", "claude-haiku-4-5-20251001");
+                specFieldCatalog, aiCredentials, restTemplate, new ObjectMapper());
+        // The key and model are the organisation's, resolved per call; which pair does not matter
+        // here, only that there is one.
+        when(aiCredentials.require()).thenReturn(
+                new AiCredentialsService.Credentials("test-key", "claude-haiku-4-5-20251001"));
         when(specFieldCatalog.render()).thenReturn(new SpecFieldCatalog.Fields("\n  - \"package\" (Package)", 1));
         return service;
     }

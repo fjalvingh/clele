@@ -1217,3 +1217,51 @@ export interface OAuthConsent {
   organisations: Organisation[];
   defaultOrganisationId: number;
 }
+
+// ── AI availability & credentials ─────────────────────────────────────────────
+
+/**
+ * Whether AI lookups work for the organisation in force, and if not, why.
+ *
+ * The key is per-organisation — an AI part search costs real money, so each organisation brings its
+ * own Anthropic contract. Every screen that offers an AI source asks this first: `usable` false
+ * means fall back to the free sources (own catalogue, component cache, web search) and show
+ * `message`, rather than offering a button whose only outcome is an error.
+ */
+export interface AiStatus {
+  /** READY | NOT_CONFIGURED | SERVER_SECRET_MISSING | KEY_UNREADABLE | KEY_REJECTED | NO_CREDITS */
+  state: string;
+  usable: boolean;
+  /** One sentence naming what is wrong and who can fix it. Null when READY. */
+  message?: string | null;
+  /** The model lookups run on — the organisation's choice, or the installation default. */
+  model?: string | null;
+  /** When the failure was recorded, ISO-8601. Null when READY. */
+  since?: string | null;
+  /** Whether this user may go and fix it (ORG_ADMIN). */
+  canConfigure: boolean;
+}
+
+/** The organisation's AI configuration as the admin screen sees it. Never carries the key itself. */
+export interface AiConfig {
+  hasApiKey: boolean;
+  /** Last four characters of the stored key, so the admin can tell which one is in place. */
+  keyHint?: string | null;
+  model?: string | null;
+  defaultModel: string;
+  state: string;
+  usable: boolean;
+  message?: string | null;
+  since?: string | null;
+  /** False when the server has no APP_SECRET_KEY and therefore cannot store a key at all. */
+  serverSecretConfigured: boolean;
+}
+
+export interface AiConfigRequest {
+  /** Blank leaves the stored key unchanged — it is never sent to the browser to echo back. */
+  apiKey?: string;
+  /** Remove the stored key, turning AI off for this organisation. */
+  clearApiKey?: boolean;
+  /** Blank follows the installation default. */
+  model?: string;
+}

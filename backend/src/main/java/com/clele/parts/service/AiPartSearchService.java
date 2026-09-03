@@ -28,6 +28,7 @@ public class AiPartSearchService {
     private final DuckDuckGoImageService duckDuckGoImageService;
     private final DuckDuckGoDatasheetService duckDuckGoDatasheetService;
     private final SpecFieldCatalog specFieldCatalog;
+    private final AiCredentialsService aiCredentials;
 
     private static final String API_URL = "https://api.anthropic.com/v1/messages";
     private static final String API_VERSION = "2023-06-01";
@@ -123,12 +124,6 @@ public class AiPartSearchService {
             return an empty array [].
             """;
 
-    @Value("${anthropic.api-key:}")
-    private String apiKey;
-
-    @Value("${anthropic.model:claude-haiku-4-5-20251001}")
-    private String model;
-
     @Value("${anthropic.pricing.input-per-mtok:1.00}")
     private double inputPerMTok;
 
@@ -148,20 +143,16 @@ public class AiPartSearchService {
     private final ObjectMapper objectMapper;
 
     public List<PartSearchResultDTO> search(String query) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "AI part search not configured. Set anthropic.api-key in application.yml.");
-        }
+        // Whose key, and which model: the organisation's own, since it pays for this call. Throws
+        // 503 naming the reason when there is no usable key.
+        AiCredentialsService.Credentials credentials = aiCredentials.require();
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", apiKey);
-        headers.set("anthropic-version", API_VERSION);
+        HttpHeaders headers = headers(credentials);
         headers.set("anthropic-beta", "web-search-2025-03-05");
 
         SystemPrompt prompt = buildSystemPrompt(SEARCH_INTRO, SEARCH_OUTRO);
         Map<String, Object> body = Map.of(
-                "model", model,
+                "model", credentials.model(),
                 "max_tokens", 4096,
                 "system", prompt.text(),
                 "tools", List.of(Map.of("type", "web_search_20250305", "name", "web_search")),
@@ -174,14 +165,14 @@ public class AiPartSearchService {
             response = restTemplate.exchange(API_URL, HttpMethod.POST,
                     new HttpEntity<>(body, headers), String.class);
         } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "AI search request failed: " + e.getMessage());
+            throw aiCredentials.translate(e, "AI search request failed");
         }
 
         try {
             List<PartSearchResultDTO> results = parseResponse(response.getBody());
-            logUsage("web-search", response.getBody(), query, prompt, results.size(),
-                    System.currentTimeMillis() - startedAt);
+            aiCredentials.noteSuccess();
+            logUsage("web-search", response.getBody(), query, prompt,
+                    results.size(), System.currentTimeMillis() - startedAt);
             return results;
         } catch (ResponseStatusException e) {
             throw e;
@@ -221,19 +212,13 @@ public class AiPartSearchService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "That address is too long to fetch (over " + MAX_FETCH_URL_LENGTH + " characters).");
         }
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "AI part search not configured. Set anthropic.api-key in application.yml.");
-        }
+        AiCredentialsService.Credentials credentials = aiCredentials.require();
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", apiKey);
-        headers.set("anthropic-version", API_VERSION);
+        HttpHeaders headers = headers(credentials);
 
         SystemPrompt prompt = buildSystemPrompt(URL_INTRO, URL_OUTRO);
         Map<String, Object> body = Map.of(
-                "model", model,
+                "model", credentials.model(),
                 "max_tokens", 4096,
                 "system", prompt.text(),
                 "tools", List.of(Map.of(
@@ -251,15 +236,15 @@ public class AiPartSearchService {
             response = restTemplate.exchange(API_URL, HttpMethod.POST,
                     new HttpEntity<>(body, headers), String.class);
         } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
-                    "AI lookup request failed: " + e.getMessage());
+            throw aiCredentials.translate(e, "AI lookup request failed");
         }
 
         try {
             requireFetchSucceeded(response.getBody());
             List<PartSearchResultDTO> results = parseResponse(response.getBody());
-            logUsage("url", response.getBody(), target, prompt, results.size(),
-                    System.currentTimeMillis() - startedAt);
+            aiCredentials.noteSuccess();
+            logUsage("url", response.getBody(), target, prompt,
+                    results.size(), System.currentTimeMillis() - startedAt);
             return results;
         } catch (ResponseStatusException e) {
             throw e;
@@ -317,10 +302,14 @@ public class AiPartSearchService {
      * <p>Logging must never break a search that otherwise worked, so every failure in here is
      * swallowed at DEBUG.
      */
-    private void logUsage(String source, String body, String query, SystemPrompt prompt,
-                          int resultCount, long millis) {
+    private void logUsage(String source, String body, String query,
+                          SystemPrompt prompt, int resultCount, long millis) {
         try {
-            JsonNode usage = objectMapper.readTree(body).path("usage");
+            JsonNode root = objectMapper.readTree(body);
+            // The model comes off the response rather than the request: it is what actually served
+            // the call, which is the figure the cost estimate below should be read against.
+            String model = root.path("model").asText("unknown");
+            JsonNode usage = root.path("usage");
             long input = usage.path("input_tokens").asLong(0);
             long output = usage.path("output_tokens").asLong(0);
             long cacheWrite = usage.path("cache_creation_input_tokens").asLong(0);
@@ -445,19 +434,19 @@ public class AiPartSearchService {
             return wikimedia;
         }
 
-        // Fall back to AI suggestions
-        if (apiKey == null || apiKey.isBlank()) {
+        // Fall back to AI suggestions — only when this organisation has a working key. An
+        // unconfigured or exhausted one is not an error here: images are a nice-to-have and the
+        // caller shows a search box instead.
+        if (!aiCredentials.isUsable()) {
             return List.of();
         }
+        AiCredentialsService.Credentials credentials = aiCredentials.require();
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", apiKey);
-        headers.set("anthropic-version", API_VERSION);
+        HttpHeaders headers = headers(credentials);
 
         String prompt = String.format(IMAGE_PROMPT, query);
         Map<String, Object> body = Map.of(
-                "model", model,
+                "model", credentials.model(),
                 "max_tokens", 1024,
                 "messages", List.of(Map.of("role", "user", "content", prompt))
         );
@@ -498,19 +487,19 @@ public class AiPartSearchService {
             }
         }
 
-        // Fall back to AI suggestions
-        if (apiKey == null || apiKey.isBlank()) {
+        // Fall back to AI suggestions, if this organisation has a working key. Without one the web
+        // search's own outcome still travels back, which is the honest answer: the datasheet was
+        // not found, and no AI was asked.
+        if (!aiCredentials.isUsable()) {
             return noResults(webStatus, webDetail);
         }
+        AiCredentialsService.Credentials credentials = aiCredentials.require();
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("x-api-key", apiKey);
-        headers.set("anthropic-version", API_VERSION);
+        HttpHeaders headers = headers(credentials);
 
         String prompt = String.format(DATASHEET_PROMPT, query);
         Map<String, Object> body = Map.of(
-                "model", model,
+                "model", credentials.model(),
                 "max_tokens", 1024,
                 "messages", List.of(Map.of("role", "user", "content", prompt))
         );
@@ -531,6 +520,40 @@ public class AiPartSearchService {
         } catch (Exception e) {
             return noResults(webStatus, webDetail);
         }
+    }
+
+    /**
+     * Check the organisation's key against the API, cheaply and on purpose.
+     *
+     * <p>One token of output on a one-word prompt — a fraction of a cent — which is the only way to
+     * tell a good key from a revoked one or an empty balance without running a real lookup. Used by
+     * the admin screen's "Test connection", and it is also the way back from a recorded failure:
+     * it resolves credentials {@link AiCredentialsService#requireForProbe() ignoring} that failure,
+     * and a success clears it.
+     */
+    public void probe() {
+        AiCredentialsService.Credentials credentials = aiCredentials.requireForProbe();
+        Map<String, Object> body = Map.of(
+                "model", credentials.model(),
+                "max_tokens", 1,
+                "messages", List.of(Map.of("role", "user", "content", "ping"))
+        );
+        try {
+            restTemplate.exchange(API_URL, HttpMethod.POST,
+                    new HttpEntity<>(body, headers(credentials)), String.class);
+        } catch (Exception e) {
+            throw aiCredentials.translate(e, "Anthropic did not accept the request");
+        }
+        aiCredentials.noteSuccess();
+    }
+
+    /** The three headers every call needs. The key is the organisation's, never the installation's. */
+    private static HttpHeaders headers(AiCredentialsService.Credentials credentials) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("x-api-key", credentials.apiKey());
+        headers.set("anthropic-version", API_VERSION);
+        return headers;
     }
 
     private static DatasheetSearchResponseDTO noResults(String webStatus, String webDetail) {

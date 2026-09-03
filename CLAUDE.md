@@ -18,7 +18,7 @@ loaded every session.
 | `docs/specs.md` | typed spec values (`part_spec_value`), parametric search, RKM/metric-prefix parsing, spec groups and aliases, spec coverage |
 | `docs/attachments.md` | the shared `part_attachment` table, part ownership, and the datasheet download/preflight CLI |
 | `docs/component-cache.md` | the read-only `cc_*` distributor snapshot consulted before any web lookup (schema in `CCSTRUCTURE.md`) |
-| `docs/ai.md` | the Claude lookup and what it costs, datasheet spec extraction, local Ollama categorization, OctoPart/Nexar, and why distributor APIs are off the table |
+| `docs/ai.md` | the Claude lookup and what it costs, the **per-organisation API key** (encrypted) and the fallback when it is missing or out of credit, datasheet spec extraction, local Ollama categorization, OctoPart/Nexar, and why distributor APIs are off the table |
 | `docs/projects.md` | the two phases (active/cancelled), the project parts list and how it allocates stock, returning parts, deleting a project |
 | `docs/bom-import.md` | uploading an EDA BOM export into a project and matching its lines to the project parts list |
 | `docs/part-kits.md` | kit templates (`${…}` value expansion), generating parts in bulk, and undoing a generation |
@@ -120,9 +120,9 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
 
 - PostgreSQL: database `partsdb`, user `partsuser`, password `partspass`
 - Schema managed by Flyway migrations (V1–V10) in `backend/src/main/resources/db/migration/`
-- Last version is V60
+- Last version is V61
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V61** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V62** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover
@@ -154,6 +154,10 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
 
 ## App Settings
 
+- `app.secret-key` (`APP_SECRET_KEY`) encrypts the secrets held for a tenant — today an
+  organisation's Anthropic API key. **Not exposed to the SPA, and no fallback**: unset, no
+  organisation can store an API key and the AI lookups stay off, which the admin screen says in as
+  many words. Changing it makes stored keys undecryptable. See `docs/ai.md`.
 - App-wide (non-user) settings live in config under `app.*` (`config/AppProperties`,
   `@ConfigurationProperties`) and are exposed to the SPA via **`GET /api/settings`**
   (`SettingsController`, **public** — permitted in `SecurityConfig`, non-sensitive).
@@ -161,7 +165,7 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
   There is a single app-wide currency — prices are not stored with a currency.
 - Also under `app.*` but **not** exposed to the SPA: `app.base-url` (`APP_BASE_URL`) and
   `app.mail.*` (from address, invitation expiry), used to build and send invitation mails — see
-  Invitations.
+  Invitations; and `app.secret-key` above.
 - **Frontend**: `settings/SettingsContext` (`SettingsProvider` in `App.tsx`, wraps the routes) loads
   `/settings` once on mount with a sensible default (`€`) so prices render before/independent of the
   fetch. `useSettings()` exposes `settings` + `formatMoney(amount)` ("€ 12.34"); used wherever prices

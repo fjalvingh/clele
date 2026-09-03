@@ -15,7 +15,7 @@ class DatasheetSpecExtractionServiceTest {
 
     /** Built with nulls: buildExcerpt touches no collaborator. */
     private final DatasheetSpecExtractionService service =
-            new DatasheetSpecExtractionService(null, null, null, null, null, null, null);
+            new DatasheetSpecExtractionService(null, null, null, null, null, null, null, null);
 
     private static String page(String body, int filler) {
         return body + "\n" + "x ".repeat(filler);

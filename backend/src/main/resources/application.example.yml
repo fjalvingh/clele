@@ -29,7 +29,9 @@ springdoc:
     path: /swagger-ui.html
 
 anthropic:
-  api-key: ""
+  # No app-wide key: each organisation stores its own (encrypted) and pays its own bill -- an
+  # Organisation Admin enters it under Admin Actions -> AI lookup. This is only the default model
+  # for an organisation that has not chosen one.
   model: claude-haiku-4-5-20251001
   # Rates used only to put a cost estimate in the per-search log line — they bill nothing. The
   # defaults are Claude Haiku 4.5's ($1 / $5 per million tokens) and match the `model` above; a
@@ -54,3 +56,10 @@ ollama:
 # only the per-user monthly request cap matching the free Nexar contract.
 octopart:
   monthly-limit: 100
+
+app:
+  # Encrypts the secrets this app holds for a tenant -- today an organisation's Anthropic API key.
+  # Any long random string, supplied from the environment so it stays out of the jar. Unset, no
+  # organisation can store an API key and AI lookups stay off (the admin screen says so).
+  # CHANGING IT makes stored keys undecryptable: they have to be entered again.
+  secret-key: "${APP_SECRET_KEY:}"

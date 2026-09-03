@@ -3,6 +3,9 @@ import type {
   AcceptInvitationRequest,
   AdminUser,
   AiApplyRequest,
+  AiConfig,
+  AiConfigRequest,
+  AiStatus,
   AppSettings,
   AuthUser,
   CategorizationStatus,
@@ -513,6 +516,29 @@ export const extractDatasheetSpecs = (partId: number, attachmentId?: number) =>
       params: attachmentId ? { attachmentId } : undefined,
     })
     .then((r) => r.data);
+
+// ── AI availability & credentials ─────────────────────────────────────────────
+
+/**
+ * Whether AI lookups work for this organisation, and if not, why. Asked by every screen that offers
+ * an AI source: the key is the organisation's own, so "not configured" and "out of credit" are
+ * ordinary states rather than faults, and each needs a different sentence on screen.
+ */
+export const getAiStatus = () => client.get<AiStatus>('/ai/status').then((r) => r.data);
+
+/**
+ * Re-test the stored key with a minimal call (a fraction of a cent) and report the fresh status.
+ * The way back from a recorded failure: an organisation that has topped up its account gets AI back
+ * without an administrator touching anything.
+ */
+export const checkAiStatus = () => client.post<AiStatus>('/ai/status/check').then((r) => r.data);
+
+/** ORG_ADMIN: this organisation's AI configuration. Never returns the key. */
+export const getAiConfig = () => client.get<AiConfig>('/ai/config').then((r) => r.data);
+
+/** ORG_ADMIN: set the organisation's Anthropic key and model. */
+export const updateAiConfig = (data: AiConfigRequest) =>
+  client.put<AiConfig>('/ai/config', data).then((r) => r.data);
 
 // OctoPart (Nexar) enrichment
 export const getOctopartUsage = () =>

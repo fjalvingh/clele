@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -44,14 +43,17 @@ class DatasheetIdentificationTest {
     private final RestTemplate restTemplate = mock(RestTemplate.class);
     private final SpecFieldCatalog specFieldCatalog = mock(SpecFieldCatalog.class);
     private final SpecDefinitionService specDefinitionService = mock(SpecDefinitionService.class);
+    private final AiCredentialsService aiCredentials = mock(AiCredentialsService.class);
 
     private DatasheetSpecExtractionService service() {
         DatasheetSpecExtractionService service = new DatasheetSpecExtractionService(
                 mock(PartService.class), mock(PartAttachmentRepository.class),
                 new DatasheetAnalyzer(), specDefinitionService, specFieldCatalog,
-                new ObjectMapper(), restTemplate);
-        ReflectionTestUtils.setField(service, "apiKey", "test-key");
-        ReflectionTestUtils.setField(service, "model", "claude-haiku-4-5-20251001");
+                aiCredentials, new ObjectMapper(), restTemplate);
+        // The key is the organisation's, resolved per call; these tests are about what is read from
+        // the document, so any usable pair will do.
+        when(aiCredentials.require()).thenReturn(
+                new AiCredentialsService.Credentials("test-key", "claude-haiku-4-5-20251001"));
         when(specFieldCatalog.render())
                 .thenReturn(new SpecFieldCatalog.Fields("\n  - \"supply_voltage_max\" (Supply voltage max)", 1));
         // The alias table is exercised by its own tests; here it must simply not lose a key.
