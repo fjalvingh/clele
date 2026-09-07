@@ -16,9 +16,12 @@ import org.springframework.web.bind.annotation.*;
  * The Model Context Protocol endpoint: one POST speaking JSON-RPC 2.0, which is all the
  * "Streamable HTTP" transport requires of a server that never pushes anything on its own.
  *
- * <p><b>Read-only.</b> Every tool here answers questions about the catalogue; none of them writes.
- * That is the whole security model of the thing — an assistant given a key cannot edit a part,
- * move stock or change a spec, whatever it is asked to do.
+ * <p><b>The catalogue is read-only.</b> No tool here edits a part, a category, a location or a
+ * spec, whatever the assistant is asked to do. The one thing that writes is a <b>project's parts
+ * list</b> ({@code add_project_part}, {@code remove_project_part}) — and since putting a part on an
+ * active project's list takes it off the shelf there and then, those two move stock. They are gated
+ * on {@code PARTS_EDIT} in {@link McpToolRegistry}, because a tool calls the service directly and
+ * never passes {@code ProjectController}'s {@code @PreAuthorize}.
  *
  * <p><b>Why hand-rolled and not an SDK.</b> The server side of this transport is a JSON-RPC
  * dispatcher over four methods ({@code initialize}, {@code ping}, {@code tools/list},

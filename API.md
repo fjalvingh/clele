@@ -204,13 +204,16 @@ in the feature documents under `docs/` — the section names referenced below ("
   `POST /spec-definitions/{id}/convert-to-number` converts a TEXT spec to NUMBER, parsing part values into
   a base unit (dry-run unless `commit:true`; requires `PARTS_EDIT`)
 - `POST /mcp` — the **Model Context Protocol** endpoint an AI client talks to: JSON-RPC 2.0 over
-  `initialize`, `ping`, `tools/list`, `tools/call`. **Read-only**, and authenticated by an MCP API
+  `initialize`, `ping`, `tools/list`, `tools/call`. The catalogue side is **read-only**; the only
+  tools that write are the two that change a project's parts list. Authenticated by an MCP API
   key (`X-Api-Key`) or an OAuth access token (`Authorization: Bearer`) rather than the session — its
   own security chain, scoped to this one path. Either credential pins the organisation. An
   unauthenticated call answers **401 with `WWW-Authenticate: Bearer resource_metadata="…"`**, which
   is how a client discovers the OAuth flow. A notification (no `id`) is answered 202; `GET /mcp`
   (server-initiated SSE) is 405. Tools: `search_parts`, `get_part`, `list_spec_fields`,
-  `list_categories`, `list_locations`, `list_low_stock`. See `docs/mcp.md`
+  `list_categories`, `list_locations`, `list_low_stock`, `search_projects`, `get_project`,
+  `add_project_part`, `remove_project_part` — the last two write, and need `PARTS_EDIT`. See
+  `docs/mcp.md`
 - **OAuth for the MCP endpoint** — this app is its own authorization server, so Claude Desktop and
   claude.ai can connect with a URL alone. Outside `/api`, at the locations their specifications fix:
   `GET /.well-known/oauth-protected-resource` (RFC 9728) and

@@ -2,7 +2,8 @@
 
 Part of the Clele documentation — `CLAUDE.md` holds the overview and the index of these files;
 `API.md` lists the REST endpoints. The uploaded BOM file and the screen that matches its lines to
-parts are in `docs/bom-import.md`.
+parts are in `docs/bom-import.md`; the MCP tools that read a project and change its parts list from
+an AI client are in `docs/mcp.md`.
 
 ## Two lists, two names
 

@@ -703,8 +703,9 @@ function OrganisationSection() {
 
 /**
  * Keys for the MCP endpoint — the door an AI assistant reads the catalogue through. A key carries
- * no more access than its owner has, and the endpoint behind it is read-only, so issuing one needs
- * no permission beyond being able to log in.
+ * no more access than its owner has: the catalogue behind it is read-only, and the one thing that
+ * can be changed — the parts list of a project the owner owns — needs the same Edit parts
+ * permission a browser does. So issuing a key needs no permission beyond being able to log in.
  *
  * <p>The token is shown once, here, and never again: only its hash is stored. That is why the
  * newly created key gets its own panel with the ready-made command rather than a line in the list.
@@ -772,8 +773,10 @@ function McpAccessSection() {
       <h2 className="text-lg font-semibold text-gray-900">AI access (MCP)</h2>
       <p className="mt-1 text-sm text-gray-600">
         Let an AI assistant search this catalogue — parts, specifications, stock and locations —
-        through the Model Context Protocol. Access is <strong>read-only</strong>: nothing reached
-        this way can change a part, a specification or your stock. A key reads only{' '}
+        through the Model Context Protocol. The catalogue is <strong>read-only</strong>: nothing
+        reached this way can change a part or a specification. It can add parts to and remove them
+        from your own projects&rsquo; parts lists, which does move stock in and out of those
+        projects. A key reaches only{' '}
         {user?.currentOrganisationName ?? 'your current organisation'} and carries no more
         permission than you have there.
       </p>

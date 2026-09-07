@@ -4,15 +4,21 @@ import com.clele.parts.dto.CategoryDTO;
 import com.clele.parts.dto.CategoryTreeDTO;
 import com.clele.parts.dto.LocationDTO;
 import com.clele.parts.dto.PartDTO;
+import com.clele.parts.dto.ProjectDTO;
+import com.clele.parts.dto.ProjectPartDTO;
+import com.clele.parts.dto.ProjectPartRequest;
 import com.clele.parts.dto.SpecDefinitionDTO;
 import com.clele.parts.dto.StockEntryDTO;
 import com.clele.parts.dto.StockThresholdDTO;
+import com.clele.parts.model.Permissions;
+import com.clele.parts.model.ProjectStatus;
 import com.clele.parts.model.SpecDefinition;
 import com.clele.parts.repository.SpecDefinitionRepository;
 import com.clele.parts.service.CategoryService;
 import com.clele.parts.service.CurrentOrganisationService;
 import com.clele.parts.service.LocationService;
 import com.clele.parts.service.PartService;
+import com.clele.parts.service.ProjectService;
 import com.clele.parts.service.SpecDefinitionService;
 import com.clele.parts.service.StockEntryService;
 import com.clele.parts.service.StockThresholdService;
@@ -23,9 +29,15 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -36,11 +48,18 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * The read-only tools the MCP endpoint offers, and what each one does.
+ * The tools the MCP endpoint offers, and what each one does.
  *
  * <p>Every tool goes through the ordinary services, so the organisation scoping, the parametric
  * spec search and the stock aggregate are the same code the web UI runs — an answer here cannot
  * drift from what the screen shows.
+ *
+ * <p>The catalogue is read-only. The <b>project</b> tools are the exception, and only for a
+ * project's own parts list: {@code add_project_part} and {@code remove_project_part} move stock,
+ * because putting a part on a project's list takes it off the shelf there and then. They are gated
+ * on {@link Permissions#PARTS_EDIT} in the organisation the credential was issued for — the same
+ * permission {@code ProjectController} demands of a browser — because a tool here calls the
+ * service directly and so never passes that controller's {@code @PreAuthorize}.
  *
  * <p>Two shaping rules run through all of it, both about a model's context rather than a screen's
  * pixels. <b>Results are capped and say so</b>: a catalogue query that matches 900 parts returns
@@ -61,6 +80,8 @@ public class McpToolRegistry {
     private static final int MAX_PART_LIMIT = 200;
     private static final int DEFAULT_FIELD_LIMIT = 100;
     private static final int MAX_FIELD_LIMIT = 1000;
+    private static final int DEFAULT_PROJECT_LIMIT = 50;
+    private static final int MAX_PROJECT_LIMIT = 200;
 
     private final ObjectMapper objectMapper;
     private final PartService partService;
@@ -70,6 +91,7 @@ public class McpToolRegistry {
     private final SpecDefinitionRepository specDefinitionRepository;
     private final CategoryService categoryService;
     private final LocationService locationService;
+    private final ProjectService projectService;
     private final CurrentOrganisationService currentOrganisationService;
 
     /** A tool as {@code tools/list} renders it, plus the code behind it. */
@@ -233,7 +255,94 @@ public class McpToolRegistry {
                         schema("""
                                {"type": "object", "properties": {}}
                                """),
-                        args -> listLowStock()));
+                        args -> listLowStock()),
+
+                new Tool("search_projects", "Search projects",
+                        """
+                        The projects belonging to whoever this credential acts as — projects are \
+                        private to their owner, so this never shows anyone else's. A project is a \
+                        build with a parts list; while it is ACTIVE the parts on that list are out \
+                        of stock and held by the project, and while it is CANCELLED they have all \
+                        been given back. `anyShortfall` marks a project some line of which holds \
+                        less than the build needs. Use get_project for the parts list itself.""",
+                        schema("""
+                               {
+                                 "type": "object",
+                                 "properties": {
+                                   "query": {"type": "string", "description": "Case-insensitive substring of the project name or description."},
+                                   "status": {"type": "string", "description": "ACTIVE or CANCELLED. Both when absent."},
+                                   "limit": {"type": "integer", "description": "Max projects to return, 1-200. Default 50."}
+                                 }
+                               }
+                               """),
+                        this::searchProjects),
+
+                new Tool("get_project", "Get a project and its parts list",
+                        """
+                        One project in full, with every line of its parts list: the part, how many \
+                        one build instance needs (`qtyPerInstance`), the whole-build need \
+                        (`totalNeeded` = qtyPerInstance × instanceCount), how many the project is \
+                        actually holding out of stock (`qtyAllocated`) and the `shortfall` stock \
+                        could not supply. Identify the project by `projectId` (from \
+                        search_projects) or by its exact `project` name.""",
+                        schema("""
+                               {
+                                 "type": "object",
+                                 "properties": {
+                                   "projectId": {"type": "integer", "description": "The project id, as returned by search_projects."},
+                                   "project": {"type": "string", "description": "Exact project name; used when `projectId` is absent."}
+                                 }
+                               }
+                               """),
+                        this::getProject),
+
+                new Tool("add_project_part", "Add a part to a project's parts list",
+                        """
+                        Put a part on a project's parts list. THIS MOVES STOCK: the parts the build \
+                        needs are taken off the shelf and held by the project the moment the line \
+                        is added — there is no state in which a project lists a part but has not \
+                        taken it. Running short is a state, not a failure: if the shelf cannot \
+                        cover the need the line is still added, holding what there was, and the \
+                        result reports the shortfall. Identify the project by `projectId` or \
+                        `project`, the part by `partId` or `partNumber`. The project must be \
+                        ACTIVE, the part must not already be on the list, and the credential needs \
+                        the PARTS_EDIT permission.""",
+                        schema("""
+                               {
+                                 "type": "object",
+                                 "properties": {
+                                   "projectId": {"type": "integer", "description": "The project id, as returned by search_projects."},
+                                   "project": {"type": "string", "description": "Exact project name; used when `projectId` is absent."},
+                                   "partId": {"type": "integer", "description": "The part id, as returned by search_parts."},
+                                   "partNumber": {"type": "string", "description": "Exact part number; used when `partId` is absent."},
+                                   "qtyPerInstance": {"type": "integer", "description": "How many one build instance needs. At least 1; default 1."},
+                                   "notes": {"type": "string", "description": "A note against this line, e.g. the reference designators it covers."}
+                                 }
+                               }
+                               """),
+                        this::addProjectPart),
+
+                new Tool("remove_project_part", "Remove a part from a project's parts list",
+                        """
+                        Take a part off a project's parts list. THIS MOVES STOCK: everything the \
+                        project was holding of it goes back to the locations it was drawn from. \
+                        The whole line goes, need and all — to hand parts back while keeping the \
+                        line (so it reads as short until they are fetched again) is a different \
+                        thing, and this is not it. Identify the project by `projectId` or \
+                        `project`, the part by `partId` or `partNumber`. The project must be \
+                        ACTIVE and the credential needs the PARTS_EDIT permission.""",
+                        schema("""
+                               {
+                                 "type": "object",
+                                 "properties": {
+                                   "projectId": {"type": "integer", "description": "The project id, as returned by search_projects."},
+                                   "project": {"type": "string", "description": "Exact project name; used when `projectId` is absent."},
+                                   "partId": {"type": "integer", "description": "The part id, as returned by search_parts or get_project."},
+                                   "partNumber": {"type": "string", "description": "Exact part number; used when `partId` is absent."}
+                                 }
+                               }
+                               """),
+                        this::removeProjectPart));
     }
 
     // ---------------------------------------------------------------- handlers
@@ -396,6 +505,84 @@ public class McpToolRegistry {
         return Map.of("total", rows.size(), "parts", rows);
     }
 
+    private Object searchProjects(JsonNode args) {
+        String query = text(args, "query");
+        ProjectStatus status = parseStatus(text(args, "status"));
+
+        List<ProjectDTO> found = projectService.findAll().stream()
+                .filter(p -> query == null
+                        || contains(p.getName(), query) || contains(p.getDescription(), query))
+                .filter(p -> status == null || p.getStatus() == status)
+                .toList();
+
+        int limit = bounded(args, "limit", DEFAULT_PROJECT_LIMIT, MAX_PROJECT_LIMIT);
+        List<Map<String, Object>> rows = found.stream()
+                .limit(limit)
+                .map(this::projectRow)
+                .toList();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("total", found.size());
+        result.put("returned", rows.size());
+        if (rows.size() < found.size()) {
+            result.put("note", "Showing the first " + rows.size() + " of " + found.size()
+                    + " projects; narrow with `query` or raise `limit` (max "
+                    + MAX_PROJECT_LIMIT + ").");
+        }
+        result.put("projects", rows);
+        return result;
+    }
+
+    private Object getProject(JsonNode args) {
+        return projectDetail(resolveProject(args));
+    }
+
+    private Object addProjectPart(JsonNode args) {
+        requireWriteAccess();
+        ProjectDTO project = resolveProject(args);
+        PartDTO part = resolvePart(args);
+
+        int qtyPerInstance = args.path("qtyPerInstance").asInt(1);
+        if (qtyPerInstance < 1) {
+            throw new ToolArgumentException("`qtyPerInstance` must be at least 1.");
+        }
+
+        ProjectPartRequest request = new ProjectPartRequest();
+        request.setPartId(part.getId());
+        request.setQtyPerInstance(qtyPerInstance);
+        request.setNotes(text(args, "notes"));
+        ProjectPartDTO line = projectService.addPart(project.getId(), request);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("projectId", project.getId());
+        result.put("project", project.getName());
+        result.put("added", projectPartRow(line));
+        result.put("takenFromStock", line.getQtyAllocated());
+        if (line.getShortfall() > 0) {
+            result.put("note", "Stock could only supply " + line.getQtyAllocated() + " of the "
+                    + line.getTotalNeeded() + " this build needs; the line is on the list "
+                    + line.getShortfall() + " short.");
+        }
+        return result;
+    }
+
+    private Object removeProjectPart(JsonNode args) {
+        requireWriteAccess();
+        ProjectDTO project = resolveProject(args);
+        PartDTO part = resolvePart(args);
+        ProjectPartDTO line = lineFor(project, part);
+
+        int held = line.getQtyAllocated();
+        projectService.removePart(project.getId(), line.getId());
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("projectId", project.getId());
+        result.put("project", project.getName());
+        result.put("removed", projectPartRow(line));
+        result.put("returnedToStock", held);
+        return result;
+    }
+
     // ---------------------------------------------------------------- row mapping
 
     private Map<String, Object> summarise(PartDTO part) {
@@ -453,6 +640,44 @@ public class McpToolRegistry {
         return row;
     }
 
+    private Map<String, Object> projectRow(ProjectDTO project) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", project.getId());
+        row.put("name", project.getName());
+        putIfPresent(row, "description", project.getDescription());
+        row.put("status", project.getStatus());
+        row.put("instanceCount", project.getInstanceCount());
+        row.put("partCount", project.getPartCount());
+        row.put("anyShortfall", project.isAnyShortfall());
+        row.put("updatedAt", project.getUpdatedAt());
+        return row;
+    }
+
+    private Map<String, Object> projectDetail(ProjectDTO project) {
+        Map<String, Object> result = projectRow(project);
+        result.put("createdAt", project.getCreatedAt());
+        if (project.getTotalStockValue() != null) {
+            result.put("totalStockValue", project.getTotalStockValue());
+        }
+        List<ProjectPartDTO> parts = project.getParts() == null ? List.of() : project.getParts();
+        result.put("parts", parts.stream().map(this::projectPartRow).toList());
+        return result;
+    }
+
+    private Map<String, Object> projectPartRow(ProjectPartDTO line) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("projectPartId", line.getId());
+        row.put("partId", line.getPartId());
+        row.put("partNumber", line.getPartNumber());
+        row.put("description", line.getPartName());
+        row.put("qtyPerInstance", line.getQtyPerInstance());
+        row.put("totalNeeded", line.getTotalNeeded());
+        row.put("qtyAllocated", line.getQtyAllocated());
+        row.put("shortfall", line.getShortfall());
+        putIfPresent(row, "notes", line.getNotes());
+        return row;
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /**
@@ -473,6 +698,107 @@ public class McpToolRegistry {
                         : "No part is called exactly '" + partNumber + "'. Similar: "
                           + candidates.stream().limit(10).map(PartDTO::getPartNumber)
                                   .collect(Collectors.joining(", "))));
+    }
+
+    /**
+     * The project a tool was pointed at, as a detail DTO — {@code projectService.findById} scopes it
+     * to the organisation <em>and</em> to the owner, since projects are private. A name is resolved
+     * here because a model has one in hand far more often than an id.
+     */
+    private ProjectDTO resolveProject(JsonNode args) {
+        if (args.hasNonNull("projectId")) {
+            long id = args.get("projectId").asLong();
+            try {
+                return projectService.findById(id);
+            } catch (ResponseStatusException e) {
+                if (e.getStatusCode() != HttpStatus.NOT_FOUND) throw e;
+                throw new ToolArgumentException("No project with id " + id
+                        + " belongs to you. Call search_projects for the list.");
+            }
+        }
+
+        String name = text(args, "project");
+        if (name == null) {
+            throw new ToolArgumentException("Give either `projectId` or `project` (its name).");
+        }
+        List<ProjectDTO> all = projectService.findAll();
+        List<ProjectDTO> exact = all.stream()
+                .filter(p -> name.equalsIgnoreCase(p.getName()))
+                .toList();
+        if (exact.size() == 1) {
+            return projectService.findById(exact.get(0).getId());
+        }
+        if (exact.isEmpty()) {
+            List<String> close = all.stream()
+                    .filter(p -> contains(p.getName(), name))
+                    .map(ProjectDTO::getName)
+                    .limit(5)
+                    .toList();
+            throw new ToolArgumentException("No project called '" + name + "'."
+                    + (close.isEmpty()
+                            ? " Call search_projects for the list."
+                            : " Did you mean: " + String.join(", ", close) + "?"));
+        }
+        throw new ToolArgumentException("'" + name + "' matches several projects (ids "
+                + exact.stream().map(p -> String.valueOf(p.getId()))
+                        .collect(Collectors.joining(", "))
+                + "). Pass `projectId` instead.");
+    }
+
+    /** The part a project tool was pointed at, by id or by exact part number. */
+    private PartDTO resolvePart(JsonNode args) {
+        if (args.hasNonNull("partId")) {
+            return partService.findById(args.get("partId").asLong());
+        }
+        String partNumber = text(args, "partNumber");
+        if (partNumber == null) {
+            throw new ToolArgumentException("Give either `partId` or `partNumber`.");
+        }
+        return byPartNumber(partNumber);
+    }
+
+    /** The line a project's parts list holds for one part, or a failure naming what is on it. */
+    private ProjectPartDTO lineFor(ProjectDTO project, PartDTO part) {
+        List<ProjectPartDTO> parts = project.getParts() == null ? List.of() : project.getParts();
+        return parts.stream()
+                .filter(line -> part.getId().equals(line.getPartId()))
+                .findFirst()
+                .orElseThrow(() -> new ToolArgumentException("Project '" + project.getName()
+                        + "' has no parts list line for " + part.getPartNumber()
+                        + (parts.isEmpty()
+                                ? "; its parts list is empty."
+                                : ". It lists: " + parts.stream().map(ProjectPartDTO::getPartNumber)
+                                        .limit(20).collect(Collectors.joining(", ")) + ".")));
+    }
+
+    private ProjectStatus parseStatus(String status) {
+        if (status == null) return null;
+        return Arrays.stream(ProjectStatus.values())
+                .filter(value -> value.name().equalsIgnoreCase(status))
+                .findFirst()
+                .orElseThrow(() -> new ToolArgumentException("'" + status
+                        + "' is not a project status. Use one of: "
+                        + Arrays.stream(ProjectStatus.values()).map(Enum::name)
+                                .collect(Collectors.joining(", ")) + "."));
+    }
+
+    /**
+     * The gate on the two tools that write. Every other tool reads, and a credential that may read
+     * the catalogue must not be talked into moving stock — so the permission a browser needs for
+     * the same operation is demanded here too. It is checked in this class rather than left to
+     * {@code ProjectController}'s {@code @PreAuthorize} because these tools call the service
+     * directly and never go through that controller.
+     */
+    private void requireWriteAccess() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        boolean permitted = auth != null && auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(Permissions.PARTS_EDIT::equals);
+        if (!permitted) {
+            throw new ToolArgumentException("This credential may read but not write: changing a "
+                    + "project's parts list moves stock and needs the " + Permissions.PARTS_EDIT
+                    + " permission in this organisation.");
+        }
     }
 
     /**

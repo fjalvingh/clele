@@ -107,8 +107,8 @@ export default function OAuthConsentPage() {
       <div className="mt-4 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm">
         <p className="text-gray-800">
           An application calling itself{' '}
-          <strong>{consent.clientName?.trim() || 'an unnamed client'}</strong> is asking to read
-          your parts catalogue.
+          <strong>{consent.clientName?.trim() || 'an unnamed client'}</strong> is asking for access
+          to your parts catalogue.
         </p>
         <p className="mt-2 text-gray-600">
           It will be sent back to <strong className="break-all">{consent.redirectHost}</strong>. If
@@ -124,15 +124,21 @@ export default function OAuthConsentPage() {
             Read parts, specifications, stock levels, categories and locations
           </li>
           <li className="flex items-start gap-2">
+            <Tick />
+            Add parts to, and remove them from, the parts lists of your own projects — which takes
+            those parts out of stock and puts them back. Only if you may edit parts there
+          </li>
+          <li className="flex items-start gap-2">
             <Cross />
-            Nothing else — it cannot add, change or delete anything, or move stock
+            Nothing else — it cannot add, change or delete a part, a specification, a category or a
+            location, and cannot move stock in any other way
           </li>
         </ul>
       </div>
 
       {consent.organisations.length > 1 ? (
         <label className="mt-4 block text-sm">
-          <span className="font-medium text-gray-900">Organisation it may read</span>
+          <span className="font-medium text-gray-900">Organisation it may work in</span>
           <select
             value={organisationId ?? ''}
             onChange={(e) => setOrganisationId(Number(e.target.value))}
@@ -150,7 +156,7 @@ export default function OAuthConsentPage() {
         </label>
       ) : (
         <p className="mt-4 text-sm text-gray-600">
-          It will read{' '}
+          It will reach{' '}
           <strong>{consent.organisations[0]?.name ?? 'your organisation'}</strong> only, as{' '}
           {user?.email}.
         </p>
