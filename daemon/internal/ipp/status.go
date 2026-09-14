@@ -152,13 +152,20 @@ func StatusFrom(a Attrs) *PrinterStatus {
 	s.AcceptingJobs = a.Str("printer-is-accepting-jobs") == "true"
 	s.MakeAndModel = a.Str("printer-make-and-model")
 
-	// Prefer media-col, which states the size and margins numerically; fall back to parsing the
-	// media keyword, which is all a bare network printer offers.
-	if col := a.First("media-col-default"); col != nil && col.Coll != nil {
+	// Prefer media-ready: it is IPP's "what is actually loaded" attribute, and on a Brother QL it
+	// tracks the cassette's own sensor. media-col-default is a job-ticket default the printer keeps
+	// separately and does NOT update when the cassette is swapped -- a QL-710W was found reporting
+	// media-col-default of 29x90mm and media-ready of 17x54mm at the same time, with a 17x54mm
+	// cassette physically loaded, which sent every job the wrong media declaration and got it
+	// rejected outright by the printer's own mismatch check. media-col-default is used only when a
+	// printer has no media-ready at all, for the numeric size/margins it gives over parsing a
+	// keyword. A CUPS/Dymo caller (cupsprint.Driver.Probe) overrides this Media with the media the
+	// user picked immediately after calling StatusFrom, so this ordering does not affect it.
+	if m := parseMedia(a.Str("media-ready")); m != nil {
+		s.Media = m
+	} else if col := a.First("media-col-default"); col != nil && col.Coll != nil {
 		m := MediaFromCol(col, a.Str("media-default"))
 		s.Media = &m
-	} else if m := parseMedia(a.Str("media-ready")); m != nil {
-		s.Media = m
 	}
 	return s
 }
