@@ -372,6 +372,7 @@ export default function PartsPage() {
         <div className="flex flex-wrap gap-3">
           <input
             type="text"
+            autoFocus
             value={criteria.search}
             onChange={(e) => setCriteria({ ...criteria, search: e.target.value })}
             placeholder="Search by part number, description or spec…"

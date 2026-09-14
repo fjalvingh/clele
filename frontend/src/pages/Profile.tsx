@@ -381,6 +381,12 @@ function LabelPrintingSection() {
                   No daemons found on your current network. Install one below, then reload this page.
                 </p>
               )}
+              {daemons.length > 0 && !preference.preferredDaemonId && (
+                <p className="text-sm text-amber-600">
+                  Choose a default printer below — until you do, printing still opens the browser's
+                  print dialog instead of going through a daemon.
+                </p>
+              )}
               {daemons.map((d) => (
                 <div key={d.id} className="rounded-md border border-gray-200 p-3">
                   <div className="flex items-center justify-between gap-3">
@@ -410,13 +416,16 @@ function LabelPrintingSection() {
                       )}
                       {d.owned && (
                         <>
-                          <input
-                            type="radio"
-                            name="preferredDaemon"
-                            checked={preference.preferredDaemonId === d.id}
-                            onChange={() => savePreference('DAEMON', d.id)}
-                            aria-label={`Use ${d.name} as the default printer`}
-                          />
+                          <label className="flex items-center gap-1 text-xs text-gray-600">
+                            <input
+                              type="radio"
+                              name="preferredDaemon"
+                              checked={preference.preferredDaemonId === d.id}
+                              onChange={() => savePreference('DAEMON', d.id)}
+                              aria-label={`Use ${d.name} as the default printer`}
+                            />
+                            Default printer
+                          </label>
                           <button
                             type="button"
                             onClick={() => handleDelete(d.id)}
