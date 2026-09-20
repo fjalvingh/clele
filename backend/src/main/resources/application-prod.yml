@@ -4,10 +4,17 @@ server:
   servlet:
     # Served at the host root behind the Apache reverse proxy.
     session:
+      # 7-day sliding idle window: every request pushes expiry out again. Without this the Boot
+      # default (30 minutes) applies and users are logged out after any break.
+      timeout: 7d
       cookie:
         secure: true        # cookie only sent over TLS (Apache terminates TLS)
         same-site: lax
         http-only: true
+        # Persist the cookie in the browser for as long as the server keeps the session. Unset,
+        # Spring Session issues a browser-session cookie that is dropped when the browser closes,
+        # however long the server-side timeout is.
+        max-age: 7d
   # Honour X-Forwarded-* from Apache so the app knows the real scheme/host (secure cookies, redirects).
   forward-headers-strategy: framework
   error:

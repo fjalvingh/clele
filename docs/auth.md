@@ -45,11 +45,14 @@ Part of the Clele documentation — `CLAUDE.md` holds the overview and the index
   `SecurityContext` to the HTTP session via `HttpSessionSecurityContextRepository`, returns the
   `UserDTO`. `POST /api/auth/logout` invalidates the session. `GET /api/auth/me` returns the current
   user (401 if anonymous). Auth is loaded by `AppUserDetailsService` (find by email → authorities).
-- **Session persistence**: sessions are stored in PostgreSQL via `spring-session-jdbc`
-  (`spring.session.store-type: jdbc`, schema owned by Flyway V16 with
-  `spring.session.jdbc.initialize-schema: never`), so logins survive an app restart. The timeout is a
-  **7-day sliding idle window** (`server.servlet.session.timeout: 7d`) — each request resets it;
-  Spring Session reaps expired rows hourly.
+- **Session persistence**: sessions are stored in PostgreSQL via `spring-session-jdbc` (picked up
+  from the classpath; schema owned by Flyway V16), so logins survive an app restart. The timeout is a
+  **7-day sliding idle window** (`server.servlet.session.timeout: 7d`) — each request resets it —
+  and the cookie carries a matching `server.servlet.session.cookie.max-age: 7d`, without which
+  Spring Session issues a browser-session cookie that dies when the browser closes. **Both live in
+  `application-prod.yml`** (and `application.example.yml` for dev): `application.yml` is
+  gitignored and not in the jar, so anything only set there never reaches the server — the
+  Boot default of 30 minutes did, for a long time, which read as "logged out overnight".
 - **Enforcement**:
   - All `/api/**` requires an authenticated session **except** `/api/auth/login`, `/api/settings`,
     `/api/invitations/token/**` (answering an invitation — see Invitations) and swagger / api-docs. Static SPA assets + the client-router fallback are public.
