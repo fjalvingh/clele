@@ -38,6 +38,32 @@ public interface LocationRepository extends JpaRepository<Location, Long> {
     boolean existsSibling(Long organisationId, String name, Long parentId, Long excludeId);
 
     /**
+     * Slots taken per location of an organisation: the distinct parts with stock on hand there.
+     * A zero-quantity {@code stock_entry} (stock taken out to the last piece) does not count — its
+     * slot is free again. Locations holding nothing are absent.
+     */
+    @Query("""
+            SELECT se.location.id AS locationId, COUNT(DISTINCT se.part.id) AS usedSlots
+            FROM StockEntry se
+            WHERE se.location.organisation.id = :organisationId AND se.quantity > 0
+            GROUP BY se.location.id
+            """)
+    List<UsedSlotsView> usedSlots(Long organisationId);
+
+    /** {@link #usedSlots(Long)} for a single location. */
+    @Query("""
+            SELECT COUNT(DISTINCT se.part.id) FROM StockEntry se
+            WHERE se.location.id = :locationId AND se.quantity > 0
+            """)
+    long usedSlotsAt(Long locationId);
+
+    /** Projection for {@link #usedSlots}; getters match the column aliases. */
+    interface UsedSlotsView {
+        Long getLocationId();
+        Long getUsedSlots();
+    }
+
+    /**
      * Per-root-location roll-up of the stock held in one organisation: sub-location count, distinct
      * parts, total on-hand quantity and total stock value, aggregated over each root location's
      * whole subtree. Root locations with no stock still appear.

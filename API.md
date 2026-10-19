@@ -103,6 +103,9 @@ in the feature documents under `docs/` — the section names referenced below ("
 - `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`, `GET /locations/tree` (nested hierarchy),
   `GET /locations/stats` (per-location stock roll-up — direct + subtree parts/quantity/value, drives
   the figures on the Locations tree), `GET /locations/mine` (current user's own, for stock pickers);
+  `LocationRequest`/`LocationDTO` carry an optional `slotCount` (leaf drawers only — 400 on a location
+  with sub-locations, 409 when the parent is slotted); the DTO adds `usedSlots`/`freeSlots`
+  (distinct parts with stock >0 there) when it is set.
   `POST /locations/{id}/merge`
   (`{targetId}`) moves the location's stock into another location and deletes the source
 - `GET/POST /stock-entries`, `GET/PUT/DELETE /stock-entries/{id}`; `POST /stock/{add,take,move}` are

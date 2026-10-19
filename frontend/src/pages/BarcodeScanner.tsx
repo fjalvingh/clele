@@ -18,6 +18,7 @@ import { NumberTextInput } from '../components/NumberInput';
 import PrintLabelModal from '../components/PrintLabelModal';
 import { parsePartBarcode } from '../utils/code128';
 import { parseAiSpecs } from '../utils/specs';
+import { locationOptionLabel } from '../utils/locations';
 
 /**
  * A keyboard-wedge scanner types into whatever input has focus, so on desktop this page keeps the
@@ -92,7 +93,7 @@ function StockForm({
           >
             <option value="">— select location —</option>
             {locations.map((l) => (
-              <option key={l.id} value={l.id}>{l.breadcrumb}</option>
+              <option key={l.id} value={l.id}>{locationOptionLabel(l)}</option>
             ))}
           </select>
         </div>

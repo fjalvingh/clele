@@ -8,6 +8,7 @@ import { NumberTextInput } from '../components/NumberInput';
 import PartSpecEditor from '../components/PartSpecEditor';
 import TagInput from '../components/TagInput';
 import { parseAiSpecs } from '../utils/specs';
+import { locationOptionLabel } from '../utils/locations';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -1119,7 +1120,7 @@ export default function QuickAddPage() {
                       .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb))
                       .map((loc) => (
                         <option key={loc.id} value={loc.id}>
-                          {loc.breadcrumb || loc.name}
+                          {locationOptionLabel(loc)}
                         </option>
                       ))}
                   </select>

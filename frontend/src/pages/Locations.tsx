@@ -12,7 +12,9 @@ import type { Location, LocationRequest, LocationStats, LocationTree } from '../
 import { useAuth } from '../auth/AuthContext';
 import FormField from '../components/FormField';
 import Modal from '../components/Modal';
+import { NumberField } from '../components/NumberInput';
 import { useSettings } from '../settings/SettingsContext';
+import { slotSummary } from '../utils/locations';
 
 // ---- Tree node component ----
 interface TreeNodeProps {
@@ -39,6 +41,8 @@ function TreeNode({
   const stat = stats.get(node.id);
   const empty = !stat || stat.totalParts === 0;
   const rolledUp = !!stat && hasChildren && stat.directParts !== stat.totalParts;
+  const slots = fullLoc ? slotSummary(fullLoc) : null;
+  const slotsFree = fullLoc?.freeSlots ?? 0;
 
   return (
     <div className="ml-4">
@@ -49,12 +53,23 @@ function TreeNode({
         >
           {hasChildren ? (expanded ? '▼' : '▶') : '•'}
         </button>
-        <span className="flex-1 text-sm text-gray-800 font-medium">{node.name}</span>
+        <span className="text-sm text-gray-800 font-medium">{node.name}</span>
+        {slots && (
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${
+              slotsFree > 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            }`}
+            title={`Drawer with ${fullLoc?.slotCount} slots, ${fullLoc?.usedSlots} in use`}
+          >
+            {slots}
+          </span>
+        )}
+        <span className="flex-1" />
         {node.description && (
           <span className="hidden text-xs text-gray-400 group-hover:inline">{node.description}</span>
         )}
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {manageable && (
+          {manageable && fullLoc?.slotCount == null && (
             <button
               onClick={() => onAddChild(node.id)}
               className="rounded px-2 py-0.5 text-xs text-green-600 hover:bg-green-50"
@@ -132,23 +147,26 @@ interface ParentOption {
 
 // Build an indented option list of candidate parents. Locations belong to the organisation rather
 // than to a user, so every location in it is eligible — except the location being edited and its
-// whole subtree (a node can't be its own ancestor).
+// whole subtree (a node can't be its own ancestor), and drawers divided into slots (they hold parts,
+// not further locations; a slotted drawer is always a leaf, so nothing below it is lost).
 function buildParentOptions(
   nodes: LocationTree[],
   excludeId: number | null,
+  slotted: Set<number>,
   depth = 0
 ): ParentOption[] {
   const options: ParentOption[] = [];
   for (const node of nodes) {
     if (node.id === excludeId) continue; // skip this node and its entire subtree
+    if (slotted.has(node.id)) continue;
     const prefix = depth > 0 ? '  '.repeat(depth) + '└ ' : '';
     options.push({ id: node.id, label: prefix + node.name });
-    options.push(...buildParentOptions(node.children, excludeId, depth + 1));
+    options.push(...buildParentOptions(node.children, excludeId, slotted, depth + 1));
   }
   return options;
 }
 
-const emptyForm: LocationRequest = { name: '', description: '', parentId: null };
+const emptyForm: LocationRequest = { name: '', description: '', parentId: null, slotCount: null };
 
 export default function LocationsPage() {
   const { hasPermission } = useAuth();
@@ -198,6 +216,7 @@ export default function LocationsPage() {
       name: loc.name,
       description: loc.description ?? '',
       parentId: loc.parentId ?? null,
+      slotCount: loc.slotCount ?? null,
     });
     setFormError(null);
     setModalOpen(true);
@@ -258,7 +277,13 @@ export default function LocationsPage() {
     .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb));
 
   // Parent candidates: any location in the organisation, minus the edited node's subtree.
-  const parentOptions = buildParentOptions(tree, editing?.id ?? null);
+  const parentOptions = buildParentOptions(
+    tree,
+    editing?.id ?? null,
+    new Set(locations.filter((l) => l.slotCount != null).map((l) => l.id))
+  );
+  // Only a leaf can be divided into slots; a new location is always one.
+  const editingHasChildren = !!editing && locations.some((l) => l.parentId === editing.id);
 
   return (
     <div className="p-4 md:p-8">
@@ -342,6 +367,14 @@ export default function LocationsPage() {
             </option>
           ))}
         </FormField>
+        {!editingHasChildren && (
+          <NumberField
+            label="Number of slots"
+            value={form.slotCount}
+            onChange={(slotCount) => setForm({ ...form, slotCount })}
+            placeholder="Leave empty if not divided into slots"
+          />
+        )}
         {formError && <p className="mb-3 text-sm text-red-600">{formError}</p>}
         <div className="flex justify-end gap-3">
           <button

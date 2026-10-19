@@ -242,7 +242,8 @@ public class McpToolRegistry {
                 new Tool("list_locations", "List storage locations",
                         """
                         The storage locations stock can be held in, flattened from their tree, each \
-                        with its full breadcrumb.""",
+                        with its full breadcrumb. A drawer divided into slots (one kind of part per \
+                        slot) also carries slotCount, usedSlots and freeSlots.""",
                         schema("""
                                {"type": "object", "properties": {}}
                                """),
@@ -492,6 +493,11 @@ public class McpToolRegistry {
                     row.put("name", l.getName());
                     row.put("breadcrumb", l.getBreadcrumb() == null ? l.getName() : l.getBreadcrumb());
                     row.put("parentId", l.getParentId());
+                    if (l.getSlotCount() != null) {
+                        row.put("slotCount", l.getSlotCount());
+                        row.put("usedSlots", l.getUsedSlots());
+                        row.put("freeSlots", l.getFreeSlots());
+                    }
                     return row;
                 })
                 .toList();

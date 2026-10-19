@@ -68,6 +68,7 @@ import PartEditModal from '../components/PartEditModal';
 import PrintLabelModal from '../components/PrintLabelModal';
 import { formatFamilyValue, formatMetric, unitFamily } from '../utils/units';
 import { parseAiSpecs, splitSpecNumber } from '../utils/specs';
+import { locationOptionLabel } from '../utils/locations';
 
 // The three stock operations offered per location, plus the top-level "add".
 type StockOp = 'add' | 'take' | 'move';
@@ -1994,7 +1995,7 @@ export default function PartDetailPage() {
                   .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb))
                   .map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.breadcrumb || l.name}
+                      {locationOptionLabel(l)}
                     </option>
                   ))}
               </FormField>
@@ -2016,7 +2017,7 @@ export default function PartDetailPage() {
                   .sort((a, b) => a.breadcrumb.localeCompare(b.breadcrumb))
                   .map((l) => (
                     <option key={l.id} value={l.id}>
-                      {l.breadcrumb || l.name}
+                      {locationOptionLabel(l)}
                     </option>
                   ))}
               </FormField>

@@ -31,6 +31,7 @@ import { NumberTextInput } from '../components/NumberInput';
 import Modal from '../components/Modal';
 import PartSpecEditor from '../components/PartSpecEditor';
 import TagInput from '../components/TagInput';
+import { locationOptionLabel } from '../utils/locations';
 
 
 const emptyForm = (): PartRequest => ({
@@ -741,7 +742,7 @@ export default function PartsPage() {
                 >
                   <option value="">— Select —</option>
                   {locations.map((l) => (
-                    <option key={l.id} value={l.id}>{l.breadcrumb}</option>
+                    <option key={l.id} value={l.id}>{locationOptionLabel(l)}</option>
                   ))}
                 </select>
               </div>

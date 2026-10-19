@@ -99,6 +99,21 @@ incomplete combination, and `PartService.create` answers it 400.
   parent chain) is the single source. `StockEntryDTO`/`StockMovementDTO` carry both `locationName`
   (leaf) and `locationBreadcrumb` (full path); the Part Detail stock + movement tables, the Low Stock
   table, and the "Remove stock at …" confirm all render the breadcrumb (falling back to the leaf).
+- **Slots** (V62, `location.slot_count`, nullable, `> 0`): a leaf location may be a drawer divided
+  into N compartments, one kind of part per compartment. **Used slots = distinct parts with
+  quantity > 0 at that exact location** — a `stock_entry` taken down to zero stays in the table but
+  frees its slot. Computed on read (`LocationRepository.usedSlots` per organisation for `findAll`,
+  `usedSlotsAt` for a single one); `LocationDTO` carries `slotCount`/`usedSlots`/`freeSlots`, the
+  latter going negative rather than being refused — putting a part away is never blocked by a full
+  drawer, it is only shown. **Leaf-only, enforced both ways** in `LocationService.checkSlots`: a
+  location with sub-locations cannot be given a count (400), and a slotted location cannot receive a
+  sub-location by create or move (409, "clear its number of slots first") — rejected rather than
+  silently dropping the count. Merge does not check: merging into a slotted drawer may overfill it.
+  The Locations page shows a free-slots badge per drawer, hides "+ Sub" on it and leaves it out of
+  the parent picker; the stock pickers where parts are put away (New Part, Quick Add, Part Detail
+  add/move, barcode scanner, kit generation) append "(n of N slots free)" via
+  `utils/locations.ts#locationOptionLabel`. `list_locations` (MCP) carries
+  `slotCount`/`usedSlots`/`freeSlots`.
 - **Merge into** (`POST /api/locations/{id}/merge` `{targetId}` → `LocationService.merge`): folds a
   location into another, then deletes the source. Both must be in the current organisation.
   **History is preserved**: each source

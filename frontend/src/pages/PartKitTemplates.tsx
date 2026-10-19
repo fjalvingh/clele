@@ -19,6 +19,7 @@ import { useAuth } from '../auth/AuthContext';
 import { useSettings } from '../settings/SettingsContext';
 import { NumberTextInput } from '../components/NumberInput';
 import Modal from '../components/Modal';
+import { locationOptionLabel } from '../utils/locations';
 
 const formatWhen = (iso: string) =>
   new Date(iso).toLocaleString(undefined, {
@@ -373,7 +374,7 @@ function GenerateModal({
           >
             <option value="">— Select a location —</option>
             {locations.map((l) => (
-              <option key={l.id} value={l.id}>{l.breadcrumb ?? l.name}</option>
+              <option key={l.id} value={l.id}>{locationOptionLabel(l)}</option>
             ))}
           </select>
 

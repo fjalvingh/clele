@@ -210,6 +210,12 @@ export interface Location {
   parentId?: number;
   parentName?: string;
   breadcrumb: string; // full path, e.g. "Building A > Room B > Cupboard C"
+  /** Slots when the location is a drawer divided into compartments; absent when it is not. */
+  slotCount?: number | null;
+  /** Distinct parts with stock on hand here; only set alongside slotCount. */
+  usedSlots?: number | null;
+  /** slotCount − usedSlots; negative when the drawer holds more kinds of parts than it has slots. */
+  freeSlots?: number | null;
 }
 
 export interface LocationTree {
@@ -235,6 +241,7 @@ export interface LocationRequest {
   name: string;
   description?: string;
   parentId?: number | null;
+  slotCount?: number | null;
 }
 
 // Organisations — the tenant boundary. All parts, stock, locations, categories, spec fields and

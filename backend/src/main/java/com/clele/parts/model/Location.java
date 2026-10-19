@@ -26,6 +26,13 @@ public class Location {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    /**
+     * Number of slots when this (leaf) location is a drawer divided into compartments, each holding
+     * one kind of part. NULL = not divided. Only a location without sub-locations may have it.
+     */
+    @Column(name = "slot_count")
+    private Integer slotCount;
+
     /** Parent location in the storage hierarchy (e.g. a room inside a building). NULL = root. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id")

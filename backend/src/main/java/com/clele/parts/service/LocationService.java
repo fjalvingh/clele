@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -36,9 +37,13 @@ public class LocationService {
     private final CurrentOrganisationService currentOrganisationService;
 
     public List<LocationDTO> findAll() {
-        return locationRepository.findByOrganisationIdOrderByName(currentOrganisationService.currentId())
+        Long organisationId = currentOrganisationService.currentId();
+        Map<Long, Long> used = locationRepository.usedSlots(organisationId).stream()
+                .collect(Collectors.toMap(LocationRepository.UsedSlotsView::getLocationId,
+                        LocationRepository.UsedSlotsView::getUsedSlots));
+        return locationRepository.findByOrganisationIdOrderByName(organisationId)
                 .stream()
-                .map(this::toDTO)
+                .map(l -> toDTO(l, used.getOrDefault(l.getId(), 0L)))
                 .collect(Collectors.toList());
     }
 
@@ -62,10 +67,28 @@ public class LocationService {
         return toDTO(getOrThrow(id));
     }
 
+    /**
+     * Slots only make sense on a leaf: a drawer holds parts, not further locations. So a location
+     * with sub-locations cannot be given a slot count, and a location with one cannot receive
+     * sub-locations — rejected rather than silently dropping the count.
+     */
+    private void checkSlots(Location location, Integer slotCount, Location parent) {
+        if (slotCount != null && location != null && locationRepository.existsByParentId(location.getId())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Only a location without sub-locations can be divided into slots");
+        }
+        if (parent != null && parent.getSlotCount() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "\"" + parent.getName() + "\" is divided into slots and cannot hold sub-locations. "
+                            + "Clear its number of slots first.");
+        }
+    }
+
     @Transactional
     public LocationDTO create(LocationRequest request) {
         Organisation organisation = currentOrganisationService.current();
         Location parent = resolveParent(request.getParentId(), organisation);
+        checkSlots(null, request.getSlotCount(), parent);
         if (locationRepository.existsSibling(organisation.getId(), request.getName(),
                 parent != null ? parent.getId() : null, null)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -75,6 +98,7 @@ public class LocationService {
                 .name(request.getName())
                 .description(request.getDescription())
                 .parent(parent)
+                .slotCount(request.getSlotCount())
                 .organisation(organisation)
                 .build();
         return toDTO(locationRepository.save(location));
@@ -95,6 +119,7 @@ public class LocationService {
                         "A location cannot be moved under one of its own descendants");
             }
         }
+        checkSlots(location, request.getSlotCount(), parent);
         if (locationRepository.existsSibling(organisation.getId(), request.getName(),
                 parent != null ? parent.getId() : null, id)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -103,6 +128,7 @@ public class LocationService {
         location.setParent(parent);
         location.setName(request.getName());
         location.setDescription(request.getDescription());
+        location.setSlotCount(request.getSlotCount());
         return toDTO(locationRepository.save(location));
     }
 
@@ -231,7 +257,13 @@ public class LocationService {
     }
 
     private LocationDTO toDTO(Location location) {
+        return toDTO(location, location.getSlotCount() != null
+                ? locationRepository.usedSlotsAt(location.getId()) : 0L);
+    }
+
+    private LocationDTO toDTO(Location location, long usedSlots) {
         Location parent = location.getParent();
+        Integer slotCount = location.getSlotCount();
         return LocationDTO.builder()
                 .id(location.getId())
                 .name(location.getName())
@@ -239,6 +271,9 @@ public class LocationService {
                 .parentId(parent != null ? parent.getId() : null)
                 .parentName(parent != null ? parent.getName() : null)
                 .breadcrumb(location.breadcrumb())
+                .slotCount(slotCount)
+                .usedSlots(slotCount != null ? usedSlots : null)
+                .freeSlots(slotCount != null ? slotCount - usedSlots : null)
                 .build();
     }
 }
