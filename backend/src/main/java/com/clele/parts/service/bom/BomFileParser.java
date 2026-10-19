@@ -34,11 +34,40 @@ public class BomFileParser {
 
     public ParsedFile parse(byte[] data) {
         String text = decode(data);
+        char delimiter = sniffDelimiter(text);
+        List<List<String>> records = readRecords(text, delimiter);
+        if (records.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The file has no header row");
+        }
+
+        List<String> headers = dedupeHeaders(records.get(0));
+        List<Map<String, String>> rows = new ArrayList<>();
+        for (List<String> csvRecord : records.subList(1, records.size())) {
+            Map<String, String> row = new LinkedHashMap<>();
+            for (int i = 0; i < headers.size(); i++) {
+                row.put(headers.get(i), i < csvRecord.size() ? blankToNull(csvRecord.get(i)) : null);
+            }
+            if (row.values().stream().anyMatch(v -> v != null)) {
+                rows.add(row);
+            }
+        }
+        return new ParsedFile(delimiter, headers, rows);
+    }
+
+    /**
+     * Every record of a delimited text file, the header row included and not interpreted, with the
+     * delimiter sniffed. For callers that must find the header row themselves — a distributor's
+     * export can carry title lines above it.
+     */
+    public List<List<String>> readRecords(byte[] data) {
+        String text = decode(data);
+        return readRecords(text, sniffDelimiter(text));
+    }
+
+    private List<List<String>> readRecords(String text, char delimiter) {
         if (text.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The file is empty");
         }
-
-        char delimiter = sniffDelimiter(text);
         // Deliberately parsed without setHeader(): Commons CSV rejects a duplicate or blank header
         // name outright, and real exports carry both (two "Description" columns, a trailing empty
         // one). Reading the header row as an ordinary record lets dedupeHeaders repair it — the
@@ -51,24 +80,11 @@ public class BomFileParser {
                 .build();
 
         try (CSVParser parser = CSVParser.parse(new StringReader(text), format)) {
-            List<CSVRecord> records = parser.getRecords();
-            if (records.isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "The file has no header row");
+            List<List<String>> records = new ArrayList<>();
+            for (CSVRecord csvRecord : parser.getRecords()) {
+                records.add(toList(csvRecord));
             }
-
-            List<String> headers = dedupeHeaders(toList(records.get(0)));
-            List<Map<String, String>> rows = new ArrayList<>();
-            for (CSVRecord csvRecord : records.subList(1, records.size())) {
-                Map<String, String> row = new LinkedHashMap<>();
-                for (int i = 0; i < headers.size(); i++) {
-                    row.put(headers.get(i), i < csvRecord.size() ? blankToNull(csvRecord.get(i)) : null);
-                }
-                if (row.values().stream().anyMatch(v -> v != null)) {
-                    rows.add(row);
-                }
-            }
-            return new ParsedFile(delimiter, headers, rows);
+            return records;
         } catch (IOException | IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Could not read the file as CSV: " + e.getMessage());
@@ -140,7 +156,7 @@ public class BomFileParser {
      * exports do repeat one (two "Description" columns, or a trailing empty one) — refusing the
      * whole file over that would be unhelpful when the user can just map the column they want.
      */
-    private List<String> dedupeHeaders(List<String> raw) {
+    public static List<String> dedupeHeaders(List<String> raw) {
         List<String> headers = new ArrayList<>();
         for (int i = 0; i < raw.size(); i++) {
             String name = raw.get(i) == null || raw.get(i).isBlank()

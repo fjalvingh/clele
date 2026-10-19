@@ -26,4 +26,6 @@ public class StockMovementDTO {
     private com.clele.parts.model.MovementType type;
     private Long projectId;
     private String projectName;
+    /** The order a PURCHASE came in on, when it was booked by receiving one. */
+    private Long purchaseOrderId;
 }

@@ -21,6 +21,8 @@ import QuickAddPage from './pages/QuickAdd';
 import ProjectBomPage from './pages/ProjectBom';
 import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectsPage from './pages/Projects';
+import OrdersPage from './pages/Orders';
+import PurchaseOrderDetailPage from './pages/PurchaseOrderDetail';
 import SpecDefinitionsPage from './pages/SpecDefinitions';
 import SpecGroupDetailPage from './pages/SpecGroupDetail';
 import OrganisationsPage from './pages/Organisations';
@@ -120,6 +122,22 @@ export default function App() {
             <Route path="projects" element={<ProjectsPage />} />
             <Route path="projects/:id" element={<ProjectDetailPage />} />
             <Route path="projects/:id/bom" element={<ProjectBomPage />} />
+            <Route
+              path="orders"
+              element={
+                <RequirePermission permission="PARTS_EDIT">
+                  <OrdersPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="orders/:id"
+              element={
+                <RequirePermission permission="PARTS_EDIT">
+                  <PurchaseOrderDetailPage />
+                </RequirePermission>
+              }
+            />
             <Route path="profile" element={<ProfilePage />} />
             <Route
               path="users"

@@ -20,6 +20,7 @@ loaded every session.
 | `docs/component-cache.md` | the read-only `cc_*` distributor snapshot consulted before any web lookup (schema in `CCSTRUCTURE.md`) |
 | `docs/ai.md` | the Claude lookup and what it costs, the **per-organisation API key** (encrypted) and the fallback when it is missing or out of credit, datasheet spec extraction, local Ollama categorization, OctoPart/Nexar, and why distributor APIs are off the table |
 | `docs/projects.md` | the two phases (active/cancelled), the project parts list and how it allocates stock, returning parts, deleting a project |
+| `docs/orders.md` | the order list, orders at suppliers, the Mouser file round trip (export, matched file back, delivery slip), receiving into stock, suppliers and supplier part numbers |
 | `docs/bom-import.md` | uploading an EDA BOM export into a project and matching its lines to the project parts list |
 | `docs/part-kits.md` | kit templates (`${…}` value expansion), generating parts in bulk, and undoing a generation |
 | `docs/partsbox-import.md` | the one-off Partsbox WebSocket-capture importer |
@@ -103,7 +104,8 @@ frontend/src/
   components/     Reusable UI: Layout, DataTable, Modal, FormField, Badge
   pages/          Route pages: Dashboard, Parts, PartDetail, Categories, Locations,
                   LowStock, QuickAdd, SpecDefinitions, Users, Profile, Login,
-                  Projects, ProjectDetail, ProjectBom (BOM import + matching)
+                  Projects, ProjectDetail, ProjectBom (BOM import + matching),
+                  Orders (order list + orders), PurchaseOrderDetail
   utils/          labelPrint.ts (label rendering + daemon print), units.ts (metric prefixes)
 
 daemon/           Go print daemon — single static binary, stdlib only, no external deps
@@ -120,9 +122,9 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
 
 - PostgreSQL: database `partsdb`, user `partsuser`, password `partspass`
 - Schema managed by Flyway migrations (V1–V10) in `backend/src/main/resources/db/migration/`
-- Last version is V62
+- Last version is V63
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V63** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V64** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover

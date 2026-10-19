@@ -7,6 +7,7 @@ import com.clele.parts.model.Organisation;
 import com.clele.parts.model.SpecAlias;
 import com.clele.parts.model.SpecDefinition;
 import com.clele.parts.model.SpecGroup;
+import com.clele.parts.model.Supplier;
 import com.clele.parts.model.Tag;
 import com.clele.parts.repository.*;
 import jakarta.persistence.EntityNotFoundException;
@@ -41,6 +42,7 @@ public class OrganisationService {
     private final PartRepository partRepository;
     private final LocationRepository locationRepository;
     private final ProjectRepository projectRepository;
+    private final SupplierRepository supplierRepository;
 
     public List<OrganisationDTO> findAll() {
         return organisationRepository.findAllByOrderByName().stream().map(this::toDTO).toList();
@@ -158,6 +160,15 @@ public class OrganisationService {
 
         for (Tag source : tagRepository.findByOrganisationId(from.getId())) {
             tagRepository.save(Tag.builder()
+                    .organisation(to)
+                    .name(source.getName())
+                    .build());
+        }
+
+        // The supplier list, not what was learned at them — part numbers belong to parts, which
+        // are not copied.
+        for (Supplier source : supplierRepository.findByOrganisationIdOrderByNameAsc(from.getId())) {
+            supplierRepository.save(Supplier.builder()
                     .organisation(to)
                     .name(source.getName())
                     .build());

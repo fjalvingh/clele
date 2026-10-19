@@ -6,6 +6,7 @@ import com.clele.parts.model.Location;
 import com.clele.parts.model.MovementType;
 import com.clele.parts.model.Part;
 import com.clele.parts.model.Project;
+import com.clele.parts.model.PurchaseOrder;
 import com.clele.parts.model.StockEntry;
 import com.clele.parts.model.StockMovement;
 import com.clele.parts.repository.StockEntryRepository;
@@ -50,7 +51,7 @@ public class StockMovementService {
     public StockEntry apply(Part part, Location location, int deltaQty, BigDecimal unitPrice,
                             String comments, MovementType type) {
         requireCurrentOrganisation(location);
-        return applyInternal(part, location, deltaQty, unitPrice, comments, type, null).getSecond();
+        return applyInternal(part, location, deltaQty, unitPrice, comments, type, null, null).getSecond();
     }
 
     /**
@@ -62,7 +63,7 @@ public class StockMovementService {
     public StockMovement applyMovement(Part part, Location location, int deltaQty,
                                        BigDecimal unitPrice, String comments, MovementType type) {
         requireCurrentOrganisation(location);
-        return applyInternal(part, location, deltaQty, unitPrice, comments, type, null).getFirst();
+        return applyInternal(part, location, deltaQty, unitPrice, comments, type, null, null).getFirst();
     }
 
     /**
@@ -75,7 +76,19 @@ public class StockMovementService {
                                          BigDecimal unitPrice, String comments,
                                          MovementType type, Project project) {
         requireCurrentOrganisation(location);
-        return applyInternal(part, location, deltaQty, unitPrice, comments, type, project).getFirst();
+        return applyInternal(part, location, deltaQty, unitPrice, comments, type, project, null).getFirst();
+    }
+
+    /**
+     * Receiving an order: a {@link MovementType#PURCHASE} with {@code movement.purchaseOrder} set, so
+     * the ledger can say which order the parts came in on.
+     */
+    @Transactional
+    public StockMovement applyForOrder(Part part, Location location, int qty, BigDecimal unitPrice,
+                                       String comments, PurchaseOrder order) {
+        requireCurrentOrganisation(location);
+        return applyInternal(part, location, qty, unitPrice, comments, MovementType.PURCHASE,
+                null, order).getFirst();
     }
 
     /**
@@ -122,7 +135,7 @@ public class StockMovementService {
                 BigDecimal merged = dstEntry.getUnitPrice().multiply(BigDecimal.valueOf(oldDstQty))
                         .add(sourceWac.multiply(BigDecimal.valueOf(qty)))
                         .divide(BigDecimal.valueOf(oldDstQty + qty), 10, RoundingMode.HALF_UP);
-                dstEntry.setUnitPrice(merged.setScale(2, RoundingMode.HALF_UP));
+                dstEntry.setUnitPrice(merged.setScale(5, RoundingMode.HALF_UP));
             }
         }
         stockEntryRepository.save(dstEntry);
@@ -166,7 +179,8 @@ public class StockMovementService {
      */
     private Pair<StockMovement, StockEntry> applyInternal(Part part, Location location, int deltaQty,
                                                            BigDecimal unitPrice, String comments,
-                                                           MovementType type, Project project) {
+                                                           MovementType type, Project project,
+                                                           PurchaseOrder purchaseOrder) {
         StockEntry entry = stockEntryRepository
                 .findByPartIdAndLocationId(part.getId(), location.getId())
                 .orElseGet(() -> StockEntry.builder()
@@ -197,6 +211,7 @@ public class StockMovementService {
                 .movedAt(LocalDateTime.now())
                 .createdBy(me.getFullName() != null ? me.getFullName() : me.getEmail())
                 .project(project)
+                .purchaseOrder(purchaseOrder)
                 .build());
 
         entry.setQuantity(newQuantity);
@@ -207,7 +222,7 @@ public class StockMovementService {
             BigDecimal newWac = oldWac.multiply(BigDecimal.valueOf(oldQty))
                     .add(unitPrice.multiply(BigDecimal.valueOf(deltaQty)))
                     .divide(BigDecimal.valueOf(newQuantity), 10, RoundingMode.HALF_UP);
-            entry.setUnitPrice(newWac.setScale(2, RoundingMode.HALF_UP));
+            entry.setUnitPrice(newWac.setScale(5, RoundingMode.HALF_UP));
         }
         StockEntry saved = stockEntryRepository.save(entry);
         return Pair.of(movement, saved);
@@ -236,6 +251,10 @@ public class StockMovementService {
         if (m.getProject() != null) {
             b.projectId(m.getProject().getId())
              .projectName(m.getProject().getName());
+        }
+
+        if (m.getPurchaseOrder() != null) {
+            b.purchaseOrderId(m.getPurchaseOrder().getId());
         }
 
         return b.build();

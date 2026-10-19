@@ -14,5 +14,8 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     Optional<Project> findByIdAndOrganisationIdAndOwnerIdAndDeletedFalse(
             Long id, Long organisationId, Long ownerId);
 
+    /** Any live project of the organisation, whoever owns it — the order list is shared. */
+    Optional<Project> findByIdAndOrganisationIdAndDeletedFalse(Long id, Long organisationId);
+
     long countByOrganisationIdAndDeletedFalse(Long organisationId);
 }

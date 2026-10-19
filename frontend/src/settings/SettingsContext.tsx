@@ -11,10 +11,12 @@ interface SettingsContextValue {
    * Format a numeric amount with the app currency symbol, e.g. "€ 12.34".
    * `whole` rounds to entire currency units ("€ 6,065") — for summary figures like the
    * dashboard's total stock value, where the cents are noise and cost width.
+   * `precise` shows up to five decimals ("€ 0.0041") — for unit prices of small parts, which a
+   * distributor quotes in fractions of a cent and two decimals would show as "€ 0.00".
    */
   formatMoney: (
     amount: number | string | null | undefined,
-    opts?: { whole?: boolean },
+    opts?: { whole?: boolean; precise?: boolean },
   ) => string;
 }
 
@@ -36,13 +38,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   // here, so this keeps the symbol attached to its amount in tiles, tables and totals alike.
   const formatMoney = (
     amount: number | string | null | undefined,
-    opts?: { whole?: boolean },
+    opts?: { whole?: boolean; precise?: boolean },
   ) => {
     const n = Number(amount ?? 0);
     const digits = opts?.whole ? 0 : 2;
     return `${settings.currencySymbol}\u00A0${n.toLocaleString(undefined, {
       minimumFractionDigits: digits,
-      maximumFractionDigits: digits,
+      maximumFractionDigits: opts?.precise ? 5 : digits,
     })}`;
   };
 

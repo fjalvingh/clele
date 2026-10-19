@@ -139,6 +139,30 @@ in the feature documents under `docs/` — the section names referenced below ("
   locations it came from and makes the project read-only; `POST /{id}/activate` takes it all out of
   stock again. Allocation is best-effort — a line stock cannot cover comes back with
   `qtyAllocated < totalNeeded` and a `shortfall`, never an error
+- **Suppliers** (`/suppliers`, `PARTS_EDIT` — see `docs/orders.md`): `GET` lists the organisation's
+  suppliers, `POST` `{name}` adds one, `PUT /{id}` `{name}` renames, `DELETE /{id}` deletes one
+  nothing was ordered from (409 otherwise)
+- **Order list** (`/order-items`, `PARTS_EDIT`): `GET` returns every item not yet on an order;
+  `POST` `{partId, quantity, unitPrice?, projectId?, notes?}` adds one (no price → the part's last
+  supplier price); `PUT /{id}` changes quantity/price/project/notes and `DELETE /{id}` removes it —
+  both 409 once the item is on an order
+- **Orders** (`/purchase-orders`, `PARTS_EDIT`): `GET` lists orders with `lineCount`/`total`;
+  `POST` `{supplierId, itemIds?, supplierReference?, notes?}` starts a DRAFT; `GET /{id}` returns
+  it with `lines` (each with its `items`, `requested`, `outstanding`, `suggestedLocationId`);
+  `PUT /{id}` changes reference/notes (supplier while a draft); `DELETE /{id}` deletes a draft
+  (items back on the list) or a cancelled order. Draft only: `POST /{id}/items` `{itemIds}`,
+  `DELETE /{id}/items/{itemId}` (item back on the list), `PUT /{id}/lines/{lineId}`
+  `{partId, quantity, unitPrice?, supplierPartNumber?}`, `DELETE /{id}/lines/{lineId}`, and
+  `PUT /{id}/lines` `{lines: [{partId, quantity, unitPrice?, supplierPartNumber?, mpn?,
+  manufacturer?}]}` which **replaces** every line (missing parts' items go back on the list).
+  `GET /{id}/export` downloads the order .xlsx. `POST /{id}/supplier-file` (draft) and
+  `POST /{id}/delivery-file` (ordered) take multipart `file` + optional `mapping` JSON and return
+  `OrderFilePreviewDTO` — headers, mapping, matched rows, `missingLines` — **storing nothing**.
+  Transitions: `POST /{id}/place` `{supplierReference?}` (DRAFT → ORDERED), `POST /{id}/reopen`
+  (back to DRAFT, nothing received yet), `POST /{id}/receive` `{receipts: [{lineId, quantity,
+  locationId}]}` (PURCHASE movements; RECEIVED when nothing is outstanding), `POST /{id}/close`
+  (RECEIVED; outstanding back on the list as new items), `POST /{id}/cancel` (nothing received yet;
+  items back on the list)
 - **Project BOM import** (`/projects/{projectId}/bom`, all `PARTS_EDIT` — see BOM Import):
   `GET` returns the imported BOM with every line and its match, or **204** when none has been
   imported (the normal starting state, not an error); `POST /import` (multipart `file` + optional

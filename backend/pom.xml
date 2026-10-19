@@ -81,6 +81,14 @@
             <artifactId>commons-csv</artifactId>
             <version>1.11.0</version>
         </dependency>
+        <!-- Reads the Excel files distributors hand back (Mouser's matched BOM, delivery slips) and
+             writes the order file uploaded to them. poi-ooxml covers .xlsx and pulls in poi for
+             the old .xls. Not in the Spring BOM, so pin the version. -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.4.0</version>
+        </dependency>
         <!-- Reads datasheet PDFs (page count + text layer) for the datasheet preflight/backfill.
              Not in the Spring BOM, so pin the version. PDFBox 3.x API: Loader.loadPDF(byte[]). -->
         <dependency>

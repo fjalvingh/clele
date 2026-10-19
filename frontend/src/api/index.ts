@@ -58,10 +58,20 @@ import type {
   PartCreateRequest,
   PartRequest,
   PartSearchResult,
+  OrderFileMapping,
+  OrderFilePreview,
+  OrderItem,
+  OrderItemRequest,
+  OrderReceipt,
   Project,
   ProjectPart,
   ProjectPartRequest,
   ProjectRequest,
+  PurchaseOrder,
+  PurchaseOrderLineRequest,
+  PurchaseOrderRequest,
+  Supplier,
+  SupplierRequest,
   ReturnPartRequest,
   QuickAddRequest,
   QuickAddResponse,
@@ -686,6 +696,99 @@ export const applyImportedBom = (projectId: number) =>
 
 export const deleteImportedBom = (projectId: number) =>
   client.delete(`/projects/${projectId}/bom`);
+
+// ── Ordering ──────────────────────────────────────────────────────────────────
+
+export const getSuppliers = () => client.get<Supplier[]>('/suppliers').then((r) => r.data);
+
+export const createSupplier = (data: SupplierRequest) =>
+  client.post<Supplier>('/suppliers', data).then((r) => r.data);
+
+export const renameSupplier = (id: number, data: SupplierRequest) =>
+  client.put<Supplier>(`/suppliers/${id}`, data).then((r) => r.data);
+
+export const deleteSupplier = (id: number) => client.delete(`/suppliers/${id}`);
+
+/** The order list: every item not yet on an order. */
+export const getOrderItems = () => client.get<OrderItem[]>('/order-items').then((r) => r.data);
+
+export const createOrderItem = (data: OrderItemRequest) =>
+  client.post<OrderItem>('/order-items', data).then((r) => r.data);
+
+export const updateOrderItem = (id: number, data: OrderItemRequest) =>
+  client.put<OrderItem>(`/order-items/${id}`, data).then((r) => r.data);
+
+export const deleteOrderItem = (id: number) => client.delete(`/order-items/${id}`);
+
+export const getPurchaseOrders = () =>
+  client.get<PurchaseOrder[]>('/purchase-orders').then((r) => r.data);
+
+export const getPurchaseOrder = (id: number) =>
+  client.get<PurchaseOrder>(`/purchase-orders/${id}`).then((r) => r.data);
+
+export const createPurchaseOrder = (data: PurchaseOrderRequest) =>
+  client.post<PurchaseOrder>('/purchase-orders', data).then((r) => r.data);
+
+export const updatePurchaseOrder = (id: number, data: PurchaseOrderRequest) =>
+  client.put<PurchaseOrder>(`/purchase-orders/${id}`, data).then((r) => r.data);
+
+export const deletePurchaseOrder = (id: number) => client.delete(`/purchase-orders/${id}`);
+
+export const addItemsToOrder = (id: number, itemIds: number[]) =>
+  client.post<PurchaseOrder>(`/purchase-orders/${id}/items`, { itemIds }).then((r) => r.data);
+
+export const removeItemFromOrder = (id: number, itemId: number) =>
+  client.delete<PurchaseOrder>(`/purchase-orders/${id}/items/${itemId}`).then((r) => r.data);
+
+export const updateOrderLine = (id: number, lineId: number, data: PurchaseOrderLineRequest) =>
+  client.put<PurchaseOrder>(`/purchase-orders/${id}/lines/${lineId}`, data).then((r) => r.data);
+
+export const removeOrderLine = (id: number, lineId: number) =>
+  client.delete<PurchaseOrder>(`/purchase-orders/${id}/lines/${lineId}`).then((r) => r.data);
+
+/** Replaces every line of a draft — what the supplier's file said will really be ordered. */
+export const replaceOrderLines = (id: number, lines: PurchaseOrderLineRequest[]) =>
+  client.put<PurchaseOrder>(`/purchase-orders/${id}/lines`, { lines }).then((r) => r.data);
+
+export const purchaseOrderExportUrl = (id: number) =>
+  `${import.meta.env.BASE_URL}api/purchase-orders/${id}/export`;
+
+/**
+ * Reads a supplier file against an order and returns the matched rows; nothing is stored.
+ * `kind` 'order' is the supplier's matched version of a draft, 'delivery' a delivery slip.
+ */
+export const previewOrderFile = (
+  id: number,
+  kind: 'order' | 'delivery',
+  file: File,
+  mapping?: OrderFileMapping,
+) => {
+  const form = new FormData();
+  form.append('file', file);
+  if (mapping) form.append('mapping', JSON.stringify(mapping));
+  return client
+    .post<OrderFilePreview>(
+      `/purchase-orders/${id}/${kind === 'order' ? 'supplier-file' : 'delivery-file'}`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    )
+    .then((r) => r.data);
+};
+
+export const placePurchaseOrder = (id: number, supplierReference?: string | null) =>
+  client.post<PurchaseOrder>(`/purchase-orders/${id}/place`, { supplierReference }).then((r) => r.data);
+
+export const reopenPurchaseOrder = (id: number) =>
+  client.post<PurchaseOrder>(`/purchase-orders/${id}/reopen`).then((r) => r.data);
+
+export const receivePurchaseOrder = (id: number, receipts: OrderReceipt[]) =>
+  client.post<PurchaseOrder>(`/purchase-orders/${id}/receive`, { receipts }).then((r) => r.data);
+
+export const closePurchaseOrder = (id: number) =>
+  client.post<PurchaseOrder>(`/purchase-orders/${id}/close`).then((r) => r.data);
+
+export const cancelPurchaseOrder = (id: number) =>
+  client.post<PurchaseOrder>(`/purchase-orders/${id}/cancel`).then((r) => r.data);
 
 // ── Part kit templates ────────────────────────────────────────────────────────
 

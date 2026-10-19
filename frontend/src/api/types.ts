@@ -468,6 +468,8 @@ export interface StockMovement {
   type?: string | null;
   projectId?: number | null;
   projectName?: string | null;
+  /** The order a PURCHASE came in on, when it was booked by receiving one. */
+  purchaseOrderId?: number | null;
 }
 
 // Projects
@@ -1271,4 +1273,151 @@ export interface AiConfigRequest {
   clearApiKey?: boolean;
   /** Blank follows the installation default. */
   model?: string;
+}
+
+// Ordering
+//
+// Three layers, from demand to delivery. The order list holds OrderItems — "we need N of this part",
+// optionally for a project. Putting items on a PurchaseOrder links each to the order's line for its
+// part (one line per part, quantities summed); the supplier's matched file then replaces the lines'
+// quantities and prices, and receiving books the lines into stock.
+
+export interface Supplier {
+  id: number;
+  name: string;
+}
+
+export interface SupplierRequest {
+  name: string;
+}
+
+export type PurchaseOrderStatus = 'DRAFT' | 'ORDERED' | 'RECEIVED' | 'CANCELLED';
+
+export interface OrderItem {
+  id: number;
+  partId: number;
+  partNumber: string;
+  description?: string | null;
+  manufacturer?: string | null;
+  mpn?: string | null;
+  quantity: number;
+  unitPrice?: number | null;
+  totalPrice?: number | null;
+  projectId?: number | null;
+  projectName?: string | null;
+  /** The order the item was put on; null while it is on the order list. */
+  orderId?: number | null;
+  orderStatus?: PurchaseOrderStatus | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface OrderItemRequest {
+  /** Read on create only. */
+  partId?: number;
+  quantity: number;
+  /** Empty on create takes the last price a supplier charged for the part. */
+  unitPrice?: number | null;
+  projectId?: number | null;
+  notes?: string | null;
+}
+
+export interface PurchaseOrderLine {
+  id: number;
+  partId: number;
+  partNumber: string;
+  description?: string | null;
+  manufacturer?: string | null;
+  mpn?: string | null;
+  supplierPartNumber?: string | null;
+  /** What is ordered — after matching, what the supplier confirmed. */
+  quantity: number;
+  /** What the order list items asked for, summed. */
+  requested: number;
+  unitPrice?: number | null;
+  totalPrice?: number | null;
+  qtyReceived: number;
+  outstanding: number;
+  /** The location already holding most of the part, as the default for receiving. */
+  suggestedLocationId?: number | null;
+  items: OrderItem[];
+}
+
+export interface PurchaseOrder {
+  id: number;
+  supplierId: number;
+  supplierName: string;
+  status: PurchaseOrderStatus;
+  supplierReference?: string | null;
+  notes?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  orderedAt?: string | null;
+  receivedAt?: string | null;
+  lineCount: number;
+  total: number;
+  /** Populated only by the detail endpoint. */
+  lines?: PurchaseOrderLine[];
+}
+
+export interface PurchaseOrderRequest {
+  supplierId?: number;
+  supplierReference?: string | null;
+  notes?: string | null;
+  itemIds?: number[];
+}
+
+export interface PurchaseOrderLineRequest {
+  partId: number;
+  quantity: number;
+  unitPrice?: number | null;
+  supplierPartNumber?: string | null;
+  /** Written to the part only where it has none yet. */
+  mpn?: string | null;
+  manufacturer?: string | null;
+}
+
+export interface OrderReceipt {
+  lineId: number;
+  quantity: number;
+  locationId: number;
+}
+
+/** The columns a supplier file can carry. */
+export type OrderFileColumn =
+  | 'SUPPLIER_PART_NUMBER'
+  | 'MPN'
+  | 'MANUFACTURER'
+  | 'CUSTOMER_PART_NUMBER'
+  | 'DESCRIPTION'
+  | 'QUANTITY'
+  | 'UNIT_PRICE';
+
+export type OrderFileMapping = Partial<Record<OrderFileColumn, string>>;
+
+export interface OrderFileRow {
+  /** 1-based row in the file. */
+  rowNumber: number;
+  supplierPartNumber?: string | null;
+  mpn?: string | null;
+  manufacturer?: string | null;
+  customerPartNumber?: string | null;
+  description?: string | null;
+  quantity?: number | null;
+  unitPrice?: number | null;
+  lineId?: number | null;
+  partId?: number | null;
+  partNumber?: string | null;
+  partDescription?: string | null;
+  matchedBy?: 'CUSTOMER_PART_NUMBER' | 'SUPPLIER_PART_NUMBER' | 'MPN' | 'CATALOGUE' | null;
+  warning?: string | null;
+}
+
+/** A supplier file read against an order. Nothing is stored by reading it. */
+export interface OrderFilePreview {
+  headers: string[];
+  mapping: OrderFileMapping;
+  rows: OrderFileRow[];
+  /** Order lines no row of the file accounts for. */
+  missingLines: PurchaseOrderLine[];
 }

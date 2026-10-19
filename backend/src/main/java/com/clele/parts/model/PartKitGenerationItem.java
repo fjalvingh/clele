@@ -70,6 +70,6 @@ public class PartKitGenerationItem {
     @Column(name = "quantity_before")
     private Integer quantityBefore;
 
-    @Column(name = "unit_price_before", precision = 10, scale = 2)
+    @Column(name = "unit_price_before", precision = 14, scale = 5)
     private BigDecimal unitPriceBefore;
 }

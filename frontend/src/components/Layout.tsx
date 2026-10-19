@@ -92,6 +92,14 @@ const icons: Record<string, ReactNode> = {
       <path d="M15 14l2 2 3-3" />
     </svg>
   ),
+  // A shopping cart — the order list and the orders made from it.
+  orders: (
+    <svg {...icon}>
+      <path d="M3 4h2l2.4 11.2a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.1L21 8H6.2" />
+      <circle cx="9.5" cy="20" r="1.2" />
+      <circle cx="17" cy="20" r="1.2" />
+    </svg>
+  ),
   users: (
     <svg {...icon}>
       <circle cx="12" cy="8" r="3.5" />
@@ -131,6 +139,7 @@ const navItems: NavItem[] = [
   { to: '/low-stock', label: 'Low Stock', icon: icons.lowStock },
   { to: '/part-kits', label: 'Part Kits', icon: icons.partKits, permission: 'PARTS_EDIT' },
   { to: '/projects', label: 'Projects', icon: icons.projects, permission: 'PARTS_EDIT' },
+  { to: '/orders', label: 'Orders', icon: icons.orders, permission: 'PARTS_EDIT' },
   { to: '/users', label: 'Users', icon: icons.users, permission: 'ORG_ADMIN' },
   { to: '/all-users', label: 'All Users', icon: icons.allUsers, permission: 'GLOBAL_ADMIN' },
   { to: '/organisations', label: 'Organisations', icon: icons.organisations, permission: 'GLOBAL_ADMIN' },

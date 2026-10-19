@@ -1109,7 +1109,7 @@ export default function PartDetailPage() {
       render: (m) =>
         m.unitPrice != null ? (
           <span className="whitespace-nowrap font-mono text-sm">
-            {formatMoney(m.unitPrice)}
+            {formatMoney(m.unitPrice, { precise: true })}
           </span>
         ) : (
           <span className="text-gray-400">—</span>
@@ -1119,7 +1119,11 @@ export default function PartDetailPage() {
       key: 'comments',
       header: 'Comments',
       render: (m) =>
-        m.comments ? (
+        m.purchaseOrderId ? (
+          <Link to={`/orders/${m.purchaseOrderId}`} className="text-blue-600 hover:underline">
+            {m.comments ?? `Order #${m.purchaseOrderId}`}
+          </Link>
+        ) : m.comments ? (
           <span className="text-gray-600">{m.comments}</span>
         ) : (
           <span className="text-gray-400">—</span>

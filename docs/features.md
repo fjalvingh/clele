@@ -88,6 +88,11 @@ Part of the Clele documentation — `CLAUDE.md` holds the overview and the index
   project needed; reactivating fetches it all out again, showing which lines the shelf can no longer
   cover. Individual parts can be returned as you go, and a cancelled project can be deleted (see
   Projects above)
+- **Ordering**: an order list of parts to buy (quantity, price, optionally for a project), put on
+  orders at suppliers. A draft order is exported as an .xlsx for Mouser's BOM tool, the matched file
+  Mouser sends back replaces its lines with the real parts, quantities and prices (and gives
+  house-numbered parts their MPN), and deliveries are received into stock line by line or from the
+  delivery slip (see `docs/orders.md`)
 - **BOM import**: upload an EDA tool's CSV export into a project, then match its lines to catalogue
   parts a few at a time over as long as it takes — the file and every decision are stored, exact
   hits match themselves, and re-uploading a revised export merges rather than starting over.

@@ -30,7 +30,7 @@ public class StockMovement {
     @Column(nullable = false)
     private Integer quantity;
 
-    @Column(name = "unit_price", precision = 10, scale = 2)
+    @Column(name = "unit_price", precision = 14, scale = 5)
     private BigDecimal unitPrice;
 
     @Column(columnDefinition = "TEXT")
@@ -55,4 +55,9 @@ public class StockMovement {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "project_id")
     private Project project;
+
+    /** For PURCHASE rows booked by receiving an order: the order the parts came in on. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "purchase_order_id")
+    private PurchaseOrder purchaseOrder;
 }

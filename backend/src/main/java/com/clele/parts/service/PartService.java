@@ -57,6 +57,7 @@ public class PartService {
     private final PartSpecValueService partSpecValueService;
     private final com.clele.parts.repository.PartSpecValueRepository partSpecValueRepository;
     private final com.clele.parts.repository.SpecDefinitionRepository specDefinitionRepository;
+    private final com.clele.parts.repository.PurchaseOrderLineRepository purchaseOrderLineRepository;
 
     /**
      * Search the catalogue. Everything but {@code sort} is an optional filter, combined with AND:
@@ -404,6 +405,12 @@ public class PartService {
     @Transactional
     public void delete(Long id) {
         requirePart(id);
+        // An order line is a record of what was bought; it must keep naming its part. (Order list
+        // items are only wishes and go with the part, by the database cascade.)
+        if (purchaseOrderLineRepository.existsByPartId(id)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This part is on an order and cannot be deleted");
+        }
         stockEntryRepository.deleteByPartId(id);
         // Unlinks this part's attachments and drops the content no other part still uses — a shared
         // photo outlives the part it was first uploaded for.

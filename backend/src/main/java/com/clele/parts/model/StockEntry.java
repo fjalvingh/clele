@@ -31,6 +31,6 @@ public class StockEntry {
     @Column(nullable = false)
     private Integer quantity;
 
-    @Column(name = "unit_price", precision = 10, scale = 2)
+    @Column(name = "unit_price", precision = 14, scale = 5)
     private BigDecimal unitPrice;
 }
