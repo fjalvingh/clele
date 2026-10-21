@@ -3,6 +3,8 @@ package com.clele.parts.service;
 import com.clele.parts.dto.OrganisationDTO;
 import com.clele.parts.dto.OrganisationRequest;
 import com.clele.parts.model.Category;
+import com.clele.parts.model.Footprint;
+import com.clele.parts.model.FootprintAlias;
 import com.clele.parts.model.Organisation;
 import com.clele.parts.model.SpecAlias;
 import com.clele.parts.model.SpecDefinition;
@@ -23,9 +25,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * CRUD for organisations. Creating one clones the template organisation's categories, spec fields
- * and tags into it, so a new tenant starts with a usable taxonomy rather than an empty screen —
- * the same content the V36 migration seeded the template with. Parts, locations, stock and projects
+ * CRUD for organisations. Creating one clones the template organisation's categories, spec fields,
+ * tags, suppliers and footprints into it, so a new tenant starts with a usable taxonomy rather than
+ * an empty screen — the same content the V36 migration seeded the template with. Parts, locations, stock and projects
  * are never cloned; those are the tenant's own data.
  */
 @Service
@@ -43,6 +45,7 @@ public class OrganisationService {
     private final LocationRepository locationRepository;
     private final ProjectRepository projectRepository;
     private final SupplierRepository supplierRepository;
+    private final FootprintRepository footprintRepository;
 
     public List<OrganisationDTO> findAll() {
         return organisationRepository.findAllByOrderByName().stream().map(this::toDTO).toList();
@@ -172,6 +175,21 @@ public class OrganisationService {
                     .organisation(to)
                     .name(source.getName())
                     .build());
+        }
+
+        // The footprint list with every alias — a new organisation starts with the same packages.
+        for (Footprint source : footprintRepository.findByOrganisationIdOrderByNameAsc(from.getId())) {
+            Footprint copy = Footprint.builder()
+                    .organisation(to)
+                    .name(source.getName())
+                    .description(source.getDescription())
+                    .build();
+            source.getAliases().forEach(alias -> copy.getAliases().add(FootprintAlias.builder()
+                    .footprint(copy)
+                    .organisation(to)
+                    .alias(alias.getAlias())
+                    .build()));
+            footprintRepository.save(copy);
         }
 
         Map<Long, Category> categoryCopies = new HashMap<>();

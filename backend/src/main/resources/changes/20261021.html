@@ -1,0 +1,32 @@
+<h4>Footprints: one name per package</h4>
+<p>
+  The package of a part used to be free text, so the same package turned up as <em>SOT23</em>,
+  <em>sot-23</em> and <em>TO-236AB</em>. Footprints now come from a list, kept per organisation, of
+  about 250 common packages: chip sizes, SOT/SOD, SOIC/TSSOP/QFN/QFP, DIP and SIP, the TO metal cans
+  and power packages, crystals, bridge rectifiers, axial and radial passives, trimmers and valve
+  sockets. Each one also answers to its other names, so typing <em>TO-236</em> or <em>sot23</em>
+  stores <em>SOT-23</em>. Case and punctuation never count.
+</p>
+<p>
+  Existing parts have been moved to these names. A DIP is the 300 mil one; the wide 600 mil 24 and
+  28 pin versions are <strong>DIP-24W</strong> and <strong>DIP-28W</strong>. Package texts that
+  name no package at all, such as <em>SMD</em>, <em>Through hole</em> or the Chinese
+  distributor labels, have been cleared, and are no longer taken over from a lookup.
+</p>
+<p>
+  The new <strong>Footprints</strong> screen, below Categories, shows the list with how many parts
+  use each footprint. There you can add a footprint, rename one (its parts follow), give it other
+  names, or merge two entries that are the same package. The <strong>Edit Part</strong> dialog now
+  has a footprint field, and it and <strong>Quick Add</strong> suggest names from the list and show
+  what a typed name will be saved as.
+</p>
+
+<h4>AI access: adding parts for a new design</h4>
+<p>
+  An AI assistant connected through <strong>AI access (MCP)</strong> can now add a part that is not
+  in the catalogue yet: with its manufacturer part number, manufacturer, description, category and
+  footprint, and no stock. To pick the category it looks at where similar parts are already filed.
+  It only uses footprints from the list, and never adds a part number that is already there. It can
+  also put parts on the <strong>order list</strong>, for a project or on their own. It orders
+  nothing itself. This needs the parts-edit permission.
+</p>

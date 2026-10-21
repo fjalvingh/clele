@@ -4,6 +4,7 @@ import { checkAiStatus, findLocalParts, getAiStatus, getCategoryTree, getCompone
 import type { AiStatus, CategoryTree, ComponentCacheMatch, ImageSuggestion, Location, Part, PartSearchResult, QuickAddRequest } from '../api/types';
 import { useAuth } from '../auth/AuthContext';
 import CategoryPicker from '../components/CategoryPicker';
+import FootprintInput from '../components/FootprintInput';
 import { NumberTextInput } from '../components/NumberInput';
 import PartSpecEditor from '../components/PartSpecEditor';
 import TagInput from '../components/TagInput';
@@ -1030,11 +1031,9 @@ export default function QuickAddPage() {
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <label className="mt-3 block text-sm font-medium text-gray-700 mb-1">Package / footprint</label>
-                <input
-                  name="footprint"
+                <FootprintInput
                   value={form.footprint}
-                  onChange={handleFormChange}
-                  placeholder="e.g. SOIC-8, 0402"
+                  onChange={(footprint) => setForm((f) => ({ ...f, footprint }))}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>

@@ -40,6 +40,7 @@ public class QuickAddService {
     private final PartSpecValueService partSpecValueService;
     private final PartAttachmentService partAttachmentService;
     private final PartAttachmentLinkRepository partAttachmentLinkRepository;
+    private final FootprintService footprintService;
 
     @Transactional
     public QuickAddResponseDTO quickAdd(QuickAddRequest request) {
@@ -126,7 +127,7 @@ public class QuickAddService {
         part.setDetails(request.getDetails());
         part.setManufacturer(request.getManufacturer());
         part.setPersonalNumber(request.isPersonalNumber());
-        part.setFootprint(request.getFootprint());
+        part.setFootprint(footprintService.canonicalize(request.getFootprint()));
         part.setDatasheetUrl(request.getDatasheetUrl());
         if (request.getCategoryId() != null) {
             Category category = categoryRepository

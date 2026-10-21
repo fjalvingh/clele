@@ -39,13 +39,14 @@ public final class McpProtocol {
             Sortiment is an electronic-parts inventory: the parts someone actually owns, where they \
             are stored, how many are left, and each part's measured specifications.
 
-            Scope: the catalogue is read-only — nothing here creates, changes or deletes a part, \
-            a category, a location or a specification. The exception is a project's parts list, \
-            which add_project_part and remove_project_part change, and doing so MOVES STOCK: a \
-            part put on an active project's list is taken off the shelf there and then, and taking \
-            it off the list gives it back. Everything is limited to the one organisation the \
-            credential was issued for, and projects additionally to the user it acts as — they are \
-            private to their owner.
+            Scope: nothing here changes or deletes a part, a category, a location or a \
+            specification. Four tools write. add_part adds a new part (no stock) to the catalogue. \
+            add_order_item puts a part on the order list, which orders nothing by itself. \
+            add_project_part and remove_project_part change a project's parts list, and doing so \
+            MOVES STOCK: a part put on an active project's list is taken off the shelf there and \
+            then, and taking it off the list gives it back. Everything is limited to the one \
+            organisation the credential was issued for, and projects additionally to the user it \
+            acts as — they are private to their owner.
 
             Finding parts:
               - search_parts with `query` is free text over part number, description, details, \
@@ -72,5 +73,12 @@ public final class McpProtocol {
             project's instanceCount in total, holds qtyAllocated of them, and is short the \
             difference. Running short is a normal state, not a failure: adding a part the shelf \
             cannot cover still adds the line, holding what there was.
+
+            Parts for a new design: for each line of the design, first search_parts for the part or \
+            an equivalent already owned. Only for what is missing, add_part: suggest_category gives \
+            the category this catalogue files such parts under (a leaf is required), and \
+            list_footprints the package names in use — use those names, do not invent spellings. \
+            Then add_project_part puts it on the project (it will show as short) and \
+            add_order_item puts it on the order list.
             """;
 }

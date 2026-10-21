@@ -14,7 +14,15 @@ import com.clele.parts.model.Permissions;
 import com.clele.parts.model.ProjectStatus;
 import com.clele.parts.model.SpecDefinition;
 import com.clele.parts.repository.SpecDefinitionRepository;
+import com.clele.parts.catalog.ComponentCacheService;
+import com.clele.parts.dto.ComponentCacheMatchDTO;
+import com.clele.parts.dto.FootprintDTO;
+import com.clele.parts.dto.OrderItemDTO;
+import com.clele.parts.dto.OrderItemRequest;
+import com.clele.parts.dto.PartCreateRequest;
 import com.clele.parts.service.CategoryService;
+import com.clele.parts.service.FootprintService;
+import com.clele.parts.service.order.OrderItemService;
 import com.clele.parts.service.CurrentOrganisationService;
 import com.clele.parts.service.LocationService;
 import com.clele.parts.service.PartService;
@@ -37,12 +45,16 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
+import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Locale;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -54,12 +66,15 @@ import java.util.stream.Collectors;
  * spec search and the stock aggregate are the same code the web UI runs — an answer here cannot
  * drift from what the screen shows.
  *
- * <p>The catalogue is read-only. The <b>project</b> tools are the exception, and only for a
- * project's own parts list: {@code add_project_part} and {@code remove_project_part} move stock,
- * because putting a part on a project's list takes it off the shelf there and then. They are gated
- * on {@link Permissions#PARTS_EDIT} in the organisation the credential was issued for — the same
- * permission {@code ProjectController} demands of a browser — because a tool here calls the
- * service directly and so never passes that controller's {@code @PreAuthorize}.
+ * <p>Four tools write, and nothing else does. {@code add_part} adds a part to the catalogue —
+ * never changes or deletes one — for a new design's parts that are not owned yet; it insists on a
+ * leaf category and a footprint from the managed list, because the AI is otherwise the fastest way
+ * to fill both with plausible inventions. {@code add_order_item} puts a part on the order list.
+ * {@code add_project_part} and {@code remove_project_part} move stock, because putting a part on
+ * a project's list takes it off the shelf there and then. All four are gated on
+ * {@link Permissions#PARTS_EDIT} in the organisation the credential was issued for — the same
+ * permission the controllers demand of a browser — because a tool here calls the service directly
+ * and so never passes a controller's {@code @PreAuthorize}.
  *
  * <p>Two shaping rules run through all of it, both about a model's context rather than a screen's
  * pixels. <b>Results are capped and say so</b>: a catalogue query that matches 900 parts returns
@@ -82,6 +97,8 @@ public class McpToolRegistry {
     private static final int MAX_FIELD_LIMIT = 1000;
     private static final int DEFAULT_PROJECT_LIMIT = 50;
     private static final int MAX_PROJECT_LIMIT = 200;
+    private static final int SIMILAR_PARTS = 40;
+    private static final int MAX_CATEGORY_SUGGESTIONS = 5;
 
     private final ObjectMapper objectMapper;
     private final PartService partService;
@@ -93,6 +110,9 @@ public class McpToolRegistry {
     private final LocationService locationService;
     private final ProjectService projectService;
     private final CurrentOrganisationService currentOrganisationService;
+    private final FootprintService footprintService;
+    private final OrderItemService orderItemService;
+    private final ComponentCacheService componentCacheService;
 
     /** A tool as {@code tools/list} renders it, plus the code behind it. */
     public record Tool(String name, String title, String description, JsonNode inputSchema,
@@ -231,13 +251,58 @@ public class McpToolRegistry {
 
                 new Tool("list_categories", "List categories",
                         """
-                        The category tree, flattened, each with its full breadcrumb and how many \
-                        parts sit in it. Categories nest, and a search by category includes \
-                        everything below it.""",
+                        The category tree, flattened, each with its full breadcrumb, its \
+                        description and how many parts sit in it. Categories nest, and a search by \
+                        category includes everything below it. `leaf` marks a category with no \
+                        children — the only kind a part can be added to.""",
                         schema("""
-                               {"type": "object", "properties": {}}
+                               {
+                                 "type": "object",
+                                 "properties": {
+                                   "leavesOnly": {"type": "boolean", "description": "Only the leaf categories. Default false."}
+                                 }
+                               }
                                """),
-                        args -> listCategories()),
+                        this::listCategories),
+
+                new Tool("suggest_category", "Suggest a category for a new part",
+                        """
+                        Where a part not yet in the catalogue belongs. Ranks the leaf categories by \
+                        where the most similar existing parts were filed (so it follows this \
+                        catalogue's own conventions, not a generic taxonomy), and, given an `mpn`, \
+                        also reports what the local distributor snapshot knows of it: its \
+                        distributor category, description, manufacturer and package (with the \
+                        footprint name that package maps to here). Call it before add_part. The \
+                        suggestions are evidence, not a verdict: when none fits, pick a leaf from \
+                        list_categories(leavesOnly).""",
+                        schema("""
+                               {
+                                 "type": "object",
+                                 "properties": {
+                                   "description": {"type": "string", "description": "What the part is, in words, e.g. \\"LDO voltage regulator 3.3V 500mA\\"."},
+                                   "mpn": {"type": "string", "description": "The manufacturer part number, if known."}
+                                 },
+                                 "required": ["description"]
+                               }
+                               """),
+                        this::suggestCategory),
+
+                new Tool("list_footprints", "List footprints",
+                        """
+                        The footprints (package types) parts may have, each with the other names it \
+                        is known by and how many parts use it. add_part only accepts a name or \
+                        alias from this list. Matching ignores case and punctuation, so SOT23 is \
+                        SOT-23; an alias covers what that cannot (TO-236 is SOT-23, \
+                        "0805 (2012 Metric)" is 0805). Chip sizes are imperial.""",
+                        schema("""
+                               {
+                                 "type": "object",
+                                 "properties": {
+                                   "query": {"type": "string", "description": "Only footprints whose name or an alias contains this, ignoring case and punctuation."}
+                                 }
+                               }
+                               """),
+                        this::listFootprints),
 
                 new Tool("list_locations", "List storage locations",
                         """
@@ -343,7 +408,65 @@ public class McpToolRegistry {
                                  }
                                }
                                """),
-                        this::removeProjectPart));
+                        this::removeProjectPart),
+
+                new Tool("add_part", "Add a part to the catalogue",
+                        """
+                        Add a new part to the catalogue, with no stock — typically a part a new \
+                        design needs and that has to be ordered. Required: `mpn` (it becomes the \
+                        part number), `manufacturer`, `description`, a LEAF category \
+                        (`categoryId`, or `category` by name/breadcrumb) and a `footprint` from \
+                        list_footprints. Before calling: search_parts to make sure the part (or an \
+                        equivalent) is not already owned, and suggest_category for the category. \
+                        A footprint the list does not know is refused with the closest names; \
+                        only when the part truly has a package nobody uses yet, call again with \
+                        `newFootprint: true` to add it to the list. An existing part number is \
+                        refused. Afterwards use add_project_part and/or add_order_item. Needs \
+                        the PARTS_EDIT permission.""",
+                        schema("""
+                               {
+                                 "type": "object",
+                                 "properties": {
+                                   "mpn": {"type": "string", "description": "Manufacturer part number, exactly as the manufacturer writes it; becomes the part number."},
+                                   "manufacturer": {"type": "string", "description": "The manufacturer, e.g. \\"Texas Instruments\\"."},
+                                   "description": {"type": "string", "description": "A short engineer's description, e.g. \\"LDO regulator 3.3V 500mA\\"."},
+                                   "categoryId": {"type": "integer", "description": "A leaf category id, from suggest_category or list_categories."},
+                                   "category": {"type": "string", "description": "A leaf category's exact name or breadcrumb; used when `categoryId` is absent."},
+                                   "footprint": {"type": "string", "description": "The package, a name or alias from list_footprints, e.g. \\"SOT-23-5\\"."},
+                                   "newFootprint": {"type": "boolean", "description": "Add `footprint` to the list when it is not on it. Only after list_footprints showed nothing that fits. Default false."},
+                                   "details": {"type": "string", "description": "Longer notes about the part."},
+                                   "datasheetUrl": {"type": "string", "description": "A link to the datasheet."},
+                                   "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to put on the part."}
+                                 },
+                                 "required": ["mpn", "manufacturer", "description", "footprint"]
+                               }
+                               """),
+                        this::addPart),
+
+                new Tool("add_order_item", "Put a part on the order list",
+                        """
+                        Put a part on the order list: "we need N of this", optionally for one of \
+                        your projects. This orders nothing — the list is what the user later turns \
+                        into an order at a supplier — and it moves no stock. Without a \
+                        `unitPrice` the last price any supplier charged is used. Identify the part \
+                        by `partId` or `partNumber`, the project (optional) by `projectId` or \
+                        `project`. Needs the PARTS_EDIT permission.""",
+                        schema("""
+                               {
+                                 "type": "object",
+                                 "properties": {
+                                   "partId": {"type": "integer", "description": "The part id, as returned by search_parts or add_part."},
+                                   "partNumber": {"type": "string", "description": "Exact part number; used when `partId` is absent."},
+                                   "quantity": {"type": "integer", "description": "How many to order. At least 1."},
+                                   "projectId": {"type": "integer", "description": "The project these are for, as returned by search_projects."},
+                                   "project": {"type": "string", "description": "Exact project name; used when `projectId` is absent."},
+                                   "unitPrice": {"type": "number", "description": "Expected price per piece."},
+                                   "notes": {"type": "string", "description": "A note against the item."}
+                                 },
+                                 "required": ["quantity"]
+                               }
+                               """),
+                        this::addOrderItem));
     }
 
     // ---------------------------------------------------------------- handlers
@@ -467,17 +590,23 @@ public class McpToolRegistry {
         return result;
     }
 
-    private Object listCategories() {
+    private Object listCategories(JsonNode args) {
+        boolean leavesOnly = args.path("leavesOnly").asBoolean(false);
         Map<Long, Long> partCounts = new LinkedHashMap<>();
         collectCounts(categoryService.getTree(), partCounts);
-        List<Map<String, Object>> rows = categoryService.findAll().stream()
+        List<CategoryDTO> all = categoryService.findAll();
+        Set<Long> parents = parentIds(all);
+        List<Map<String, Object>> rows = all.stream()
+                .filter(c -> !leavesOnly || !parents.contains(c.getId()))
                 .sorted(Comparator.comparing(c -> breadcrumbOf(c).toLowerCase()))
                 .map(c -> {
                     Map<String, Object> row = new LinkedHashMap<>();
                     row.put("id", c.getId());
                     row.put("name", c.getName());
                     row.put("breadcrumb", breadcrumbOf(c));
+                    putIfPresent(row, "description", c.getDescription());
                     row.put("parentId", c.getParentId());
+                    row.put("leaf", !parents.contains(c.getId()));
                     row.put("partCount", partCounts.getOrDefault(c.getId(), 0L));
                     return row;
                 })
@@ -544,7 +673,7 @@ public class McpToolRegistry {
     }
 
     private Object addProjectPart(JsonNode args) {
-        requireWriteAccess();
+        requireWriteAccess("changing a project's parts list moves stock and");
         ProjectDTO project = resolveProject(args);
         PartDTO part = resolvePart(args);
 
@@ -573,7 +702,7 @@ public class McpToolRegistry {
     }
 
     private Object removeProjectPart(JsonNode args) {
-        requireWriteAccess();
+        requireWriteAccess("changing a project's parts list moves stock and");
         ProjectDTO project = resolveProject(args);
         PartDTO part = resolvePart(args);
         ProjectPartDTO line = lineFor(project, part);
@@ -586,6 +715,221 @@ public class McpToolRegistry {
         result.put("project", project.getName());
         result.put("removed", projectPartRow(line));
         result.put("returnedToStock", held);
+        return result;
+    }
+
+    /**
+     * Rank categories by where the parts most like the description were filed. The rank of each
+     * similar part counts, not just its presence, so three close neighbours outweigh ten that
+     * share one common word.
+     */
+    private Object suggestCategory(JsonNode args) {
+        String description = text(args, "description");
+        if (description == null) {
+            throw new ToolArgumentException("Give a `description` of the part.");
+        }
+        String mpn = text(args, "mpn");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        StringBuilder words = new StringBuilder(description);
+        ComponentCacheMatchDTO cached = mpn == null ? null : componentCacheService.search(mpn).stream()
+                .filter(m -> mpn.equalsIgnoreCase(m.getMpn()))
+                .findFirst()
+                .orElse(null);
+        if (cached != null) {
+            Map<String, Object> known = new LinkedHashMap<>();
+            known.put("mpn", cached.getMpn());
+            putIfPresent(known, "manufacturer", cached.getManufacturer());
+            putIfPresent(known, "description", cached.getDescription());
+            putIfPresent(known, "distributorCategory", cached.getSubcategory() == null
+                    ? cached.getCategory() : cached.getCategory() + " / " + cached.getSubcategory());
+            if (cached.getPackageName() != null) {
+                known.put("package", cached.getPackageName());
+                FootprintService.Match footprint = footprintService.match(cached.getPackageName());
+                if (footprint.found()) {
+                    known.put("footprint", footprint.name());
+                } else if (!footprint.similar().isEmpty()) {
+                    known.put("footprintCandidates", footprint.similar());
+                }
+            }
+            result.put("distributorSnapshot", known);
+            words.append(' ').append(Objects.toString(cached.getDescription(), ""))
+                    .append(' ').append(Objects.toString(cached.getSubcategory(), ""));
+        }
+
+        List<CategoryDTO> all = categoryService.findAll();
+        Set<Long> parents = parentIds(all);
+        Map<Long, CategoryDTO> byId = all.stream().collect(Collectors.toMap(CategoryDTO::getId, c -> c));
+
+        Map<Long, Double> score = new LinkedHashMap<>();
+        Map<Long, List<PartDTO>> examples = new LinkedHashMap<>();
+        List<PartDTO> similar = partService.mostSimilar(words.toString(), SIMILAR_PARTS);
+        for (int i = 0; i < similar.size(); i++) {
+            PartDTO part = similar.get(i);
+            if (part.getCategoryId() == null) continue;
+            score.merge(part.getCategoryId(), 1.0 / Math.sqrt(i + 1), Double::sum);
+            examples.computeIfAbsent(part.getCategoryId(), k -> new ArrayList<>()).add(part);
+        }
+        double total = score.values().stream().mapToDouble(Double::doubleValue).sum();
+
+        List<Map<String, Object>> suggestions = score.entrySet().stream()
+                .sorted(Map.Entry.<Long, Double>comparingByValue().reversed())
+                .limit(MAX_CATEGORY_SUGGESTIONS)
+                .map(e -> {
+                    CategoryDTO category = byId.get(e.getKey());
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("id", e.getKey());
+                    row.put("breadcrumb", category == null ? null : breadcrumbOf(category));
+                    if (category != null) putIfPresent(row, "description", category.getDescription());
+                    row.put("leaf", !parents.contains(e.getKey()));
+                    row.put("confidence", Math.round(100 * e.getValue() / total) / 100.0);
+                    row.put("similarParts", examples.get(e.getKey()).stream()
+                            .limit(3)
+                            .map(p -> p.getPartNumber() + (p.getDescription() == null ? "" : " — " + p.getDescription()))
+                            .toList());
+                    return row;
+                })
+                .toList();
+        result.put("suggestions", suggestions);
+        result.put("note", suggestions.isEmpty()
+                ? "No similar parts in the catalogue to learn from; pick a leaf from list_categories(leavesOnly: true)."
+                : "Ranked by where the most similar parts in this catalogue were filed. A part can only be "
+                  + "added to a leaf; if the best fit is not one, or none fits, see list_categories(leavesOnly: true).");
+        return result;
+    }
+
+    private Object listFootprints(JsonNode args) {
+        String query = text(args, "query");
+        String key = query == null ? null : FootprintService.matchKey(query);
+        List<Map<String, Object>> rows = footprintService.findAll().stream()
+                .filter(f -> key == null
+                        || FootprintService.matchKey(f.getName()).contains(key)
+                        || f.getAliases().stream().anyMatch(a -> FootprintService.matchKey(a).contains(key)))
+                .sorted(Comparator.comparingLong(FootprintDTO::getPartCount).reversed()
+                        .thenComparing(f -> f.getName().toLowerCase(Locale.ROOT)))
+                .map(f -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("name", f.getName());
+                    if (!f.getAliases().isEmpty()) row.put("aliases", f.getAliases());
+                    putIfPresent(row, "description", f.getDescription());
+                    row.put("partCount", f.getPartCount());
+                    return row;
+                })
+                .toList();
+        return Map.of("total", rows.size(), "footprints", rows);
+    }
+
+    private Object addPart(JsonNode args) {
+        requireWriteAccess("adding a part to the catalogue");
+        String mpn = required(args, "mpn");
+        String manufacturer = required(args, "manufacturer");
+        String description = required(args, "description");
+        String footprintGiven = required(args, "footprint");
+
+        Long categoryId = args.hasNonNull("categoryId")
+                ? args.get("categoryId").asLong()
+                : resolveCategory(text(args, "category"));
+        if (categoryId == null) {
+            throw new ToolArgumentException("Give a leaf category as `categoryId` or `category`; "
+                    + "suggest_category proposes one.");
+        }
+        requireLeaf(categoryId);
+
+        List<PartDTO> close = partService.fuzzyByPartNumber(mpn);
+        close.stream()
+                .filter(p -> mpn.equalsIgnoreCase(p.getPartNumber()))
+                .findFirst()
+                .ifPresent(p -> {
+                    throw new ToolArgumentException("Part " + p.getPartNumber() + " is already in the "
+                            + "catalogue (id " + p.getId() + "). Use it instead of adding another.");
+                });
+
+        if (!FootprintService.isPackageName(footprintGiven)) {
+            throw new ToolArgumentException("'" + footprintGiven + "' is a mounting style, not a "
+                    + "package. Give the package itself, such as SOT-23, 0805, DIP-8 or TO-220 "
+                    + "(see list_footprints).");
+        }
+        FootprintService.Match footprint = footprintService.match(footprintGiven);
+        boolean newFootprint = false;
+        if (!footprint.found()) {
+            if (!args.path("newFootprint").asBoolean(false)) {
+                throw new ToolArgumentException("'" + footprintGiven + "' is not on the footprint list."
+                        + (footprint.similar().isEmpty()
+                                ? " Nothing on it looks similar."
+                                : " Closest: " + String.join(", ", footprint.similar()) + ".")
+                        + " Use one of those (see list_footprints), or, only if the part really has a "
+                        + "package nobody uses yet, call again with `newFootprint: true`.");
+            }
+            newFootprint = true;
+        }
+
+        PartCreateRequest request = new PartCreateRequest();
+        request.setPartNumber(mpn);
+        request.setManufacturer(manufacturer);
+        request.setDescription(description);
+        request.setDetails(text(args, "details"));
+        request.setDatasheetUrl(text(args, "datasheetUrl"));
+        request.setFootprint(footprint.found() ? footprint.name() : footprintGiven);
+        request.setCategoryId(categoryId);
+        List<String> tags = strings(args, "tags");
+        if (!tags.isEmpty()) request.setTags(tags);
+        PartDTO part = partService.create(request);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        Map<String, Object> added = summarise(part);
+        added.put("totalQuantity", 0);  // a new part has no stock; the DTO leaves it null
+        result.put("added", added);
+        result.put("footprint", part.getFootprint());
+        if (newFootprint) {
+            result.put("footprintAdded", true);
+        } else if (!footprintGiven.equals(part.getFootprint())) {
+            result.put("footprintNote", "'" + footprintGiven + "' is stored as " + part.getFootprint() + ".");
+        }
+        List<String> nearby = close.stream()
+                .map(PartDTO::getPartNumber)
+                .filter(n -> !n.equalsIgnoreCase(mpn))
+                .limit(5)
+                .toList();
+        if (!nearby.isEmpty()) {
+            result.put("similarPartNumbers", nearby);
+            result.put("note", "The catalogue also holds parts with similar numbers: "
+                    + String.join(", ", nearby) + ". If one of them is this part, say so to the user.");
+        }
+        return result;
+    }
+
+    private Object addOrderItem(JsonNode args) {
+        requireWriteAccess("putting a part on the order list");
+        PartDTO part = resolvePart(args);
+        int quantity = args.path("quantity").asInt(0);
+        if (quantity < 1) {
+            throw new ToolArgumentException("`quantity` must be at least 1.");
+        }
+        ProjectDTO project = args.hasNonNull("projectId") || text(args, "project") != null
+                ? resolveProject(args)
+                : null;
+
+        OrderItemRequest request = new OrderItemRequest();
+        request.setPartId(part.getId());
+        request.setQuantity(quantity);
+        request.setProjectId(project == null ? null : project.getId());
+        if (args.hasNonNull("unitPrice")) {
+            BigDecimal price = args.get("unitPrice").decimalValue();
+            if (price.signum() < 0) {
+                throw new ToolArgumentException("`unitPrice` cannot be negative.");
+            }
+            request.setUnitPrice(price);
+        }
+        request.setNotes(text(args, "notes"));
+        OrderItemDTO item = orderItemService.create(request);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("orderItemId", item.getId());
+        result.put("partId", part.getId());
+        result.put("partNumber", part.getPartNumber());
+        result.put("quantity", item.getQuantity());
+        if (project != null) result.put("project", project.getName());
+        if (item.getUnitPrice() != null) result.put("unitPrice", item.getUnitPrice());
         return result;
     }
 
@@ -795,15 +1139,14 @@ public class McpToolRegistry {
      * {@code ProjectController}'s {@code @PreAuthorize} because these tools call the service
      * directly and never go through that controller.
      */
-    private void requireWriteAccess() {
+    private void requireWriteAccess(String what) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         boolean permitted = auth != null && auth.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(Permissions.PARTS_EDIT::equals);
         if (!permitted) {
-            throw new ToolArgumentException("This credential may read but not write: changing a "
-                    + "project's parts list moves stock and needs the " + Permissions.PARTS_EDIT
-                    + " permission in this organisation.");
+            throw new ToolArgumentException("This credential may read but not write: " + what
+                    + " needs the " + Permissions.PARTS_EDIT + " permission in this organisation.");
         }
     }
 
@@ -875,6 +1218,49 @@ public class McpToolRegistry {
                 .findByOrganisationIdOrderByDisplayOrderAscNameAsc(currentOrganisationService.currentId())
                 .forEach(definition -> byName.putIfAbsent(definition.getJsonName(), definition));
         return byName;
+    }
+
+    /** The ids that are some category's parent — everything else is a leaf. */
+    private static Set<Long> parentIds(List<CategoryDTO> categories) {
+        Set<Long> parents = new HashSet<>();
+        categories.forEach(c -> {
+            if (c.getParentId() != null) parents.add(c.getParentId());
+        });
+        return parents;
+    }
+
+    /**
+     * Only a leaf may hold a new part, the same rule the local auto-categorizer keeps: a part filed
+     * under "Semiconductors" is one nobody finds by browsing. The refusal names the leaves below,
+     * so the next call can pick one.
+     */
+    private void requireLeaf(Long categoryId) {
+        List<CategoryDTO> all = categoryService.findAll();
+        CategoryDTO category = all.stream()
+                .filter(c -> c.getId().equals(categoryId))
+                .findFirst()
+                .orElseThrow(() -> new ToolArgumentException("No category with id " + categoryId
+                        + ". Call list_categories for the tree."));
+        Set<Long> parents = parentIds(all);
+        if (!parents.contains(categoryId)) return;
+
+        String prefix = breadcrumbOf(category) + " > ";
+        List<String> leaves = all.stream()
+                .filter(c -> !parents.contains(c.getId()) && breadcrumbOf(c).startsWith(prefix))
+                .map(c -> breadcrumbOf(c) + " (id " + c.getId() + ")")
+                .sorted()
+                .limit(30)
+                .toList();
+        throw new ToolArgumentException("'" + breadcrumbOf(category) + "' has sub-categories; a part "
+                + "goes in a leaf. Below it: " + String.join("; ", leaves) + ".");
+    }
+
+    private static String required(JsonNode args, String field) {
+        String value = text(args, field);
+        if (value == null) {
+            throw new ToolArgumentException("`" + field + "` is required.");
+        }
+        return value;
     }
 
     private void collectCounts(List<CategoryTreeDTO> nodes, Map<Long, Long> into) {

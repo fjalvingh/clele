@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { getCategoryTree, updatePart } from '../api';
 import type { CategoryTree, Part, PartRequest } from '../api/types';
 import CategoryPicker from './CategoryPicker';
+import FootprintInput from './FootprintInput';
 import FormField from './FormField';
 import Modal from './Modal';
 import PartSpecEditor from './PartSpecEditor';
@@ -21,6 +22,7 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
     description: '',
     details: '',
     manufacturer: '',
+    footprint: '',
     personalNumber: false,
     datasheetUrl: '',
     specs: {},
@@ -46,6 +48,7 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
       description: part.description ?? '',
       details: part.details ?? '',
       manufacturer: part.manufacturer ?? '',
+      footprint: part.footprint ?? '',
       personalNumber: part.personalNumber ?? false,
       datasheetUrl: part.datasheetUrl ?? '',
       specs: part.specs ?? {},
@@ -110,6 +113,14 @@ export default function PartEditModal({ open, part, onClose, onSaved }: Props) {
           value={form.manufacturer ?? ''}
           onChange={(e) => setForm({ ...form, manufacturer: e.target.value })}
         />
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700">Package / footprint</label>
+          <FootprintInput
+            value={form.footprint ?? ''}
+            onChange={(footprint) => setForm({ ...form, footprint })}
+            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
         <FormField
           as="textarea"
           label="Description"

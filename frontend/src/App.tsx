@@ -5,6 +5,7 @@ import { ThemeProvider } from './theme/ThemeContext';
 import Layout from './components/Layout';
 import AdminActionsPage from './pages/AdminActions';
 import CategoriesPage from './pages/Categories';
+import FootprintsPage from './pages/Footprints';
 import DashboardPage from './pages/Dashboard';
 import LocationsPage from './pages/Locations';
 import AcceptInvitationPage from './pages/AcceptInvitation';
@@ -99,6 +100,7 @@ export default function App() {
             <Route path="quick-add" element={<QuickAddPage />} />
             <Route path="barcode-scan" element={<BarcodeScannerPage />} />
             <Route path="categories" element={<CategoriesPage />} />
+            <Route path="footprints" element={<FootprintsPage />} />
             <Route path="specs" element={<SpecDefinitionsPage />} />
             <Route path="specs/:groupId" element={<SpecGroupDetailPage />} />
             <Route path="locations" element={<LocationsPage />} />

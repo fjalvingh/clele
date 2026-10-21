@@ -1,5 +1,6 @@
 package com.clele.parts.mcp;
 
+import com.clele.parts.catalog.ComponentCacheService;
 import com.clele.parts.dto.PartDTO;
 import com.clele.parts.dto.ProjectDTO;
 import com.clele.parts.dto.ProjectPartDTO;
@@ -9,12 +10,14 @@ import com.clele.parts.model.ProjectStatus;
 import com.clele.parts.repository.SpecDefinitionRepository;
 import com.clele.parts.service.CategoryService;
 import com.clele.parts.service.CurrentOrganisationService;
+import com.clele.parts.service.FootprintService;
 import com.clele.parts.service.LocationService;
 import com.clele.parts.service.PartService;
 import com.clele.parts.service.ProjectService;
 import com.clele.parts.service.SpecDefinitionService;
 import com.clele.parts.service.StockEntryService;
 import com.clele.parts.service.StockThresholdService;
+import com.clele.parts.service.order.OrderItemService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -62,7 +65,10 @@ class McpProjectToolsTest {
             mock(CategoryService.class),
             mock(LocationService.class),
             projectService,
-            mock(CurrentOrganisationService.class));
+            mock(CurrentOrganisationService.class),
+            mock(FootprintService.class),
+            mock(OrderItemService.class),
+            mock(ComponentCacheService.class));
 
     @AfterEach
     void clearAuthentication() {

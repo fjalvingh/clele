@@ -29,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -58,6 +59,7 @@ public class PartService {
     private final com.clele.parts.repository.PartSpecValueRepository partSpecValueRepository;
     private final com.clele.parts.repository.SpecDefinitionRepository specDefinitionRepository;
     private final com.clele.parts.repository.PurchaseOrderLineRepository purchaseOrderLineRepository;
+    private final FootprintService footprintService;
 
     /**
      * Search the catalogue. Everything but {@code sort} is an optional filter, combined with AND:
@@ -255,6 +257,32 @@ public class PartService {
     }
 
     /**
+     * The parts whose description, details and spec text share the most words with {@code text},
+     * best first, among those that have a category — what the MCP {@code suggest_category} tool
+     * reads a filing convention from.
+     */
+    public List<PartDTO> mostSimilar(String text, int limit) {
+        if (text == null) {
+            return List.of();
+        }
+        // Any of the words, ranked — see PartRepository.findMostSimilar. Words only: websearch
+        // syntax would read a leading '-' as "not" and a quote as a phrase.
+        String term = Arrays.stream(text.toLowerCase().split("[^\\p{L}\\p{N}.]+"))
+                .map(word -> word.replaceAll("^\\.+|\\.+$", ""))
+                .filter(word -> word.length() >= 2 && !word.equals("or"))
+                .distinct()
+                .limit(24)
+                .collect(Collectors.joining(" or "));
+        if (term.isEmpty()) {
+            return List.of();
+        }
+        // No specs: only the category is read, and loading them would cost a query per part.
+        return partRepository.findMostSimilar(currentOrganisationService.currentId(), term, limit).stream()
+                .map(p -> toDTO(p, Map.of()))
+                .toList();
+    }
+
+    /**
      * Fuzzy-match existing parts by part number (used by Quick Add to surface an already-catalogued
      * part before searching the Internet). Blank terms return no matches.
      */
@@ -368,7 +396,7 @@ public class PartService {
         if (request.getDescription() != null) part.setDescription(request.getDescription());
         if (request.getManufacturer() != null) part.setManufacturer(request.getManufacturer());
         if (request.getMpn() != null) part.setMpn(request.getMpn());
-        if (request.getFootprint() != null) part.setFootprint(request.getFootprint());
+        if (request.getFootprint() != null) part.setFootprint(footprintService.canonicalize(request.getFootprint()));
         if (request.getDatasheetUrl() != null) part.setDatasheetUrl(request.getDatasheetUrl());
 
         return toDTO(saveAndSync(part, specs));
@@ -396,7 +424,7 @@ public class PartService {
         if (request.getDetails() != null) part.setDetails(request.getDetails());
         if (request.getManufacturer() != null) part.setManufacturer(request.getManufacturer());
         if (request.getMpn() != null) part.setMpn(request.getMpn());
-        if (request.getFootprint() != null) part.setFootprint(request.getFootprint());
+        if (request.getFootprint() != null) part.setFootprint(footprintService.canonicalize(request.getFootprint()));
         if (request.getDatasheetUrl() != null) part.setDatasheetUrl(request.getDatasheetUrl());
 
         return toDTO(saveAndSync(part, specs));
@@ -535,6 +563,11 @@ public class PartService {
         part.setManufacturer(request.getManufacturer());
         part.setPersonalNumber(request.isPersonalNumber());
         part.setDatasheetUrl(request.getDatasheetUrl());
+        // Null leaves the footprint alone, blank clears it: a client that predates the field must
+        // not wipe it on every save.
+        if (request.getFootprint() != null) {
+            part.setFootprint(footprintService.canonicalize(request.getFootprint()));
+        }
         if (request.getCategoryId() != null) {
             Category category = categoryRepository
                     .findByIdAndOrganisationId(request.getCategoryId(), part.getOrganisation().getId())

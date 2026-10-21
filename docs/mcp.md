@@ -10,42 +10,74 @@ OAuth token, and scoped to exactly one organisation.
 
 ## What a client can do
 
-Eight tools ask questions:
+Ten tools ask questions:
 
 | tool | answers |
 |---|---|
 | `search_parts` | free-text and **parametric** search (`spec: ["supplyvoltage:gte:3.3"]`), plus category / manufacturer / tag / in-stock filters |
 | `get_part` | one part in full: every spec (raw *and* rendered), stock per location, tags, datasheet |
 | `list_spec_fields` | the spec fields and their `jsonName` — what `search_parts`' `spec` filter expects |
-| `list_categories` | the category tree, flattened, with part counts |
+| `list_categories` | the category tree, flattened, with descriptions, part counts and a `leaf` flag (`leavesOnly` filters) |
+| `suggest_category` | where a part not yet owned belongs: leaf categories ranked by where the most similar existing parts were filed, plus what the distributor snapshot knows of an `mpn` |
+| `list_footprints` | the managed footprint list with aliases and part counts — the names `add_part` accepts |
 | `list_locations` | the storage locations, flattened |
 | `list_low_stock` | parts under their minimum — what needs reordering |
 | `search_projects` | the caller's own projects, filtered by name substring and status |
 | `get_project` | one project with every line of its parts list: need, holding, shortfall |
 
-and two change something:
+and four change something:
 
 | tool | does |
 |---|---|
+| `add_part` | adds a new part to the catalogue, with no stock |
+| `add_order_item` | puts a part on the order list (orders nothing, moves no stock) |
 | `add_project_part` | puts a part on a project's parts list — **and takes it off the shelf** |
 | `remove_project_part` | takes the line off again, **returning everything the project held** |
 
-## The catalogue is read-only; a project's parts list is not
+The workflow they exist for: a new design's BOM is turned into a project. For each line the model
+searches what is owned, `add_part`s only what is missing, puts everything on the project (the new
+parts show as short), and `add_order_item`s the shortfall. The `initialize` instructions spell that
+order out.
 
-Nothing here creates or edits a part, a category, a location or a spec. That has not changed, and it
-is still most of the point: an assistant given a key cannot be talked into rewriting the inventory.
+## Adding to the catalogue, never rewriting it
 
-The parts list of a *project* is the exception, and it is not a quiet one. A project is ACTIVE or
+Nothing here edits or deletes a part, a category, a location or a spec, and nothing creates a
+category, location or spec. An assistant given a key still cannot be talked into rewriting the
+inventory. It can now *add* a part, and because adding is cheap for a model and cleaning up is not
+cheap for a person, `add_part` is built to refuse rather than guess:
+
+- **Required:** `mpn` (it becomes the part number, as in Quick Add), `manufacturer`, `description`,
+  a category and a footprint. A part is created without stock.
+- **The category must be a leaf**, the same rule the Ollama auto-categorizer follows. A part filed
+  under "Semiconductors" is one nobody finds by browsing. A non-leaf is refused with the leaves below
+  it, so the next call can pick one.
+- **`suggest_category` is how the model finds the category.** It reads the catalogue's own filing
+  conventions instead of offering a generic taxonomy: the description (plus, for a known MPN, the
+  distributor snapshot's description and subcategory) is run as an **OR'd, ranked** full-text query
+  over existing parts (`PartRepository.findMostSimilar` — the `search` vector, but with the terms
+  OR'd, because a new part shares some words with its neighbours and never all of them). The
+  categories of the top 40 are scored by rank (1/√rank), so three close neighbours outweigh ten that
+  share one common word. The result is evidence with examples, not a verdict.
+- **The footprint must be on the managed list** (`docs/footprints.md`), matched ignoring case and
+  punctuation or through an alias, and stored under its canonical name. An unknown one is refused
+  with the closest names. Only `newFootprint: true` adds it, so a new package is a decision the
+  model states, not a typo it makes.
+- **An existing part number is refused** (case-insensitive) with its id. Near misses
+  (`IRF540N` vs `IRF540NPBF`) do not block, but are named in the result so the model can raise them.
+
+## A project's parts list moves stock
+
+The parts list of a *project* is not a quiet write. A project is ACTIVE or
 CANCELLED, and while it is active every line of its list is out of stock and held by the project
 (`docs/projects.md`) — there is no state in which a project lists a part but has not taken it. So
 `add_project_part` **moves stock** and so does `remove_project_part`. There is no way to offer this
 feature at all without that, which is why it is said twice in the tool descriptions and again in the
 `initialize` instructions: a model that thinks it is editing a shopping list is emptying drawers.
 
-- **Both write tools are gated on `PARTS_EDIT`** in the organisation the credential was issued for —
-  the same permission `ProjectController` demands of a browser. The check lives in
-  `McpToolRegistry.requireWriteAccess`, not on the service, because a tool calls `ProjectService`
-  directly and so never passes that controller's `@PreAuthorize`. A key whose owner may only read
+- **All four write tools are gated on `PARTS_EDIT`** in the organisation the credential was issued
+  for, the same permission the controllers demand of a browser. The check lives in
+  `McpToolRegistry.requireWriteAccess`, not on the service, because a tool calls the services
+  directly and so never passes a controller's `@PreAuthorize`. A key whose owner may only read
   gets a failed tool result naming the permission, and the service is never reached.
 - **Projects are private to their owner**, so these tools see only the projects belonging to the
   user the credential acts as — `ProjectService.requireOwnProject` scopes by owner as well as
@@ -153,8 +185,8 @@ of V57 stays. The two differ in how they are obtained and in nothing else: both 
 with `clele_mcp_`).
 
 **`/api/mcp` is scoped to its own security chain, and key management is not on it.** A key or token
-can read the catalogue, can change a project's parts list if its owner holds `PARTS_EDIT`, and can
-never mint another credential.
+can read the catalogue. If its owner holds `PARTS_EDIT`, it can also add parts, fill the order list
+and change a project's parts list. It can never mint another credential.
 
 ### `mcp-remote`, if you would rather not use the browser flow
 

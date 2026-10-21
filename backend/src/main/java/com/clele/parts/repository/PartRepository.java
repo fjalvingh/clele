@@ -266,4 +266,45 @@ public interface PartRepository extends JpaRepository<Part, Long> {
             ORDER BY id
             """, nativeQuery = true)
     List<Part> findWithDeadOctopartDatasheetUrl();
+
+    /** How many parts use each footprint name, for the footprint list. */
+    @Query("""
+            SELECT p.footprint, COUNT(p) FROM Part p
+            WHERE p.organisation.id = :orgId AND p.footprint IS NOT NULL
+            GROUP BY p.footprint
+            """)
+    List<Object[]> countByFootprint(@Param("orgId") Long orgId);
+
+    long countByOrganisationIdAndFootprint(Long organisationId, String footprint);
+
+    /** Moves every part from one footprint name to another — a rename or a merge. */
+    @Modifying
+    @Query(value = """
+            UPDATE part SET footprint = :to, updated_at = now()
+            WHERE organisation_id = :orgId AND footprint = :from
+            """, nativeQuery = true)
+    int renameFootprint(@Param("orgId") Long orgId, @Param("from") String from, @Param("to") String to);
+
+    /**
+     * The parts most like a free-text description, best first: the {@link #search} vector, but with
+     * the terms OR'd ({@code term} is "a or b or c" in websearch syntax) and ranked, because a
+     * description of a part not yet in the catalogue shares some words with its neighbours and
+     * never all of them. Used to suggest a category from where similar parts were filed.
+     */
+    @Query(value = """
+            SELECT p.* FROM part p
+            WHERE p.organisation_id = :orgId
+              AND p.category_id IS NOT NULL
+              AND (to_tsvector('english', coalesce(p.description, ''))
+                   || to_tsvector('english', coalesce(p.details, ''))
+                   || to_tsvector('english', coalesce(p.spec_text, '')))
+                  @@ websearch_to_tsquery('english', :term)
+            ORDER BY ts_rank(to_tsvector('english', coalesce(p.description, ''))
+                             || to_tsvector('english', coalesce(p.details, ''))
+                             || to_tsvector('english', coalesce(p.spec_text, '')),
+                             websearch_to_tsquery('english', :term)) DESC, p.id
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Part> findMostSimilar(@Param("orgId") Long orgId, @Param("term") String term,
+                               @Param("limit") int limit);
 }

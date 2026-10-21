@@ -72,6 +72,8 @@ import type {
   PurchaseOrderRequest,
   Supplier,
   SupplierRequest,
+  Footprint,
+  FootprintRequest,
   ReturnPartRequest,
   QuickAddRequest,
   QuickAddResponse,
@@ -708,6 +710,20 @@ export const renameSupplier = (id: number, data: SupplierRequest) =>
   client.put<Supplier>(`/suppliers/${id}`, data).then((r) => r.data);
 
 export const deleteSupplier = (id: number) => client.delete(`/suppliers/${id}`);
+
+// ---- Footprints ----
+export const getFootprints = () => client.get<Footprint[]>('/footprints').then((r) => r.data);
+
+export const createFootprint = (data: FootprintRequest) =>
+  client.post<Footprint>('/footprints', data).then((r) => r.data);
+
+export const updateFootprint = (id: number, data: FootprintRequest) =>
+  client.put<Footprint>(`/footprints/${id}`, data).then((r) => r.data);
+
+export const mergeFootprint = (id: number, targetId: number) =>
+  client.post<Footprint>(`/footprints/${id}/merge`, { targetId }).then((r) => r.data);
+
+export const deleteFootprint = (id: number) => client.delete(`/footprints/${id}`);
 
 /** The order list: every item not yet on an order. */
 export const getOrderItems = () => client.get<OrderItem[]>('/order-items').then((r) => r.data);

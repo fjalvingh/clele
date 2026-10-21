@@ -17,6 +17,12 @@ public class PartRequest {
     private String description;
     private String details;
     private String manufacturer;
+
+    /**
+     * The package type. Stored as its canonical name on the footprint list (an unknown one is added
+     * to it). Null leaves the part's footprint unchanged; blank clears it.
+     */
+    private String footprint;
     private boolean personalNumber;
     private String datasheetUrl;
     private Map<String, Object> specs;

@@ -139,6 +139,11 @@ export interface PartRequest {
   specsMode?: 'MERGE' | 'REPLACE';
   categoryId?: number | null;
   tags?: string[];
+  /**
+   * The package type, stored under its canonical name on the footprint list (an unknown one is
+   * added to it). Omitted leaves the part's footprint unchanged; blank clears it.
+   */
+  footprint?: string;
 }
 
 /**
@@ -1289,6 +1294,22 @@ export interface Supplier {
 
 export interface SupplierRequest {
   name: string;
+}
+
+/** A package type on the organisation's managed list, with the other names it goes by. */
+export interface Footprint {
+  id: number;
+  name: string;
+  description?: string | null;
+  aliases: string[];
+  partCount: number;
+}
+
+export interface FootprintRequest {
+  name: string;
+  description?: string | null;
+  /** Replaces the whole set; omitted leaves it alone. */
+  aliases?: string[];
 }
 
 export type PurchaseOrderStatus = 'DRAFT' | 'ORDERED' | 'RECEIVED' | 'CANCELLED';

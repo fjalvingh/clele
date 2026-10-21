@@ -57,6 +57,12 @@ const icons: Record<string, ReactNode> = {
       <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2.2h7A1.5 1.5 0 0 1 19 8.7v9.8A1.5 1.5 0 0 1 17.5 20h-13A1.5 1.5 0 0 1 3 18.5Z" />
     </svg>
   ),
+  footprints: (
+    <svg {...icon}>
+      <rect x="7" y="7" width="10" height="10" rx="1" />
+      <path d="M9.5 7V4M14.5 7V4M9.5 20v-3M14.5 20v-3M7 9.5H4M7 14.5H4M20 9.5h-3M20 14.5h-3" />
+    </svg>
+  ),
   specs: (
     <svg {...icon}>
       <path d="M4 7h10M4 12h6M4 17h12" />
@@ -134,6 +140,7 @@ const navItems: NavItem[] = [
   { to: '/quick-add', label: 'Quick Add', icon: icons.quickAdd },
   { to: '/barcode-scan', label: 'Barcode Scan', icon: icons.barcodeScan },
   { to: '/categories', label: 'Categories', icon: icons.categories },
+  { to: '/footprints', label: 'Footprints', icon: icons.footprints },
   { to: '/specs', label: 'Spec Fields', icon: icons.specs },
   { to: '/locations', label: 'Locations', icon: icons.locations },
   { to: '/low-stock', label: 'Low Stock', icon: icons.lowStock },

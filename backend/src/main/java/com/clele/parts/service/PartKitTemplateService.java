@@ -75,6 +75,7 @@ public class PartKitTemplateService {
     private final CurrentUserService currentUserService;
     private final StockMovementService stockMovementService;
     private final SpecDefinitionService specDefinitionService;
+    private final FootprintService footprintService;
     private final PartSpecValueService partSpecValueService;
     private final TagService tagService;
 
@@ -304,7 +305,7 @@ public class PartKitTemplateService {
         part.setManufacturer(substitute(template.getManufacturerTemplate(), value));
         part.setDescription(substitute(template.getDescriptionTemplate(), value));
         part.setDetails(substitute(template.getDetailsTemplate(), value));
-        part.setFootprint(substitute(template.getFootprintTemplate(), value));
+        part.setFootprint(footprintService.canonicalize(substitute(template.getFootprintTemplate(), value)));
         part.setDatasheetUrl(substitute(template.getDatasheetUrlTemplate(), value));
         part.setCategory(template.getCategory());
         part.setCreatedBy(currentUserService.current());

@@ -57,7 +57,9 @@ in the feature documents under `docs/` — the section names referenced below ("
 - `GET/POST /parts`, `GET/PUT/DELETE /parts/{id}` (mutations require `PARTS_EDIT`). `POST` takes
   `PartCreateRequest` — the part's fields plus an optional opening `quantity`/`locationId`/
   `unitPrice`, created in one transaction (see *Creating a part with its stock*); `PUT` takes the
-  plain `PartRequest` and cannot carry stock
+  plain `PartRequest` and cannot carry stock. Both take an optional `footprint`, stored as its
+  canonical name on the footprint list (an unknown one is added); on `PUT` an omitted footprint is
+  left alone and a blank one clears it
   - `GET /parts?search=&categoryId=&sort=&personalNumber=&manufacturer=&locationId=&sparseSpecs=&tags=` — search
     runs in the DB: `search` matches name / part_number (case-insensitive substring) + description
     **plus `details` and the textual spec values** (PostgreSQL full-text,
@@ -100,6 +102,13 @@ in the feature documents under `docs/` — the section names referenced below ("
   (mutations require `PARTS_EDIT`; GET serves bytes with the stored content-type, downloads with
   filename for datasheets/attachments)
 - `GET/POST /categories`, `GET/PUT/DELETE /categories/{id}`, `GET /categories/tree`
+- **Footprints** (`/footprints`, see `docs/footprints.md`): `GET` lists the organisation's
+  footprints `{id, name, description, aliases[], partCount}` (any member). The rest need
+  `PARTS_EDIT`: `POST` `{name, description?, aliases?}` adds one, `PUT /{id}` (same body; `aliases`
+  replaces the set, omitted leaves it) changes one — a rename moves its parts along and keeps the
+  old name as an alias; `POST /{id}/merge` `{targetId}` folds it into another (its parts move, its
+  names become aliases); `DELETE /{id}` deletes one no part uses (409 otherwise). A name or alias
+  that another footprint already answers to (ignoring case and punctuation) is a 409
 - `GET/POST /locations`, `GET/PUT/DELETE /locations/{id}`, `GET /locations/tree` (nested hierarchy),
   `GET /locations/stats` (per-location stock roll-up — direct + subtree parts/quantity/value, drives
   the figures on the Locations tree), `GET /locations/mine` (current user's own, for stock pickers);

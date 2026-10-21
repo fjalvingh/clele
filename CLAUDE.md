@@ -15,6 +15,7 @@ loaded every session.
 | `API.md` | every REST endpoint: path, params, required permission, response shape. Adding or changing an endpoint |
 | `docs/auth.md` | session auth, permissions and how they are recomputed per request, organisations (multi-tenancy), invitations, outgoing mail providers |
 | `docs/stock.md` | the movement ledger and the on-hand aggregate, the add/take/move verbs, thresholds, and the location tree |
+| `docs/footprints.md` | the managed footprint (package type) list, its aliases and match key, how each writer canonicalizes into it, what is not a package, rename/merge, and the V64/V65 seed |
 | `docs/specs.md` | typed spec values (`part_spec_value`), parametric search, RKM/metric-prefix parsing, spec groups and aliases, spec coverage |
 | `docs/attachments.md` | the shared `part_attachment` table, part ownership, and the datasheet download/preflight CLI |
 | `docs/component-cache.md` | the read-only `cc_*` distributor snapshot consulted before any web lookup (schema in `CCSTRUCTURE.md`) |
@@ -24,7 +25,7 @@ loaded every session.
 | `docs/bom-import.md` | uploading an EDA BOM export into a project and matching its lines to the project parts list |
 | `docs/part-kits.md` | kit templates (`${…}` value expansion), generating parts in bulk, and undoing a generation |
 | `docs/partsbox-import.md` | the one-off Partsbox WebSocket-capture importer |
-| `docs/mcp.md` | the MCP endpoint an AI assistant reads the catalogue through — its tools (read-only, bar the two that change a project's parts list), its API keys, and the OAuth flow (this app is its own authorization server) that lets Claude Desktop connect with a URL alone |
+| `docs/mcp.md` | the MCP endpoint an AI assistant reads the catalogue through — its tools (mostly read-only; four write: add a part, add to the order list, change a project's parts list), its API keys, and the OAuth flow (this app is its own authorization server) that lets Claude Desktop connect with a URL alone |
 | `docs/printing.md` | label printing — browser path, the Go daemon, Brother QL raster geometry, barcodes |
 | `docs/features.md` | the feature list, as a map of what exists |
 
@@ -122,9 +123,9 @@ daemon/           Go print daemon — single static binary, stdlib only, no exte
 
 - PostgreSQL: database `partsdb`, user `partsuser`, password `partspass`
 - Schema managed by Flyway migrations (V1–V10) in `backend/src/main/resources/db/migration/`
-- Last version is V63
+- Last version is V65
 - `ddl-auto: validate` — every schema change requires a new Flyway migration. The next free version
-  is **V64** (always check `db/migration/` for the real high-water mark before adding one)
+  is **V66** (always check `db/migration/` for the real high-water mark before adding one)
 - ⚠️ **Flyway reads `${…}` in a migration as its own placeholder** and fails the whole migration on
   an unknown name ("No value provided for placeholder"). It applies to comments too — V45 documents
   the kit placeholder in prose rather than spelling it, and cost one failed boot to discover
