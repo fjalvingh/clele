@@ -35,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -236,6 +237,17 @@ class McpCatalogueToolsTest {
 
         assertThat(raw.get("isError").asBoolean()).isTrue();
         verify(orderItemService, never()).create(any());
+    }
+
+    @Test
+    void searchPartsPassesTheFootprintThrough() {
+        when(partService.search(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(part(1L, "AS6C62256-55PCN")));
+
+        call("search_parts", args("footprint", "dip28w"));
+
+        verify(partService).search(any(), any(), any(), any(), any(), eq("dip28w"),
+                any(), any(), any(), any());
     }
 
     // ------------------------------------------------------------------ helpers

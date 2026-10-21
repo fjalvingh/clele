@@ -207,6 +207,7 @@ public class McpToolRegistry {
                                    "category": {"type": "string", "description": "Category name; matches that category and everything below it."},
                                    "categoryId": {"type": "integer", "description": "Category id, from list_categories. Takes precedence over `category`."},
                                    "manufacturer": {"type": "string", "description": "Case-insensitive substring of the manufacturer."},
+                                   "footprint": {"type": "string", "description": "Package, a name or alias from list_footprints (SOT-23, DIP-28W, 0805). Matched exactly, ignoring case and punctuation."},
                                    "tags": {"type": "array", "items": {"type": "string"}, "description": "A part must carry all of these tags."},
                                    "inStockOnly": {"type": "boolean", "description": "Only parts with stock on hand. Default false."},
                                    "limit": {"type": "integer", "description": "Max parts to return, 1-200. Default 25."}
@@ -482,7 +483,7 @@ public class McpToolRegistry {
         validateSpecCriteria(specs);
 
         List<PartDTO> found = partService.search(text(args, "query"), categoryId, "partNumber",
-                null, text(args, "manufacturer"), null, null,
+                null, text(args, "manufacturer"), text(args, "footprint"), null, null,
                 tags.isEmpty() ? null : tags, specs.isEmpty() ? null : specs);
 
         if (args.path("inStockOnly").asBoolean(false)) {

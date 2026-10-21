@@ -60,7 +60,7 @@ in the feature documents under `docs/` — the section names referenced below ("
   plain `PartRequest` and cannot carry stock. Both take an optional `footprint`, stored as its
   canonical name on the footprint list (an unknown one is added); on `PUT` an omitted footprint is
   left alone and a blank one clears it
-  - `GET /parts?search=&categoryId=&sort=&personalNumber=&manufacturer=&locationId=&sparseSpecs=&tags=` — search
+  - `GET /parts?search=&categoryId=&sort=&personalNumber=&manufacturer=&footprint=&locationId=&sparseSpecs=&tags=` — search
     runs in the DB: `search` matches name / part_number (case-insensitive substring) + description
     **plus `details` and the textual spec values** (PostgreSQL full-text,
     `websearch_to_tsquery`, over the single concatenated vector indexed by V43 — so "sot-23" or
@@ -69,9 +69,10 @@ in the feature documents under `docs/` — the section names referenced below ("
     descendants** (recursive CTE over `parent_id`); `sort` is `partNumber` (default) or
     `manufacturer`. The Parts page only fetches results once a search/filter is applied (it does not
     list the whole catalogue on load).
-    The last five are the **advanced filters** (the collapsible "More search options" panel under
+    The rest are the **advanced filters** (the collapsible "More search options" panel under
     the search bar), all optional and ANDed with the rest: `personalNumber` (exact boolean match on
-    the flag), `manufacturer` (case-insensitive substring), `locationId` (parts holding stock >0 in
+    the flag), `manufacturer` (case-insensitive substring), `footprint` (a footprint name or alias,
+    resolved to the canonical name and matched exactly), `locationId` (parts holding stock >0 in
     that location **or any location below it** — the same recursive walk as categories),
     `sparseSpecs` (parts carrying fewer than `PartRepository.SPARSE_SPEC_THRESHOLD` spec keys — see
     *Spec coverage*), `spec` (repeated parametric criteria `jsonName:op:value` — see

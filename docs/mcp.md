@@ -14,7 +14,7 @@ Ten tools ask questions:
 
 | tool | answers |
 |---|---|
-| `search_parts` | free-text and **parametric** search (`spec: ["supplyvoltage:gte:3.3"]`), plus category / manufacturer / tag / in-stock filters |
+| `search_parts` | free-text and **parametric** search (`spec: ["supplyvoltage:gte:3.3"]`), plus category / manufacturer / footprint / tag / in-stock filters |
 | `get_part` | one part in full: every spec (raw *and* rendered), stock per location, tags, datasheet |
 | `list_spec_fields` | the spec fields and their `jsonName` — what `search_parts`' `spec` filter expects |
 | `list_categories` | the category tree, flattened, with descriptions, part counts and a `leaf` flag (`leavesOnly` filters) |

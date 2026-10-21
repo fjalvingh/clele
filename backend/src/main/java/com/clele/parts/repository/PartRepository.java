@@ -43,7 +43,8 @@ public interface PartRepository extends JpaRepository<Part, Long> {
      *
      * <p>The remaining parameters are the Parts screen's advanced filters; every one of them is
      * optional and ignored when null. {@code personalNumber} matches the flag exactly;
-     * {@code manufacturer} is a case-insensitive substring; {@code locationId} keeps parts that
+     * {@code manufacturer} is a case-insensitive substring; {@code footprint} is a canonical
+     * footprint name, matched exactly; {@code locationId} keeps parts that
      * hold stock in that location <em>or any location below it</em> (same recursive walk as
      * categories, so filtering on "Building A" finds stock on a shelf three levels down);
      * {@code sparseSpecs} keeps only parts carrying fewer than
@@ -68,6 +69,7 @@ public interface PartRepository extends JpaRepository<Part, Long> {
                    SELECT id FROM subtree))
               AND (:personalNumber IS NULL OR p.personal_number = :personalNumber)
               AND (:manufacturer IS NULL OR p.manufacturer ILIKE '%' || :manufacturer || '%')
+              AND (:footprint IS NULL OR p.footprint = :footprint)
               AND (:locationId IS NULL OR EXISTS (
                    SELECT 1 FROM stock_entry se
                    WHERE se.part_id = p.id
@@ -88,6 +90,7 @@ public interface PartRepository extends JpaRepository<Part, Long> {
                       @Param("categoryId") Long categoryId,
                       @Param("personalNumber") Boolean personalNumber,
                       @Param("manufacturer") String manufacturer,
+                      @Param("footprint") String footprint,
                       @Param("locationId") Long locationId,
                       @Param("sparseSpecs") Boolean sparseSpecs);
 

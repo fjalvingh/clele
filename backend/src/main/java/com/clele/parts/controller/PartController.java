@@ -39,12 +39,13 @@ public class PartController {
             @RequestParam(required = false, defaultValue = "partNumber") String sort,
             @RequestParam(required = false) Boolean personalNumber,
             @RequestParam(required = false) String manufacturer,
+            @RequestParam(required = false) String footprint,
             @RequestParam(required = false) Long locationId,
             @RequestParam(required = false) Boolean sparseSpecs,
             @RequestParam(required = false) List<String> tags,
             @RequestParam(required = false) List<String> spec) {
-        return partService.search(search, categoryId, sort, personalNumber, manufacturer, locationId,
-                sparseSpecs, tags, spec);
+        return partService.search(search, categoryId, sort, personalNumber, manufacturer, footprint,
+                locationId, sparseSpecs, tags, spec);
     }
 
     @GetMapping("/local-match")

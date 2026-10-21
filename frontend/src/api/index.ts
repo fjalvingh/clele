@@ -139,6 +139,7 @@ export const getParts = (
   if (sort) params.sort = sort;
   if (filters?.personalNumber !== undefined) params.personalNumber = filters.personalNumber;
   if (filters?.manufacturer) params.manufacturer = filters.manufacturer;
+  if (filters?.footprint) params.footprint = filters.footprint;
   if (filters?.locationId !== undefined) params.locationId = filters.locationId;
   if (filters?.sparseSpecs) params.sparseSpecs = true;
   if (filters?.tags && filters.tags.length > 0) params.tags = filters.tags;

@@ -10,6 +10,7 @@ import {
 } from '../api';
 import type {
   CategoryTree,
+  Footprint,
   Location,
   Part,
   PartCreateRequest,
@@ -31,6 +32,7 @@ import { NumberTextInput } from '../components/NumberInput';
 import Modal from '../components/Modal';
 import PartSpecEditor from '../components/PartSpecEditor';
 import TagInput from '../components/TagInput';
+import { loadFootprints } from '../utils/footprints';
 import { locationOptionLabel } from '../utils/locations';
 
 
@@ -88,6 +90,7 @@ interface Criteria {
   sort: SortKey;
   personalNumber: TriState;
   manufacturer: string;
+  footprint: string;
   locationId?: number;
   sparseSpecs: boolean;
   tags: string[];
@@ -101,6 +104,7 @@ const criteriaFromParams = (p: URLSearchParams): Criteria => ({
   sort: p.get('sort') === 'manufacturer' ? 'manufacturer' : 'partNumber',
   personalNumber: p.get('pn') === 'yes' || p.get('pn') === 'no' ? (p.get('pn') as TriState) : '',
   manufacturer: p.get('mfr') ?? '',
+  footprint: p.get('fp') ?? '',
   locationId: p.get('loc') ? Number(p.get('loc')) : undefined,
   sparseSpecs: p.get('sparse') === '1',
   tags: p.get('tags') ? p.get('tags')!.split(',').filter(Boolean) : [],
@@ -116,6 +120,7 @@ const paramsFromCriteria = (c: Criteria): URLSearchParams => {
   if (c.sort !== 'partNumber') params.sort = c.sort;
   if (c.personalNumber) params.pn = c.personalNumber;
   if (c.manufacturer.trim()) params.mfr = c.manufacturer.trim();
+  if (c.footprint.trim()) params.fp = c.footprint.trim();
   if (c.locationId !== undefined) params.loc = String(c.locationId);
   if (c.sparseSpecs) params.sparse = '1';
   if (c.tags.length > 0) params.tags = c.tags.join(',');
@@ -127,6 +132,7 @@ const paramsFromCriteria = (c: Criteria): URLSearchParams => {
 const filtersFromCriteria = (c: Criteria): PartFilters => ({
   personalNumber: c.personalNumber ? c.personalNumber === 'yes' : undefined,
   manufacturer: c.manufacturer.trim() || undefined,
+  footprint: c.footprint.trim() || undefined,
   locationId: c.locationId,
   sparseSpecs: c.sparseSpecs || undefined,
   tags: c.tags,
@@ -144,6 +150,7 @@ const hasCriteria = (c: Criteria) =>
       c.categoryId !== undefined ||
       c.personalNumber ||
       c.manufacturer.trim() ||
+      c.footprint.trim() ||
       c.locationId !== undefined ||
       c.sparseSpecs ||
       c.tags.length > 0 ||
@@ -155,6 +162,7 @@ const hasAdvanced = (c: Criteria) =>
   Boolean(
     c.personalNumber ||
       c.manufacturer.trim() ||
+      c.footprint.trim() ||
       c.locationId !== undefined ||
       c.sparseSpecs ||
       c.tags.length > 0 ||
@@ -172,6 +180,7 @@ export default function PartsPage() {
   const [parts, setParts] = useState<Part[]>([]);
   const [categoryTree, setCategoryTree] = useState<CategoryTree[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
+  const [footprints, setFootprints] = useState<Footprint[]>([]);
   const [criteria, setCriteria] = useState<Criteria>(() => criteriaFromParams(searchParams));
   // The advanced panel is closed by default, but opens itself when the restored URL uses it —
   // otherwise the results would be filtered by controls the user cannot see.
@@ -217,6 +226,8 @@ export default function PartsPage() {
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+    // Only the suggestions of the footprint filter; the search works without them.
+    loadFootprints().then(setFootprints).catch(() => {});
   }, []);
 
   // Restore results when the page mounts with search criteria in the URL (back navigation / reload).
@@ -414,6 +425,7 @@ export default function PartsPage() {
                 sort: criteria.sort,
                 personalNumber: '',
                 manufacturer: '',
+                footprint: '',
                 sparseSpecs: false,
                 tags: [],
                 specs: [],
@@ -503,6 +515,27 @@ export default function PartsPage() {
                 placeholder="e.g. Texas Instruments"
                 className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Footprint
+              </label>
+              {/* A name or alias from the list; "sot23" or "TO-236" finds the parts on SOT-23. */}
+              <input
+                type="text"
+                list="parts-footprint-list"
+                value={criteria.footprint}
+                onChange={(e) => setCriteria({ ...criteria, footprint: e.target.value })}
+                placeholder="e.g. SOT-23, DIP-28W"
+                autoComplete="off"
+                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <datalist id="parts-footprint-list">
+                {footprints.map((f) => (
+                  <option key={f.id} value={f.name} />
+                ))}
+              </datalist>
             </div>
 
             <div>

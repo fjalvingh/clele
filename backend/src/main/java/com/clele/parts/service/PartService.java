@@ -64,21 +64,30 @@ public class PartService {
     /**
      * Search the catalogue. Everything but {@code sort} is an optional filter, combined with AND:
      * the free-text {@code search} term, the category subtree, the personal-number flag, a
-     * manufacturer substring, a location subtree, {@code sparseSpecs} (parts carrying fewer than
-     * {@link PartRepository#SPARSE_SPEC_THRESHOLD} spec keys), and {@code tags} (a part must carry
-     * <em>all</em> of the named tags — narrowing is what a tag filter is for).
+     * manufacturer substring, a footprint, a location subtree, {@code sparseSpecs} (parts carrying
+     * fewer than {@link PartRepository#SPARSE_SPEC_THRESHOLD} spec keys), and {@code tags} (a part
+     * must carry <em>all</em> of the named tags — narrowing is what a tag filter is for).
+     *
+     * <p>The footprint is looked up the way a writer's is, so "sot23" or an alias finds the parts
+     * on SOT-23; one the list does not know matches nothing.
      *
      * <p>Tags are matched here rather than in SQL: they are already loaded for the DTO mapping, and
      * an "all of N" match is awkward to express in a native query with a variable-length list.
      */
     public List<PartDTO> search(String search, Long categoryId, String sort,
-                                Boolean personalNumber, String manufacturer, Long locationId,
-                                Boolean sparseSpecs, List<String> tags, List<String> specs) {
+                                Boolean personalNumber, String manufacturer, String footprint,
+                                Long locationId, Boolean sparseSpecs, List<String> tags,
+                                List<String> specs) {
         String term = (search != null && !search.isBlank()) ? search.trim() : null;
         String maker = (manufacturer != null && !manufacturer.isBlank()) ? manufacturer.trim() : null;
+        String packageName = null;
+        if (footprint != null && !footprint.isBlank()) {
+            FootprintService.Match match = footprintService.match(footprint);
+            packageName = match.found() ? match.name() : footprint.trim();
+        }
         Comparator<PartDTO> comparator = comparatorFor(sort);
         List<Part> parts = partRepository.search(currentOrganisationService.currentId(), term,
-                categoryId, personalNumber, maker, locationId, sparseSpecs);
+                categoryId, personalNumber, maker, packageName, locationId, sparseSpecs);
         parts = applySpecCriteria(parts, specs);
         Set<String> wanted = (tags == null) ? Set.of() : tags.stream()
                 .filter(t -> t != null && !t.isBlank())

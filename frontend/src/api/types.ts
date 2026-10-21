@@ -169,6 +169,8 @@ export interface PartCreateRequest extends PartRequest {
 export interface PartFilters {
   personalNumber?: boolean;
   manufacturer?: string;
+  /** A footprint name or alias; the server resolves it to the canonical name and matches exactly. */
+  footprint?: string;
   locationId?: number;
   /** Keep only parts carrying fewer than SPARSE_SPEC_THRESHOLD spec keys. */
   sparseSpecs?: boolean;
