@@ -192,6 +192,33 @@ conscript another's user without their knowledge. They invite an address; the in
   invitee's page at the **public** route `/invite/:token` (registered outside `RequireAuth` in
   `App.tsx`); it asks for name/phone/password only when the invitation reports `newAccount`.
 
+## Weekly Stock Summary
+
+Every active user gets a short plain-text mail once every 7 days. It has one section per
+organisation they belong to: parts in the catalogue, parts in stock, items on hand, stock value,
+thresholds below minimum, and stock changes in the last 7 days. **It is also what keeps the mail
+provider's account alive**, since the provider needs regular traffic. Do not remove or thin it out
+without checking that.
+
+- **Active** is not an account flag, because none exists. `StockSummaryMailService` takes it to mean a
+  member of at least one non-template organisation whose address does not end in `.local`. The
+  seeded `admin@clele.local` can never be delivered, and bounces harm the account. It does not look at
+  when the user last logged in.
+- **Who is due is stored per user** (`app_user.last_stock_summary_at`, V66), not implied by a timer.
+  `StockSummaryScheduler` checks at the top of every hour, so a restart neither repeats nor skips a
+  mail. A failed send is not stamped and is tried again at the next check; a mail that fails for
+  one recipient does not stop the others. Due means 7 days less one check interval: a mail is
+  stamped just after the check that sent it, so a full 7 days would slip an hour every week.
+- **A new install or a new account is due straight away**, as its timestamp is null. The first check
+  after this feature was deployed mailed everybody.
+- **No provider configured**: nobody is mailed or stamped, and each check logs that at INFO.
+  `app.mail.stock-summary-enabled` (`APP_MAIL_STOCK_SUMMARY_ENABLED`, default true) turns it off, for
+  instance on a development copy of the production database with a working mail server.
+- **Web application only**: the scheduler is `@ConditionalOnWebApplication`. The command-line profiles
+  (`import`, `datasheets`, `specs`) must not mail anybody, and a scheduler thread would stop them
+  exiting.
+- **There is no opt-out** yet: a user cannot turn this mail off.
+
 ## Outgoing Mail
 
 Mail delivery is behind a provider interface so the email service can be swapped **by
@@ -218,3 +245,8 @@ configuration, never by code**. Package `com.clele.parts.mail`:
   `mailersend.api-key` (`MAILERSEND_API_KEY`) / `mailersend.base-url`. SMTP still takes
   `MAIL_HOST`/`MAIL_PORT`/`MAIL_USERNAME`/`MAIL_PASSWORD` under `spring.mail.*`.
   MailerSend requires the `from` address to be on a domain verified in the MailerSend account.
+- **These environment names work only through the mapping in `application-prod.yml`.** Spring does
+  not bind `MAIL_HOST` to `spring.mail.host` by itself, and without the mapping the app sees an
+  unconfigured provider and logs mail instead of sending it, with no error. It used to rely on the
+  gitignored `application.yml`, which is why overwriting that file could stop mail in production.
+  `ProdMailConfigTest` pins the mapping.

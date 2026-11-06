@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface StockMovementRepository extends JpaRepository<StockMovement, Long> {
@@ -52,6 +53,20 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, Lo
     /** True if any movement references this location as source or destination. */
     @Query("SELECT COUNT(m) > 0 FROM StockMovement m WHERE m.location.id = :locationId OR (m.targetLocation IS NOT NULL AND m.targetLocation.id = :locationId)")
     boolean existsByLocationId(Long locationId);
+
+    /**
+     * Stock changes since a moment. A move writes two rows, one per leg: only its positive leg is
+     * counted, so that it reads as the one change it was.
+     */
+    @Query("""
+            SELECT COUNT(m) FROM StockMovement m
+            WHERE m.location.organisation.id = :organisationId
+              AND m.movedAt >= :since
+              AND (m.type IS NULL
+                   OR m.type <> com.clele.parts.model.MovementType.MOVE
+                   OR m.quantity > 0)
+            """)
+    long countChangesSince(Long organisationId, LocalDateTime since);
 
     /** Re-attach every movement that references {@code sourceId} (as source or destination) to {@code target}. */
     @Modifying

@@ -50,7 +50,7 @@ public class AppProperties {
         private String symbol = "€";
     }
 
-    /** Outgoing mail. Only invitations are sent today. */
+    /** Outgoing mail: invitations and the weekly stock summary. */
     @Data
     public static class Mail {
         /**
@@ -61,12 +61,17 @@ public class AppProperties {
          * unconfigured and logs — so an install that sent mail before still does, unchanged.
          */
         private String provider = "smtp";
-        /** From address on invitation mails. */
+        /** From address on outgoing mails. */
         private String from = "no-reply@sortiment.local";
         /** Display name for the sender; blank to send the address alone. */
         private String fromName = "Sortiment";
         /** How long an invitation stays valid. */
         private int invitationExpiryDays = 14;
+        /**
+         * Whether active users get the weekly stock summary. Off is for an installation that must
+         * not mail its users, such as a development copy of the production database.
+         */
+        private boolean stockSummaryEnabled = true;
 
         private final Mailersend mailersend = new Mailersend();
     }

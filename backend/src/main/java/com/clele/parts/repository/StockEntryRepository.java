@@ -34,6 +34,20 @@ public interface StockEntryRepository extends JpaRepository<StockEntry, Long> {
             """)
     java.math.BigDecimal totalStockValue(Long organisationId);
 
+    /** Distinct parts with something on hand; a row taken down to zero stays but does not count. */
+    @Query("""
+            SELECT COUNT(DISTINCT s.part.id) FROM StockEntry s
+            WHERE s.quantity > 0 AND s.location.organisation.id = :organisationId
+            """)
+    long countStockedParts(Long organisationId);
+
+    /** Total items on hand across the organisation. */
+    @Query("""
+            SELECT COALESCE(SUM(s.quantity), 0) FROM StockEntry s
+            WHERE s.location.organisation.id = :organisationId
+            """)
+    long sumUnitsOnHand(Long organisationId);
+
     void deleteByPartId(Long partId);
 
     @Modifying

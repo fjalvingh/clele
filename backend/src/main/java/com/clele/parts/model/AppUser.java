@@ -130,6 +130,10 @@ public class AppUser {
         }
     }
 
+    /** When this user was last sent the weekly stock summary mail; null means never. */
+    @Column(name = "last_stock_summary_at")
+    private LocalDateTime lastStockSummaryAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

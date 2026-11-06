@@ -1,0 +1,14 @@
+<h4>A weekly stock summary by mail</h4>
+<p>
+  Once a week you now get a short mail with the state of your stock. For each organisation you
+  belong to it lists the parts in the catalogue, the parts in stock, the items on hand, the stock
+  value, how many parts are below their minimum stock, and the number of stock changes in the last
+  7 days.
+</p>
+
+<h4>For administrators: sending mail</h4>
+<p>
+  The server now always reads <code>MAIL_HOST</code> and the other <code>MAIL_*</code> settings from
+  its environment, so mail no longer depends on a local configuration file. To stop the weekly
+  summary, set <code>APP_MAIL_STOCK_SUMMARY_ENABLED=false</code>.
+</p>

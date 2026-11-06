@@ -1,15 +1,20 @@
 package com.clele.parts.service;
 
 import com.clele.parts.config.AppProperties;
+import com.clele.parts.dto.OrganisationStockSummary;
 import com.clele.parts.mail.EmailMessage;
 import com.clele.parts.mail.MailProvider;
 import com.clele.parts.mail.MailProviderRegistry;
 import com.clele.parts.mail.MailSendResult;
+import com.clele.parts.model.AppUser;
 import com.clele.parts.model.OrganisationInvitation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -71,6 +76,48 @@ public class MailService {
     }
 
     /**
+     * Send one user the weekly stock summary, with a section per organisation they belong to.
+     *
+     * @return whether the mail went out, and why it did not
+     */
+    public MailSendResult sendStockSummary(AppUser user,
+                                           List<OrganisationStockSummary> organisations) {
+        String app = appProperties.getPublicName();
+        String greeting = user.getFullName() != null && !user.getFullName().isBlank()
+                ? "Hello " + user.getFullName() + ","
+                : "Hello,";
+
+        StringBuilder body = new StringBuilder(greeting)
+                .append("\n\nThis is your weekly stock summary from ").append(app).append(".\n");
+        for (OrganisationStockSummary organisation : organisations) {
+            body.append("\n").append(organisation.organisationName()).append("\n")
+                    .append("  Parts in the catalogue: ").append(organisation.catalogueParts()).append("\n")
+                    .append("  Parts in stock: ").append(organisation.stockedParts()).append("\n")
+                    .append("  Items on hand: ").append(organisation.unitsOnHand()).append("\n")
+                    .append("  Stock value: ").append(money(organisation.stockValue())).append("\n")
+                    .append("  Below minimum stock: ").append(organisation.lowStock()).append("\n")
+                    .append("  Stock changes in the last 7 days: ")
+                    .append(organisation.recentChanges()).append("\n");
+        }
+        if (!appProperties.getBaseUrl().isBlank()) {
+            body.append("\nOpen ").append(app).append(": ").append(appProperties.getBaseUrl()).append("\n");
+        }
+        body.append("\nYou receive this mail once a week because you have an account on ")
+                .append(app).append(".\n");
+
+        AppProperties.Mail config = appProperties.getMail();
+        return send(EmailMessage.plain(config.getFrom(), config.getFromName(), user.getEmail(),
+                "Your weekly stock summary from " + app, body.toString()),
+                "stock summary mail for " + user.getEmail() + ".");
+    }
+
+    /** An amount the way the screens show it: "€ 12.34". */
+    private String money(BigDecimal amount) {
+        return appProperties.getCurrency().getSymbol() + " "
+                + amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    /**
      * Deliver through the active provider, or log the message when there is none.
      *
      * @param logContext what to say when the mail could not go out — it must contain everything an
@@ -88,9 +135,10 @@ public class MailService {
             provider.get().send(message);
             return MailSendResult.succeeded();
         } catch (Exception e) {
-            // Never fail the caller over this: an invitation row is valid and its link works, so
-            // the admin can still pass it on by hand. They are told it did not send, and what the
+            // Never fail the caller over this. An invitation row is valid and its link works, so
+            // the admin can still pass it on by hand: they are told it did not send, and what the
             // server said — a rejected password or sending IP is only fixable if it is repeated.
+            // A stock summary simply stays due and is tried again.
             log.error("Provider '{}' failed to send to {}: {} — {}", provider.get().name(),
                     message.to(), e.getMessage(), logContext, e);
             // No prefix: the provider's own exception already names the step that failed, and the

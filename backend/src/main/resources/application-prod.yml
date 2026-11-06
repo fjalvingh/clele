@@ -26,6 +26,24 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/partsdb}
     username: ${DB_USER:partsuser}
     password: ${DB_PASSWORD}
+  # MAIL_* are not names Spring binds by itself, so they do nothing without this mapping. It lives
+  # here because application.yml is gitignored: mail stopped when a local copy lost it.
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${MAIL_AUTH:true}
+      mail.smtp.starttls.enable: ${MAIL_STARTTLS:true}
+
+app:
+  mail:
+    provider: ${MAIL_PROVIDER:smtp}
+    from: ${MAIL_FROM:no-reply@sortiment.local}
+    from-name: ${MAIL_FROM_NAME:Sortiment}
+    mailersend:
+      api-key: ${MAILERSEND_API_KEY:}
 
 # Don't expose the API schema / Swagger UI on the public server.
 springdoc:

@@ -9,6 +9,8 @@ Part of the Clele documentation — `CLAUDE.md` holds the overview and the index
   Authentication & Authorization above). Accounts are created and edited only by a Global
   Administrator (All Users screen); an Organisation Admin brings people in by **invitation** — a
   mailed accept/refuse link that creates the account if there is none (see Invitations)
+- **Weekly stock summary mail** to every active user, which also keeps the mail provider's account
+  alive (see `docs/auth.md`)
 - **Parts search screen**: searches on demand (name / part number / description + details +
   spec-value full-text), filters
   by category subtree, sortable by part number or manufacturer. A **"More search options"** panel
